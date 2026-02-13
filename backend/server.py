@@ -154,12 +154,15 @@ class TokenResponse(BaseModel):
 class TenantCreate(BaseModel):
     name: str
     ruc: str
-    razon_social: str
+    razon_social: Optional[str] = None
     nombre_comercial: Optional[str] = None
-    direccion: str
-    ubigeo: Optional[str] = None
-    telefono: Optional[str] = None
+    address: Optional[str] = None
+    phone: Optional[str] = None
     email: Optional[str] = None
+    # Admin user
+    admin_email: Optional[str] = None
+    admin_password: Optional[str] = None
+    admin_name: Optional[str] = None
 
 class TenantInvoicingConfig(BaseModel):
     nubefact_ruta: Optional[str] = None
