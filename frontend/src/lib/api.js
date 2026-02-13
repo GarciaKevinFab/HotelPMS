@@ -96,6 +96,25 @@ export const reservationsAPI = {
   checkout: (id) => api.post(`/reservations/${id}/checkout`),
 };
 
+// Group Reservations
+export const groupReservationsAPI = {
+  list: (params) => api.get('/reservations/groups', { params }),
+  get: (id) => api.get(`/reservations/groups/${id}`),
+  create: (data) => api.post('/reservations/group', data),
+};
+
+// Calendar
+export const calendarAPI = {
+  getReservations: (startDate, endDate) => api.get('/calendar/reservations', { params: { start_date: startDate, end_date: endDate } }),
+  moveReservation: (id, data) => api.put(`/calendar/reservations/${id}/move`, data),
+};
+
+// Notifications
+export const notificationsAPI = {
+  send: (template, recipientEmail, data) => api.post('/notifications/send', { template, recipient_email: recipientEmail, data }),
+  getLogs: (limit) => api.get('/notifications/logs', { params: { limit } }),
+};
+
 // Folios
 export const foliosAPI = {
   get: (id) => api.get(`/folios/${id}`),
