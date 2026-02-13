@@ -393,5 +393,148 @@ class TestSearch:
         assert isinstance(data, dict)
 
 
+class TestReportsExport:
+    """Reports Export endpoint tests - Excel and PDF"""
+    
+    def test_export_excel_occupancy(self, auth_headers):
+        """Test export occupancy report to Excel"""
+        response = requests.get(
+            f"{BASE_URL}/api/reports/export/excel",
+            params={"report_type": "occupancy", "month": 1, "year": 2026},
+            headers=auth_headers
+        )
+        assert response.status_code == 200
+        assert "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" in response.headers.get("content-type", "")
+        assert len(response.content) > 0
+    
+    def test_export_excel_revenue(self, auth_headers):
+        """Test export revenue report to Excel"""
+        response = requests.get(
+            f"{BASE_URL}/api/reports/export/excel",
+            params={"report_type": "revenue", "month": 1, "year": 2026},
+            headers=auth_headers
+        )
+        assert response.status_code == 200
+        assert "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" in response.headers.get("content-type", "")
+    
+    def test_export_excel_invoicing(self, auth_headers):
+        """Test export invoicing report to Excel"""
+        response = requests.get(
+            f"{BASE_URL}/api/reports/export/excel",
+            params={"report_type": "invoicing", "month": 1, "year": 2026},
+            headers=auth_headers
+        )
+        assert response.status_code == 200
+        assert "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" in response.headers.get("content-type", "")
+    
+    def test_export_pdf_occupancy(self, auth_headers):
+        """Test export occupancy report to PDF"""
+        response = requests.get(
+            f"{BASE_URL}/api/reports/export/pdf",
+            params={"report_type": "occupancy", "month": 1, "year": 2026},
+            headers=auth_headers
+        )
+        assert response.status_code == 200
+        assert "application/pdf" in response.headers.get("content-type", "")
+        assert len(response.content) > 0
+    
+    def test_export_pdf_revenue(self, auth_headers):
+        """Test export revenue report to PDF"""
+        response = requests.get(
+            f"{BASE_URL}/api/reports/export/pdf",
+            params={"report_type": "revenue", "month": 1, "year": 2026},
+            headers=auth_headers
+        )
+        assert response.status_code == 200
+        assert "application/pdf" in response.headers.get("content-type", "")
+    
+    def test_export_pdf_invoicing(self, auth_headers):
+        """Test export invoicing report to PDF"""
+        response = requests.get(
+            f"{BASE_URL}/api/reports/export/pdf",
+            params={"report_type": "invoicing", "month": 1, "year": 2026},
+            headers=auth_headers
+        )
+        assert response.status_code == 200
+        assert "application/pdf" in response.headers.get("content-type", "")
+
+
+class TestWalkin:
+    """Walk-in reservation endpoint tests"""
+    
+    def test_walkin_create(self, auth_headers):
+        """Test creating a walk-in reservation"""
+        # First get an available room
+        rooms_response = requests.get(
+            f"{BASE_URL}/api/rooms",
+            params={"occupancy_status": "VACANT", "housekeeping_status": "CLEAN"},
+            headers=auth_headers
+        )
+        assert rooms_response.status_code == 200
+        rooms = rooms_response.json()
+        
+        if not rooms:
+            pytest.skip("No available rooms for walk-in test")
+        
+        room = rooms[0]
+        
+        # Create walk-in with unique guest data
+        import time
+        unique_id = str(int(time.time()))[-6:]
+        
+        walkin_data = {
+            "guest_data": {
+                "doc_type": "DNI",
+                "doc_number": f"TEST{unique_id}",
+                "full_name": f"Test Walkin Guest {unique_id}",
+                "phone": "999888777",
+                "email": f"test{unique_id}@walkin.com",
+                "nationality": "PE"
+            },
+            "room_id": room["id"],
+            "checkout_date": "2026-01-20",
+            "adults": 1,
+            "children": 0,
+            "notes": "Test walk-in reservation"
+        }
+        
+        response = requests.post(
+            f"{BASE_URL}/api/reservations/walkin",
+            json=walkin_data,
+            headers=auth_headers
+        )
+        
+        assert response.status_code == 200
+        data = response.json()
+        assert "code" in data
+        assert data["code"].startswith("WLK-")
+        assert data["status"] == "CHECKED_IN"
+        assert data["source"] == "WALK-IN"
+    
+    def test_walkin_invalid_room(self, auth_headers):
+        """Test walk-in with invalid room ID"""
+        walkin_data = {
+            "guest_data": {
+                "doc_type": "DNI",
+                "doc_number": "99999999",
+                "full_name": "Test Invalid Room",
+                "phone": "999888777",
+                "nationality": "PE"
+            },
+            "room_id": "000000000000000000000000",
+            "checkout_date": "2026-01-20",
+            "adults": 1,
+            "children": 0
+        }
+        
+        response = requests.post(
+            f"{BASE_URL}/api/reservations/walkin",
+            json=walkin_data,
+            headers=auth_headers
+        )
+        
+        assert response.status_code == 404
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
