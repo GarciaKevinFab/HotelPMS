@@ -554,10 +554,12 @@ class TestRatesManagement:
         
         room_type = room_types[0]
         
-        # Create a special rate for specific dates
+        # Create a special rate for specific dates (use unique far future dates)
         from datetime import datetime, timedelta
-        start_date = (datetime.now() + timedelta(days=5)).strftime("%Y-%m-%d")
-        end_date = (datetime.now() + timedelta(days=10)).strftime("%Y-%m-%d")
+        import time
+        unique_offset = int(time.time()) % 100 + 150  # Unique offset 150-250 days
+        start_date = (datetime.now() + timedelta(days=unique_offset)).strftime("%Y-%m-%d")
+        end_date = (datetime.now() + timedelta(days=unique_offset + 7)).strftime("%Y-%m-%d")
         special_price = 199.99
         
         rate_data = {
@@ -573,8 +575,8 @@ class TestRatesManagement:
         assert create_response.status_code == 200
         
         # Calculate rate for dates within special rate period
-        checkin = (datetime.now() + timedelta(days=6)).strftime("%Y-%m-%d")
-        checkout = (datetime.now() + timedelta(days=9)).strftime("%Y-%m-%d")
+        checkin = (datetime.now() + timedelta(days=unique_offset + 1)).strftime("%Y-%m-%d")
+        checkout = (datetime.now() + timedelta(days=unique_offset + 4)).strftime("%Y-%m-%d")
         
         response = requests.get(
             f"{BASE_URL}/api/rates/calculate",
@@ -590,7 +592,7 @@ class TestRatesManagement:
         data = response.json()
         assert data["nights"] == 3
         
-        # Verify special rate is applied
+        # Verify special rate is applied (price should match our created rate)
         for night in data["breakdown"]:
             assert night["price"] == special_price
             assert "Promocion" in night["rate_name"] or "Especial" in night["rate_name"]
