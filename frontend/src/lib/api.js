@@ -51,6 +51,7 @@ export const tenantsAPI = {
 export const usersAPI = {
   list: () => api.get('/users'),
   create: (data) => api.post('/users', data),
+  update: (id, data) => api.put(`/users/${id}`, data),
 };
 
 // Room Types
