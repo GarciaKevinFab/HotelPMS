@@ -521,7 +521,7 @@ async def create_tenant(data: TenantCreate, user: dict = Depends(require_roles(R
 
 @api_router.get("/tenants")
 async def list_tenants(user: dict = Depends(require_roles(Role.SUPER_ADMIN))):
-    tenants = await db.tenants.find({}, {"_id": 1, "name": 1, "ruc": 1, "is_active": 1, "created_at": 1}).to_list(1000)
+    tenants = await db.tenants.find({}).to_list(1000)
     return [serialize_doc(t) for t in tenants]
 
 @api_router.get("/tenants/{tenant_id}")
