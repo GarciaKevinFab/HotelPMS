@@ -223,6 +223,15 @@ class ReservationUpdate(BaseModel):
     notes: Optional[str] = None
     cancel_reason: Optional[str] = None
 
+# Rate Management Models
+class RateCreate(BaseModel):
+    room_type_id: str
+    date_from: date
+    date_to: date
+    price: float
+    name: Optional[str] = None  # e.g., "Temporada Alta", "Feriado"
+    min_stay: int = 1
+
 # Folio Models
 class ChargeCreate(BaseModel):
     concept: str
