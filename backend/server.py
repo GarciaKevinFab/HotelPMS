@@ -525,6 +525,31 @@ async def list_users(user: dict = Depends(require_roles(Role.SUPER_ADMIN, Role.A
     users = await db.users.find(tenant_filter, {"password_hash": 0}).to_list(1000)
     return [serialize_doc(u) for u in users]
 
+@api_router.put("/users/{user_id}")
+async def update_user(user_id: str, data: dict = Body(...), user: dict = Depends(require_roles(Role.SUPER_ADMIN, Role.ADMIN))):
+    target_user = await db.users.find_one({"_id": ObjectId(user_id)})
+    if not target_user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    
+    # Check tenant access
+    if user["role"] != Role.SUPER_ADMIN.value and target_user.get("tenant_id") != user.get("tenant_id"):
+        raise HTTPException(status_code=403, detail="Sin permisos para modificar este usuario")
+    
+    # Only allow updating certain fields
+    allowed_fields = {"is_active", "full_name", "role"}
+    update_data = {k: v for k, v in data.items() if k in allowed_fields}
+    
+    if not update_data:
+        raise HTTPException(status_code=400, detail="No hay campos válidos para actualizar")
+    
+    await db.users.update_one(
+        {"_id": ObjectId(user_id)},
+        {"$set": update_data}
+    )
+    
+    await create_audit_log(user.get("tenant_id"), user["user_id"], "user", "UPDATE", None, {"user_id": user_id, **update_data})
+    return {"message": "Usuario actualizado"}
+
 # ============== ROOM TYPE ENDPOINTS ==============
 @api_router.post("/room-types")
 async def create_room_type(data: RoomTypeCreate, user: dict = Depends(require_roles(Role.ADMIN))):
