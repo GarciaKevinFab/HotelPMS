@@ -8,7 +8,9 @@ import {
   Wallet,
   Receipt,
   SprayCan,
-  Wrench
+  Wrench,
+  FileSpreadsheet,
+  FileText
 } from 'lucide-react';
 import { 
   LineChart, Line, BarChart, Bar, PieChart, Pie, Cell,
@@ -24,6 +26,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../components/ui/select';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '../components/ui/dropdown-menu';
 import { reportsAPI } from '../lib/api';
 import { formatCurrency, getMonthName, getStatusLabel } from '../lib/utils';
 import { toast } from 'sonner';
