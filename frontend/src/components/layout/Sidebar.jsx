@@ -17,7 +17,8 @@ import {
   LogOut,
   ChevronLeft,
   ChevronRight,
-  DollarSign
+  DollarSign,
+  UsersRound
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { cn } from '../../lib/utils';
@@ -39,6 +40,12 @@ const navItems = [
     path: '/reservations', 
     icon: ClipboardList, 
     label: 'Reservas',
+    roles: ['SUPER_ADMIN', 'ADMIN', 'RECEPTIONIST']
+  },
+  { 
+    path: '/reservations/groups', 
+    icon: UsersRound, 
+    label: 'Grupos',
     roles: ['SUPER_ADMIN', 'ADMIN', 'RECEPTIONIST']
   },
   { 
