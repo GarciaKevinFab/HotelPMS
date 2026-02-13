@@ -42,6 +42,7 @@ function App() {
             <Route path="/guests" element={<Guests />} />
             <Route path="/guests/:id" element={<Guests />} />
             <Route path="/rooms" element={<Rooms />} />
+            <Route path="/rates" element={<Rates />} />
             <Route path="/cash-shift" element={<CashShift />} />
             <Route path="/invoices" element={<Invoices />} />
             <Route path="/housekeeping" element={<Housekeeping />} />
@@ -49,7 +50,7 @@ function App() {
             <Route path="/alerts" element={<Alerts />} />
             <Route path="/reports" element={<Reports />} />
             <Route path="/settings" element={<Settings />} />
-            <Route path="/tenants" element={<Dashboard />} />
+            <Route path="/tenants" element={<Tenants />} />
           </Route>
           
           {/* Default redirect */}
