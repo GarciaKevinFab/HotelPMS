@@ -60,6 +60,7 @@ export function Reservations() {
   
   // Create dialog
   const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const [showWalkinDialog, setShowWalkinDialog] = useState(false);
   const [guests, setGuests] = useState([]);
   const [roomTypes, setRoomTypes] = useState([]);
   const [availableRooms, setAvailableRooms] = useState([]);
