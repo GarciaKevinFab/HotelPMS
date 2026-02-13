@@ -955,3 +955,249 @@ class TestWalkin:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+# ============== NEW TESTS FOR ITERATION 4 ==============
+
+# Super Admin credentials
+SUPER_ADMIN_EMAIL = "superadmin@sistema.com"
+SUPER_ADMIN_PASSWORD = "superadmin123"
+
+# Hotel Test credentials
+HOTEL_TEST_ADMIN_EMAIL = "admin@hoteltest.com"
+HOTEL_TEST_ADMIN_PASSWORD = "admin123test"
+
+
+class TestSuperAdminAuth:
+    """Super Admin authentication tests"""
+    
+    def test_super_admin_login(self):
+        """Test SUPER_ADMIN login"""
+        response = requests.post(f"{BASE_URL}/api/auth/login", json={
+            "email": SUPER_ADMIN_EMAIL,
+            "password": SUPER_ADMIN_PASSWORD
+        })
+        assert response.status_code == 200
+        data = response.json()
+        assert data["user"]["role"] == "SUPER_ADMIN"
+        assert "access_token" in data
+
+
+class TestTenantsAPI:
+    """Tenants (Hotels) API tests - SUPER_ADMIN only"""
+    
+    @pytest.fixture
+    def super_admin_token(self):
+        """Get SUPER_ADMIN token"""
+        response = requests.post(f"{BASE_URL}/api/auth/login", json={
+            "email": SUPER_ADMIN_EMAIL,
+            "password": SUPER_ADMIN_PASSWORD
+        })
+        return response.json()["access_token"]
+    
+    @pytest.fixture
+    def admin_token(self):
+        """Get regular ADMIN token"""
+        response = requests.post(f"{BASE_URL}/api/auth/login", json={
+            "email": ADMIN_EMAIL,
+            "password": ADMIN_PASSWORD
+        })
+        return response.json()["access_token"]
+    
+    def test_list_tenants_super_admin(self, super_admin_token):
+        """SUPER_ADMIN can list all tenants"""
+        response = requests.get(f"{BASE_URL}/api/tenants", headers={
+            "Authorization": f"Bearer {super_admin_token}"
+        })
+        assert response.status_code == 200
+        tenants = response.json()
+        assert isinstance(tenants, list)
+        assert len(tenants) >= 2  # At least Hotel Demo and Hotel Test
+    
+    def test_list_tenants_admin_forbidden(self, admin_token):
+        """Regular ADMIN cannot list tenants"""
+        response = requests.get(f"{BASE_URL}/api/tenants", headers={
+            "Authorization": f"Bearer {admin_token}"
+        })
+        assert response.status_code == 403
+    
+    def test_get_tenant_detail(self, super_admin_token):
+        """SUPER_ADMIN can get tenant detail"""
+        # First list tenants
+        list_response = requests.get(f"{BASE_URL}/api/tenants", headers={
+            "Authorization": f"Bearer {super_admin_token}"
+        })
+        tenants = list_response.json()
+        tenant_id = tenants[0]["id"]
+        
+        # Get detail
+        response = requests.get(f"{BASE_URL}/api/tenants/{tenant_id}", headers={
+            "Authorization": f"Bearer {super_admin_token}"
+        })
+        assert response.status_code == 200
+        data = response.json()
+        assert "name" in data
+        assert "ruc" in data
+
+
+class TestMultiTenantIsolation:
+    """Multi-tenant data isolation tests"""
+    
+    @pytest.fixture
+    def demo_token(self):
+        """Get Hotel Demo admin token"""
+        response = requests.post(f"{BASE_URL}/api/auth/login", json={
+            "email": ADMIN_EMAIL,
+            "password": ADMIN_PASSWORD
+        })
+        return response.json()["access_token"]
+    
+    @pytest.fixture
+    def test_hotel_token(self):
+        """Get Hotel Test admin token"""
+        response = requests.post(f"{BASE_URL}/api/auth/login", json={
+            "email": HOTEL_TEST_ADMIN_EMAIL,
+            "password": HOTEL_TEST_ADMIN_PASSWORD
+        })
+        return response.json()["access_token"]
+    
+    def test_rooms_isolation(self, demo_token, test_hotel_token):
+        """Each tenant only sees their own rooms"""
+        # Hotel Demo rooms
+        demo_response = requests.get(f"{BASE_URL}/api/rooms", headers={
+            "Authorization": f"Bearer {demo_token}"
+        })
+        demo_rooms = demo_response.json()
+        
+        # Hotel Test rooms
+        test_response = requests.get(f"{BASE_URL}/api/rooms", headers={
+            "Authorization": f"Bearer {test_hotel_token}"
+        })
+        test_rooms = test_response.json()
+        
+        # Hotel Demo should have rooms, Hotel Test should have none (new tenant)
+        assert len(demo_rooms) > 0
+        assert len(test_rooms) == 0
+    
+    def test_reservations_isolation(self, demo_token, test_hotel_token):
+        """Each tenant only sees their own reservations"""
+        # Hotel Demo reservations
+        demo_response = requests.get(f"{BASE_URL}/api/reservations", headers={
+            "Authorization": f"Bearer {demo_token}"
+        })
+        demo_reservations = demo_response.json()
+        
+        # Hotel Test reservations
+        test_response = requests.get(f"{BASE_URL}/api/reservations", headers={
+            "Authorization": f"Bearer {test_hotel_token}"
+        })
+        test_reservations = test_response.json()
+        
+        # Hotel Demo should have reservations, Hotel Test should have none
+        assert len(demo_reservations) > 0
+        assert len(test_reservations) == 0
+
+
+class TestRatesAPIIteration4:
+    """Rates API tests for iteration 4"""
+    
+    @pytest.fixture
+    def admin_token(self):
+        """Get admin token"""
+        response = requests.post(f"{BASE_URL}/api/auth/login", json={
+            "email": ADMIN_EMAIL,
+            "password": ADMIN_PASSWORD
+        })
+        return response.json()["access_token"]
+    
+    @pytest.fixture
+    def room_type_id(self, admin_token):
+        """Get first room type ID"""
+        response = requests.get(f"{BASE_URL}/api/room-types", headers={
+            "Authorization": f"Bearer {admin_token}"
+        })
+        room_types = response.json()
+        return room_types[0]["id"]
+    
+    def test_list_rates(self, admin_token):
+        """List all rates"""
+        response = requests.get(f"{BASE_URL}/api/rates", headers={
+            "Authorization": f"Bearer {admin_token}"
+        })
+        assert response.status_code == 200
+        rates = response.json()
+        assert isinstance(rates, list)
+    
+    def test_create_rate(self, admin_token, room_type_id):
+        """Create a new special rate"""
+        response = requests.post(f"{BASE_URL}/api/rates", headers={
+            "Authorization": f"Bearer {admin_token}"
+        }, json={
+            "room_type_id": room_type_id,
+            "date_from": "2026-05-01",
+            "date_to": "2026-05-15",
+            "price": 175.00,
+            "name": "TEST_Fiestas Patrias",
+            "min_stay": 2
+        })
+        assert response.status_code == 200
+        data = response.json()
+        assert "id" in data
+        assert data["message"] == "Tarifa creada"
+    
+    def test_filter_rates_by_room_type(self, admin_token, room_type_id):
+        """Filter rates by room type"""
+        response = requests.get(f"{BASE_URL}/api/rates?room_type_id={room_type_id}", headers={
+            "Authorization": f"Bearer {admin_token}"
+        })
+        assert response.status_code == 200
+        rates = response.json()
+        for rate in rates:
+            assert rate["room_type_id"] == room_type_id
+
+
+class TestReportsExport:
+    """Reports export tests"""
+    
+    @pytest.fixture
+    def admin_token(self):
+        """Get admin token"""
+        response = requests.post(f"{BASE_URL}/api/auth/login", json={
+            "email": ADMIN_EMAIL,
+            "password": ADMIN_PASSWORD
+        })
+        return response.json()["access_token"]
+    
+    def test_export_excel_occupancy(self, admin_token):
+        """Export occupancy report as Excel"""
+        response = requests.get(
+            f"{BASE_URL}/api/reports/export/excel?report_type=occupancy&from_date=2026-02-01&to_date=2026-02-28",
+            headers={"Authorization": f"Bearer {admin_token}"}
+        )
+        assert response.status_code == 200
+        assert "spreadsheet" in response.headers.get("content-type", "")
+    
+    def test_export_pdf_occupancy(self, admin_token):
+        """Export occupancy report as PDF"""
+        response = requests.get(
+            f"{BASE_URL}/api/reports/export/pdf?report_type=occupancy&from_date=2026-02-01&to_date=2026-02-28",
+            headers={"Authorization": f"Bearer {admin_token}"}
+        )
+        assert response.status_code == 200
+        assert "pdf" in response.headers.get("content-type", "")
+    
+    def test_export_excel_revenue(self, admin_token):
+        """Export revenue report as Excel"""
+        response = requests.get(
+            f"{BASE_URL}/api/reports/export/excel?report_type=revenue&from_date=2026-02-01&to_date=2026-02-28",
+            headers={"Authorization": f"Bearer {admin_token}"}
+        )
+        assert response.status_code == 200
+    
+    def test_export_pdf_revenue(self, admin_token):
+        """Export revenue report as PDF"""
+        response = requests.get(
+            f"{BASE_URL}/api/reports/export/pdf?report_type=revenue&from_date=2026-02-01&to_date=2026-02-28",
+            headers={"Authorization": f"Bearer {admin_token}"}
+        )
+        assert response.status_code == 200
