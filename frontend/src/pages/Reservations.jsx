@@ -93,6 +93,23 @@ export function Reservations() {
   const [cancelReason, setCancelReason] = useState('');
   const [selectedReservation, setSelectedReservation] = useState(null);
 
+  // Walk-in form
+  const [walkinForm, setWalkinForm] = useState({
+    doc_type: 'DNI',
+    doc_number: '',
+    full_name: '',
+    phone: '',
+    email: '',
+    nationality: 'PE',
+    room_id: '',
+    checkout_date: '',
+    adults: 1,
+    children: 0,
+    notes: ''
+  });
+  const [walkinRooms, setWalkinRooms] = useState([]);
+  const [creatingWalkin, setCreatingWalkin] = useState(false);
+
   useEffect(() => {
     fetchReservations();
     fetchRoomTypes();
