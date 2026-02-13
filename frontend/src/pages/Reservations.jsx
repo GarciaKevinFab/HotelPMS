@@ -285,6 +285,69 @@ export function Reservations() {
     setShowNewGuestForm(false);
   };
 
+  const fetchWalkinRooms = async () => {
+    try {
+      const response = await roomsAPI.list({ 
+        occupancy_status: 'VACANT', 
+        housekeeping_status: 'CLEAN' 
+      });
+      setWalkinRooms(response.data);
+    } catch (err) {
+      console.error('Error fetching rooms:', err);
+    }
+  };
+
+  const handleWalkinCreate = async () => {
+    if (!walkinForm.doc_number || !walkinForm.full_name || !walkinForm.room_id || !walkinForm.checkout_date) {
+      toast.error('Complete todos los campos requeridos');
+      return;
+    }
+
+    setCreatingWalkin(true);
+    try {
+      const response = await walkinAPI.create({
+        guest_data: {
+          doc_type: walkinForm.doc_type,
+          doc_number: walkinForm.doc_number,
+          full_name: walkinForm.full_name,
+          phone: walkinForm.phone || null,
+          email: walkinForm.email || null,
+          nationality: walkinForm.nationality
+        },
+        room_id: walkinForm.room_id,
+        checkout_date: walkinForm.checkout_date,
+        adults: walkinForm.adults,
+        children: walkinForm.children,
+        notes: walkinForm.notes || null
+      });
+      
+      toast.success(`Walk-in ${response.data.code} registrado exitosamente`);
+      setShowWalkinDialog(false);
+      resetWalkinForm();
+      fetchReservations();
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Error al registrar walk-in');
+    } finally {
+      setCreatingWalkin(false);
+    }
+  };
+
+  const resetWalkinForm = () => {
+    setWalkinForm({
+      doc_type: 'DNI',
+      doc_number: '',
+      full_name: '',
+      phone: '',
+      email: '',
+      nationality: 'PE',
+      room_id: '',
+      checkout_date: '',
+      adults: 1,
+      children: 0,
+      notes: ''
+    });
+  };
+
   const filteredReservations = reservations.filter(r => {
     if (!searchQuery) return true;
     const query = searchQuery.toLowerCase();
