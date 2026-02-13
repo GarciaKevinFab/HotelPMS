@@ -1,0 +1,173 @@
+import axios from 'axios';
+
+const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
+export const API_BASE = `${BACKEND_URL}/api`;
+
+// Create axios instance
+const api = axios.create({
+  baseURL: API_BASE,
+  headers: {
+    'Content-Type': 'application/json',
+  },
+});
+
+// Add auth token to requests
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem('token');
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
+// Handle auth errors
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      window.location.href = '/login';
+    }
+    return Promise.reject(error);
+  }
+);
+
+// Auth
+export const authAPI = {
+  login: (email, password) => api.post('/auth/login', { email, password }),
+  me: () => api.get('/auth/me'),
+};
+
+// Tenants
+export const tenantsAPI = {
+  list: () => api.get('/tenants'),
+  get: (id) => api.get(`/tenants/${id}`),
+  create: (data) => api.post('/tenants', data),
+  updateInvoicing: (id, data) => api.put(`/tenants/${id}/invoicing`, data),
+};
+
+// Users
+export const usersAPI = {
+  list: () => api.get('/users'),
+  create: (data) => api.post('/users', data),
+};
+
+// Room Types
+export const roomTypesAPI = {
+  list: () => api.get('/room-types'),
+  create: (data) => api.post('/room-types', data),
+  update: (id, data) => api.put(`/room-types/${id}`, data),
+};
+
+// Rooms
+export const roomsAPI = {
+  list: (params) => api.get('/rooms', { params }),
+  create: (data) => api.post('/rooms', data),
+  createBulk: (data) => api.post('/rooms/bulk', data),
+  updateStatus: (id, params) => api.put(`/rooms/${id}/status`, null, { params }),
+};
+
+// Guests
+export const guestsAPI = {
+  list: (search) => api.get('/guests', { params: { search } }),
+  get: (id) => api.get(`/guests/${id}`),
+  create: (data) => api.post('/guests', data),
+};
+
+// Reservations
+export const reservationsAPI = {
+  list: (params) => api.get('/reservations', { params }),
+  get: (id) => api.get(`/reservations/${id}`),
+  create: (data) => api.post('/reservations', data),
+  update: (id, data) => api.put(`/reservations/${id}`, data),
+  assignRoom: (id, roomId) => api.post(`/reservations/${id}/assign-room`, { room_id: roomId }),
+  checkin: (id) => api.post(`/reservations/${id}/checkin`),
+  checkout: (id) => api.post(`/reservations/${id}/checkout`),
+};
+
+// Folios
+export const foliosAPI = {
+  get: (id) => api.get(`/folios/${id}`),
+  addCharge: (id, data) => api.post(`/folios/${id}/charges`, data),
+  voidCharge: (folioId, chargeId, reason) => api.post(`/folios/${folioId}/charges/${chargeId}/void`, { reason }),
+  addPayment: (id, data) => api.post(`/folios/${id}/payments`, data),
+};
+
+// Cash Shifts
+export const cashShiftsAPI = {
+  list: (params) => api.get('/cash-shifts', { params }),
+  current: () => api.get('/cash-shifts/current'),
+  open: (openingAmount) => api.post('/cash-shifts/open', { opening_amount: openingAmount }),
+  close: (id, countedCash, notes) => api.post(`/cash-shifts/${id}/close`, { counted_cash: countedCash, notes }),
+  addMovement: (id, data) => api.post(`/cash-shifts/${id}/movements`, data),
+};
+
+// Invoices
+export const invoicesAPI = {
+  list: (params) => api.get('/invoices', { params }),
+  get: (id) => api.get(`/invoices/${id}`),
+  create: (data) => api.post('/invoices', data),
+  void: (id, reason) => api.post(`/invoices/${id}/void`, { reason }),
+};
+
+// Housekeeping
+export const housekeepingAPI = {
+  tasks: (params) => api.get('/housekeeping/tasks', { params }),
+  board: () => api.get('/housekeeping/board'),
+  completeTask: (id) => api.post(`/housekeeping/tasks/${id}/complete`),
+};
+
+// Maintenance
+export const maintenanceAPI = {
+  list: (params) => api.get('/maintenance/tickets', { params }),
+  create: (data) => api.post('/maintenance/tickets', data),
+  update: (id, params) => api.put(`/maintenance/tickets/${id}`, null, { params }),
+};
+
+// Alerts
+export const alertsAPI = {
+  list: (params) => api.get('/alerts', { params }),
+  resolve: (id, notes) => api.post(`/alerts/${id}/resolve`, { notes }),
+};
+
+// Products
+export const productsAPI = {
+  list: (category) => api.get('/products', { params: { category } }),
+  create: (data) => api.post('/products', data),
+};
+
+// Dashboard
+export const dashboardAPI = {
+  kpis: () => api.get('/dashboard/kpis'),
+  revenueChart: (days) => api.get('/dashboard/charts/revenue', { params: { days } }),
+  occupancyChart: (days) => api.get('/dashboard/charts/occupancy', { params: { days } }),
+  paymentMethodsChart: () => api.get('/dashboard/charts/payment-methods'),
+  roomStatusChart: () => api.get('/dashboard/charts/room-status'),
+  invoicingStatusChart: () => api.get('/dashboard/charts/invoicing-status'),
+  topProductsChart: () => api.get('/dashboard/charts/top-products'),
+};
+
+// Reports
+export const reportsAPI = {
+  monthlyOccupancy: (month, year) => api.get('/reports/monthly-occupancy', { params: { month, year } }),
+  monthlyRevenue: (month, year) => api.get('/reports/monthly-revenue', { params: { month, year } }),
+  monthlyInvoicing: (month, year) => api.get('/reports/monthly-invoicing', { params: { month, year } }),
+};
+
+// Search
+export const searchAPI = {
+  global: (q) => api.get('/search', { params: { q } }),
+};
+
+// Audit
+export const auditAPI = {
+  list: (params) => api.get('/audit-logs', { params }),
+};
+
+// Seed
+export const seedAPI = {
+  create: () => api.post('/seed'),
+};
+
+export default api;

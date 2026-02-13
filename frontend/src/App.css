@@ -1,34 +1,277 @@
-.App-logo {
-    height: 40vmin;
-    pointer-events: none;
+/* App-specific styles */
+
+/* Sidebar */
+.sidebar {
+  @apply fixed left-0 top-0 h-screen w-64 bg-slate-900 text-slate-300 z-40 transition-all duration-300;
 }
 
-@media (prefers-reduced-motion: no-preference) {
-    .App-logo {
-        animation: App-logo-spin infinite 20s linear;
-    }
+.sidebar.collapsed {
+  @apply w-16;
 }
 
-.App-header {
-    background-color: #0f0f10;
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    font-size: calc(10px + 2vmin);
-    color: white;
+.sidebar-nav-item {
+  @apply flex items-center gap-3 px-4 py-3 text-sm font-medium rounded-lg transition-all duration-200;
+  @apply hover:bg-slate-800 hover:text-white;
 }
 
-.App-link {
-    color: #61dafb;
+.sidebar-nav-item.active {
+  @apply bg-slate-800 text-white;
 }
 
-@keyframes App-logo-spin {
-    from {
-        transform: rotate(0deg);
-    }
-    to {
-        transform: rotate(360deg);
-    }
+/* Main content */
+.main-content {
+  @apply ml-64 min-h-screen bg-slate-50 transition-all duration-300;
+}
+
+.main-content.sidebar-collapsed {
+  @apply ml-16;
+}
+
+/* Header */
+.header {
+  @apply sticky top-0 z-30 h-16 bg-white/90 backdrop-blur-md border-b border-slate-200;
+  @apply flex items-center justify-between px-6;
+}
+
+/* KPI Cards */
+.kpi-card {
+  @apply bg-white rounded-xl border border-slate-200 p-5 shadow-sm;
+  @apply hover:shadow-md transition-all duration-200;
+}
+
+.kpi-card-value {
+  @apply text-2xl font-bold text-slate-900 tabular-nums;
+}
+
+.kpi-card-label {
+  @apply text-sm text-slate-500 mt-1;
+}
+
+.kpi-card-trend {
+  @apply text-xs font-medium mt-2 flex items-center gap-1;
+}
+
+.kpi-card-trend.positive {
+  @apply text-emerald-600;
+}
+
+.kpi-card-trend.negative {
+  @apply text-rose-600;
+}
+
+/* Charts */
+.chart-container {
+  @apply bg-white rounded-xl border border-slate-200 p-5 shadow-sm;
+}
+
+.chart-title {
+  @apply text-base font-semibold text-slate-900 mb-4;
+}
+
+/* Data tables */
+.data-table {
+  @apply w-full text-sm;
+}
+
+.data-table th {
+  @apply text-left font-medium text-slate-500 pb-3 border-b border-slate-200;
+}
+
+.data-table td {
+  @apply py-3 border-b border-slate-100;
+}
+
+.data-table tr:hover td {
+  @apply bg-slate-50;
+}
+
+/* Status badges */
+.badge {
+  @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border;
+}
+
+.badge-sm {
+  @apply px-2 py-0.5 text-[10px];
+}
+
+/* Room grid cell */
+.room-cell {
+  @apply w-28 h-20 p-2 cursor-pointer transition-all duration-150;
+  @apply hover:ring-2 hover:ring-blue-400 hover:ring-inset;
+}
+
+.room-cell-number {
+  @apply text-sm font-bold;
+}
+
+.room-cell-status {
+  @apply text-xs mt-1 opacity-80;
+}
+
+/* Calendar reservation block */
+.reservation-block {
+  @apply absolute top-1 bottom-1 rounded-md text-xs font-medium px-2 py-1;
+  @apply overflow-hidden whitespace-nowrap text-ellipsis;
+  @apply cursor-pointer transition-all duration-150;
+  @apply hover:ring-2 hover:ring-offset-1;
+}
+
+.reservation-block.confirmed {
+  @apply bg-blue-500 text-white hover:ring-blue-300;
+}
+
+.reservation-block.checked-in {
+  @apply bg-emerald-500 text-white hover:ring-emerald-300;
+}
+
+.reservation-block.checked-out {
+  @apply bg-slate-400 text-white hover:ring-slate-300;
+}
+
+.reservation-block.cancelled {
+  @apply bg-rose-500 text-white hover:ring-rose-300;
+}
+
+/* Form sections */
+.form-section {
+  @apply space-y-4 p-6 bg-white rounded-xl border border-slate-200;
+}
+
+.form-section-title {
+  @apply text-lg font-semibold text-slate-900 mb-4 pb-2 border-b border-slate-100;
+}
+
+/* Modal overlay */
+.modal-overlay {
+  @apply fixed inset-0 bg-black/50 backdrop-blur-sm z-50;
+  @apply flex items-center justify-center p-4;
+}
+
+/* Loading states */
+.skeleton {
+  @apply animate-pulse bg-slate-200 rounded;
+}
+
+/* Alert card */
+.alert-card {
+  @apply p-4 rounded-lg border;
+}
+
+.alert-card.info {
+  @apply bg-blue-50 border-blue-200 text-blue-800;
+}
+
+.alert-card.warn {
+  @apply bg-amber-50 border-amber-200 text-amber-800;
+}
+
+.alert-card.critical {
+  @apply bg-rose-50 border-rose-200 text-rose-800;
+}
+
+/* Folio */
+.folio-summary {
+  @apply bg-slate-50 rounded-lg p-4 border border-slate-200;
+}
+
+.folio-row {
+  @apply flex justify-between py-2 border-b border-slate-100 last:border-0;
+}
+
+.folio-total {
+  @apply flex justify-between py-3 text-lg font-bold border-t-2 border-slate-300 mt-2;
+}
+
+/* Invoice preview */
+.invoice-preview {
+  @apply bg-white p-8 shadow-lg rounded-lg max-w-2xl mx-auto;
+}
+
+.invoice-header {
+  @apply flex justify-between items-start border-b-2 border-slate-900 pb-4 mb-6;
+}
+
+.invoice-items {
+  @apply border border-slate-200 rounded overflow-hidden;
+}
+
+.invoice-items th {
+  @apply bg-slate-100 px-4 py-2 text-left text-sm font-medium;
+}
+
+.invoice-items td {
+  @apply px-4 py-2 border-t border-slate-100;
+}
+
+/* Housekeeping board */
+.hk-floor-section {
+  @apply mb-6;
+}
+
+.hk-floor-title {
+  @apply text-lg font-semibold text-slate-700 mb-3 flex items-center gap-2;
+}
+
+.hk-room-grid {
+  @apply grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3;
+}
+
+.hk-room-card {
+  @apply p-4 rounded-lg border-2 cursor-pointer transition-all duration-200;
+  @apply hover:shadow-md;
+}
+
+.hk-room-card.dirty {
+  @apply bg-amber-50 border-amber-300;
+}
+
+.hk-room-card.cleaning {
+  @apply bg-blue-50 border-blue-300;
+}
+
+.hk-room-card.clean {
+  @apply bg-emerald-50 border-emerald-300;
+}
+
+.hk-room-card.ooo {
+  @apply bg-rose-50 border-rose-300;
+}
+
+/* Cash shift */
+.cash-shift-card {
+  @apply bg-gradient-to-br from-slate-800 to-slate-900 text-white rounded-xl p-6;
+}
+
+.cash-shift-stat {
+  @apply bg-white/10 rounded-lg p-4;
+}
+
+/* Reports */
+.report-tab {
+  @apply px-4 py-2 text-sm font-medium rounded-lg transition-all;
+  @apply hover:bg-slate-100;
+}
+
+.report-tab.active {
+  @apply bg-slate-900 text-white;
+}
+
+/* Transitions */
+.page-transition {
+  animation: slide-in-up 0.4s ease-out;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .sidebar {
+    @apply -translate-x-full;
+  }
+  
+  .sidebar.open {
+    @apply translate-x-0;
+  }
+  
+  .main-content {
+    @apply ml-0;
+  }
 }
