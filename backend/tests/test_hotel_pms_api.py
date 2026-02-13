@@ -464,6 +464,8 @@ class TestWalkin:
     
     def test_walkin_create(self, auth_headers):
         """Test creating a walk-in reservation"""
+        from datetime import datetime, timedelta
+        
         # First get an available room
         rooms_response = requests.get(
             f"{BASE_URL}/api/rooms",
@@ -482,6 +484,9 @@ class TestWalkin:
         import time
         unique_id = str(int(time.time()))[-6:]
         
+        # Use tomorrow's date for checkout
+        checkout_date = (datetime.now() + timedelta(days=2)).strftime("%Y-%m-%d")
+        
         walkin_data = {
             "guest_data": {
                 "doc_type": "DNI",
@@ -492,7 +497,7 @@ class TestWalkin:
                 "nationality": "PE"
             },
             "room_id": room["id"],
-            "checkout_date": "2026-01-20",
+            "checkout_date": checkout_date,
             "adults": 1,
             "children": 0,
             "notes": "Test walk-in reservation"
