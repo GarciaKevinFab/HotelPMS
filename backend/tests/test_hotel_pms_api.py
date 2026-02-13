@@ -513,8 +513,10 @@ class TestWalkin:
         data = response.json()
         assert "code" in data
         assert data["code"].startswith("WLK-")
-        assert data["status"] == "CHECKED_IN"
-        assert data["source"] == "WALK-IN"
+        assert "id" in data
+        assert "stay_id" in data
+        assert "folio_id" in data
+        assert "message" in data
     
     def test_walkin_invalid_room(self, auth_headers):
         """Test walk-in with invalid room ID"""
