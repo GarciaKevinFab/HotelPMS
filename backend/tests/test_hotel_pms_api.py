@@ -459,6 +459,414 @@ class TestReportsExport:
         assert "application/pdf" in response.headers.get("content-type", "")
 
 
+class TestRatesManagement:
+    """Rates Management endpoint tests - Special rates and rate calculation"""
+    
+    def test_list_rates(self, auth_headers):
+        """Test listing rates"""
+        response = requests.get(f"{BASE_URL}/api/rates", headers=auth_headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert isinstance(data, list)
+    
+    def test_create_special_rate(self, auth_headers):
+        """Test creating a special rate for a room type"""
+        # First get a room type
+        room_types_response = requests.get(f"{BASE_URL}/api/room-types", headers=auth_headers)
+        assert room_types_response.status_code == 200
+        room_types = room_types_response.json()
+        
+        if not room_types:
+            pytest.skip("No room types available")
+        
+        room_type = room_types[0]
+        
+        # Create a special rate for next month
+        from datetime import datetime, timedelta
+        start_date = (datetime.now() + timedelta(days=30)).strftime("%Y-%m-%d")
+        end_date = (datetime.now() + timedelta(days=37)).strftime("%Y-%m-%d")
+        
+        rate_data = {
+            "room_type_id": room_type["id"],
+            "date_from": start_date,
+            "date_to": end_date,
+            "price": 250.00,
+            "name": "TEST_Temporada Alta",
+            "min_stay": 2
+        }
+        
+        response = requests.post(f"{BASE_URL}/api/rates", json=rate_data, headers=auth_headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert "id" in data
+        assert "message" in data
+        assert data["message"] == "Tarifa creada"
+    
+    def test_calculate_rate_with_base_price(self, auth_headers):
+        """Test rate calculation using base price (no special rate)"""
+        # Get a room type
+        room_types_response = requests.get(f"{BASE_URL}/api/room-types", headers=auth_headers)
+        room_types = room_types_response.json()
+        
+        if not room_types:
+            pytest.skip("No room types available")
+        
+        room_type = room_types[0]
+        
+        # Calculate rate for dates without special rate (far future)
+        from datetime import datetime, timedelta
+        checkin = (datetime.now() + timedelta(days=100)).strftime("%Y-%m-%d")
+        checkout = (datetime.now() + timedelta(days=103)).strftime("%Y-%m-%d")
+        
+        response = requests.get(
+            f"{BASE_URL}/api/rates/calculate",
+            params={
+                "room_type_id": room_type["id"],
+                "checkin_date": checkin,
+                "checkout_date": checkout
+            },
+            headers=auth_headers
+        )
+        
+        assert response.status_code == 200
+        data = response.json()
+        assert "room_type" in data
+        assert "nights" in data
+        assert data["nights"] == 3
+        assert "total" in data
+        assert "breakdown" in data
+        assert len(data["breakdown"]) == 3
+        
+        # Verify breakdown uses base price
+        for night in data["breakdown"]:
+            assert "date" in night
+            assert "price" in night
+            assert "rate_name" in night
+    
+    def test_calculate_rate_with_special_rate(self, auth_headers):
+        """Test rate calculation with special rate applied"""
+        # Get a room type
+        room_types_response = requests.get(f"{BASE_URL}/api/room-types", headers=auth_headers)
+        room_types = room_types_response.json()
+        
+        if not room_types:
+            pytest.skip("No room types available")
+        
+        room_type = room_types[0]
+        
+        # Create a special rate for specific dates
+        from datetime import datetime, timedelta
+        start_date = (datetime.now() + timedelta(days=5)).strftime("%Y-%m-%d")
+        end_date = (datetime.now() + timedelta(days=10)).strftime("%Y-%m-%d")
+        special_price = 199.99
+        
+        rate_data = {
+            "room_type_id": room_type["id"],
+            "date_from": start_date,
+            "date_to": end_date,
+            "price": special_price,
+            "name": "TEST_Promocion Especial",
+            "min_stay": 1
+        }
+        
+        create_response = requests.post(f"{BASE_URL}/api/rates", json=rate_data, headers=auth_headers)
+        assert create_response.status_code == 200
+        
+        # Calculate rate for dates within special rate period
+        checkin = (datetime.now() + timedelta(days=6)).strftime("%Y-%m-%d")
+        checkout = (datetime.now() + timedelta(days=9)).strftime("%Y-%m-%d")
+        
+        response = requests.get(
+            f"{BASE_URL}/api/rates/calculate",
+            params={
+                "room_type_id": room_type["id"],
+                "checkin_date": checkin,
+                "checkout_date": checkout
+            },
+            headers=auth_headers
+        )
+        
+        assert response.status_code == 200
+        data = response.json()
+        assert data["nights"] == 3
+        
+        # Verify special rate is applied
+        for night in data["breakdown"]:
+            assert night["price"] == special_price
+            assert "Promocion" in night["rate_name"] or "Especial" in night["rate_name"]
+    
+    def test_delete_rate(self, auth_headers):
+        """Test deleting a rate"""
+        # First create a rate to delete
+        room_types_response = requests.get(f"{BASE_URL}/api/room-types", headers=auth_headers)
+        room_types = room_types_response.json()
+        
+        if not room_types:
+            pytest.skip("No room types available")
+        
+        room_type = room_types[0]
+        
+        from datetime import datetime, timedelta
+        start_date = (datetime.now() + timedelta(days=200)).strftime("%Y-%m-%d")
+        end_date = (datetime.now() + timedelta(days=207)).strftime("%Y-%m-%d")
+        
+        rate_data = {
+            "room_type_id": room_type["id"],
+            "date_from": start_date,
+            "date_to": end_date,
+            "price": 300.00,
+            "name": "TEST_Rate_To_Delete",
+            "min_stay": 1
+        }
+        
+        create_response = requests.post(f"{BASE_URL}/api/rates", json=rate_data, headers=auth_headers)
+        assert create_response.status_code == 200
+        rate_id = create_response.json()["id"]
+        
+        # Delete the rate
+        delete_response = requests.delete(f"{BASE_URL}/api/rates/{rate_id}", headers=auth_headers)
+        assert delete_response.status_code == 200
+        assert delete_response.json()["message"] == "Tarifa eliminada"
+
+
+class TestUserManagement:
+    """User Management endpoint tests - Create, update, activate/deactivate"""
+    
+    def test_create_user(self, auth_headers):
+        """Test creating a new user"""
+        import time
+        unique_id = str(int(time.time()))[-6:]
+        
+        user_data = {
+            "email": f"test_user_{unique_id}@demo.com",
+            "password": "testpass123",
+            "full_name": f"TEST_User {unique_id}",
+            "role": "RECEPTIONIST"
+        }
+        
+        response = requests.post(f"{BASE_URL}/api/users", json=user_data, headers=auth_headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert "id" in data
+        assert data["message"] == "Usuario creado exitosamente"
+    
+    def test_create_user_duplicate_email(self, auth_headers):
+        """Test creating user with duplicate email fails"""
+        user_data = {
+            "email": ADMIN_EMAIL,  # Already exists
+            "password": "testpass123",
+            "full_name": "Duplicate User",
+            "role": "RECEPTIONIST"
+        }
+        
+        response = requests.post(f"{BASE_URL}/api/users", json=user_data, headers=auth_headers)
+        assert response.status_code == 400
+        assert "Email ya registrado" in response.json()["detail"]
+    
+    def test_update_user_status_deactivate(self, auth_headers):
+        """Test deactivating a user"""
+        # First create a user to deactivate
+        import time
+        unique_id = str(int(time.time()))[-6:]
+        
+        user_data = {
+            "email": f"test_deactivate_{unique_id}@demo.com",
+            "password": "testpass123",
+            "full_name": f"TEST_Deactivate User {unique_id}",
+            "role": "HOUSEKEEPING"
+        }
+        
+        create_response = requests.post(f"{BASE_URL}/api/users", json=user_data, headers=auth_headers)
+        assert create_response.status_code == 200
+        user_id = create_response.json()["id"]
+        
+        # Deactivate the user
+        update_response = requests.put(
+            f"{BASE_URL}/api/users/{user_id}",
+            json={"is_active": False},
+            headers=auth_headers
+        )
+        assert update_response.status_code == 200
+        assert update_response.json()["message"] == "Usuario actualizado"
+        
+        # Verify user cannot login
+        login_response = requests.post(f"{BASE_URL}/api/auth/login", json={
+            "email": user_data["email"],
+            "password": user_data["password"]
+        })
+        assert login_response.status_code == 401
+        assert "desactivado" in login_response.json()["detail"]
+    
+    def test_update_user_status_reactivate(self, auth_headers):
+        """Test reactivating a deactivated user"""
+        # Create and deactivate a user
+        import time
+        unique_id = str(int(time.time()))[-6:]
+        
+        user_data = {
+            "email": f"test_reactivate_{unique_id}@demo.com",
+            "password": "testpass123",
+            "full_name": f"TEST_Reactivate User {unique_id}",
+            "role": "RECEPTIONIST"
+        }
+        
+        create_response = requests.post(f"{BASE_URL}/api/users", json=user_data, headers=auth_headers)
+        user_id = create_response.json()["id"]
+        
+        # Deactivate
+        requests.put(f"{BASE_URL}/api/users/{user_id}", json={"is_active": False}, headers=auth_headers)
+        
+        # Reactivate
+        update_response = requests.put(
+            f"{BASE_URL}/api/users/{user_id}",
+            json={"is_active": True},
+            headers=auth_headers
+        )
+        assert update_response.status_code == 200
+        
+        # Verify user can login again
+        login_response = requests.post(f"{BASE_URL}/api/auth/login", json={
+            "email": user_data["email"],
+            "password": user_data["password"]
+        })
+        assert login_response.status_code == 200
+    
+    def test_update_user_role(self, auth_headers):
+        """Test updating user role"""
+        # Create a user
+        import time
+        unique_id = str(int(time.time()))[-6:]
+        
+        user_data = {
+            "email": f"test_role_{unique_id}@demo.com",
+            "password": "testpass123",
+            "full_name": f"TEST_Role User {unique_id}",
+            "role": "RECEPTIONIST"
+        }
+        
+        create_response = requests.post(f"{BASE_URL}/api/users", json=user_data, headers=auth_headers)
+        user_id = create_response.json()["id"]
+        
+        # Update role to HOUSEKEEPING
+        update_response = requests.put(
+            f"{BASE_URL}/api/users/{user_id}",
+            json={"role": "HOUSEKEEPING"},
+            headers=auth_headers
+        )
+        assert update_response.status_code == 200
+        
+        # Verify role changed by logging in and checking
+        login_response = requests.post(f"{BASE_URL}/api/auth/login", json={
+            "email": user_data["email"],
+            "password": user_data["password"]
+        })
+        assert login_response.status_code == 200
+        assert login_response.json()["user"]["role"] == "HOUSEKEEPING"
+
+
+class TestTenantInvoicingConfig:
+    """Tenant Invoicing Configuration tests - NubeFact settings"""
+    
+    def test_get_tenant_with_invoicing_config(self, auth_headers):
+        """Test getting tenant includes invoicing config"""
+        # First get user info to get tenant_id
+        me_response = requests.get(f"{BASE_URL}/api/auth/me", headers=auth_headers)
+        assert me_response.status_code == 200
+        tenant_id = me_response.json().get("tenant_id")
+        
+        if not tenant_id:
+            pytest.skip("User has no tenant_id")
+        
+        # Get tenant details
+        tenant_response = requests.get(f"{BASE_URL}/api/tenants/{tenant_id}", headers=auth_headers)
+        assert tenant_response.status_code == 200
+        tenant = tenant_response.json()
+        
+        assert "invoicing_config" in tenant
+        config = tenant["invoicing_config"]
+        assert "invoicing_mode" in config
+        assert "boleta_series" in config
+        assert "factura_series" in config
+        assert "igv_rate" in config
+    
+    def test_update_invoicing_config_mock_mode(self, auth_headers):
+        """Test updating invoicing config to MOCK mode"""
+        # Get tenant_id
+        me_response = requests.get(f"{BASE_URL}/api/auth/me", headers=auth_headers)
+        tenant_id = me_response.json().get("tenant_id")
+        
+        if not tenant_id:
+            pytest.skip("User has no tenant_id")
+        
+        # Update to MOCK mode (no token)
+        config_data = {
+            "nubefact_ruta": None,
+            "nubefact_token": None,
+            "invoicing_mode": "MOCK",
+            "boleta_series": "B001",
+            "boleta_correlative": 1,
+            "factura_series": "F001",
+            "factura_correlative": 1,
+            "igv_rate": 18.0
+        }
+        
+        response = requests.put(
+            f"{BASE_URL}/api/tenants/{tenant_id}/invoicing",
+            json=config_data,
+            headers=auth_headers
+        )
+        assert response.status_code == 200
+        assert response.json()["message"] == "Configuración de facturación actualizada"
+    
+    def test_update_invoicing_config_live_mode(self, auth_headers):
+        """Test updating invoicing config to LIVE mode with credentials"""
+        # Get tenant_id
+        me_response = requests.get(f"{BASE_URL}/api/auth/me", headers=auth_headers)
+        tenant_id = me_response.json().get("tenant_id")
+        
+        if not tenant_id:
+            pytest.skip("User has no tenant_id")
+        
+        # Update to LIVE mode with test credentials
+        config_data = {
+            "nubefact_ruta": "https://api.nubefact.com/api/v1/test",
+            "nubefact_token": "test-token-12345",
+            "invoicing_mode": "LIVE",
+            "boleta_series": "B001",
+            "boleta_correlative": 100,
+            "factura_series": "F001",
+            "factura_correlative": 50,
+            "igv_rate": 18.0
+        }
+        
+        response = requests.put(
+            f"{BASE_URL}/api/tenants/{tenant_id}/invoicing",
+            json=config_data,
+            headers=auth_headers
+        )
+        assert response.status_code == 200
+        
+        # Verify config was saved
+        tenant_response = requests.get(f"{BASE_URL}/api/tenants/{tenant_id}", headers=auth_headers)
+        tenant = tenant_response.json()
+        assert tenant["invoicing_config"]["nubefact_ruta"] == "https://api.nubefact.com/api/v1/test"
+        assert tenant["invoicing_config"]["nubefact_token"] == "test-token-12345"
+        assert tenant["invoicing_config"]["invoicing_mode"] == "LIVE"
+        
+        # Reset back to MOCK mode for other tests
+        reset_config = {
+            "nubefact_ruta": None,
+            "nubefact_token": None,
+            "invoicing_mode": "MOCK",
+            "boleta_series": "B001",
+            "boleta_correlative": 1,
+            "factura_series": "F001",
+            "factura_correlative": 1,
+            "igv_rate": 18.0
+        }
+        requests.put(f"{BASE_URL}/api/tenants/{tenant_id}/invoicing", json=reset_config, headers=auth_headers)
+
+
 class TestWalkin:
     """Walk-in reservation endpoint tests"""
     
