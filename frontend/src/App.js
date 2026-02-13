@@ -18,6 +18,7 @@ import Housekeeping from './pages/Housekeeping';
 import Maintenance from './pages/Maintenance';
 import Alerts from './pages/Alerts';
 import Reports from './pages/Reports';
+import Settings from './pages/Settings';
 
 // Styles
 import '@/App.css';
@@ -45,7 +46,7 @@ function App() {
             <Route path="/maintenance" element={<Maintenance />} />
             <Route path="/alerts" element={<Alerts />} />
             <Route path="/reports" element={<Reports />} />
-            <Route path="/settings" element={<Dashboard />} />
+            <Route path="/settings" element={<Settings />} />
             <Route path="/tenants" element={<Dashboard />} />
           </Route>
           
