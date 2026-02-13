@@ -10,6 +10,7 @@ import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import RoomCalendar from './pages/RoomCalendar';
 import Reservations from './pages/Reservations';
+import GroupReservations from './pages/GroupReservations';
 import Guests from './pages/Guests';
 import Rooms from './pages/Rooms';
 import CashShift from './pages/CashShift';
@@ -38,6 +39,7 @@ function App() {
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/calendar" element={<RoomCalendar />} />
             <Route path="/reservations" element={<Reservations />} />
+            <Route path="/reservations/groups" element={<GroupReservations />} />
             <Route path="/reservations/:id" element={<Reservations />} />
             <Route path="/guests" element={<Guests />} />
             <Route path="/guests/:id" element={<Guests />} />
