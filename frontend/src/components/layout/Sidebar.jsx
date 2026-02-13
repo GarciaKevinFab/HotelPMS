@@ -16,7 +16,8 @@ import {
   BarChart3,
   LogOut,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  DollarSign
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { cn } from '../../lib/utils';
@@ -51,6 +52,12 @@ const navItems = [
     icon: BedDouble, 
     label: 'Habitaciones',
     roles: ['SUPER_ADMIN', 'ADMIN', 'RECEPTIONIST']
+  },
+  { 
+    path: '/rates', 
+    icon: DollarSign, 
+    label: 'Tarifas',
+    roles: ['SUPER_ADMIN', 'ADMIN']
   },
   { 
     path: '/cash-shift', 
