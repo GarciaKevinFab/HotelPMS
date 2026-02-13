@@ -43,6 +43,7 @@ export function Reports() {
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [loading, setLoading] = useState(true);
+  const [exporting, setExporting] = useState(false);
   
   // Report data
   const [occupancyReport, setOccupancyReport] = useState(null);
@@ -75,6 +76,37 @@ export function Reports() {
       toast.error('Error al cargar reporte');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleExport = async (format) => {
+    setExporting(true);
+    try {
+      const response = format === 'excel' 
+        ? await reportsAPI.exportExcel(activeTab, selectedMonth, selectedYear)
+        : await reportsAPI.exportPdf(activeTab, selectedMonth, selectedYear);
+      
+      const blob = new Blob([response.data], { 
+        type: format === 'excel' 
+          ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+          : 'application/pdf'
+      });
+      
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `reporte_${activeTab}_${selectedYear}_${String(selectedMonth).padStart(2, '0')}.${format === 'excel' ? 'xlsx' : 'pdf'}`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      
+      toast.success(`Reporte exportado como ${format.toUpperCase()}`);
+    } catch (err) {
+      console.error('Error exporting:', err);
+      toast.error('Error al exportar reporte');
+    } finally {
+      setExporting(false);
     }
   };
 
