@@ -366,10 +366,23 @@ export function Reservations() {
           <h1 className="text-2xl font-bold text-slate-900">Reservas</h1>
           <p className="text-slate-500">Gestión de reservaciones</p>
         </div>
-        <Button onClick={() => setShowCreateDialog(true)} data-testid="create-reservation-btn">
-          <Plus className="w-4 h-4 mr-2" />
-          Nueva Reserva
-        </Button>
+        <div className="flex gap-2">
+          <Button 
+            variant="outline" 
+            onClick={() => {
+              fetchWalkinRooms();
+              setShowWalkinDialog(true);
+            }}
+            data-testid="walkin-btn"
+          >
+            <Zap className="w-4 h-4 mr-2" />
+            Walk-in
+          </Button>
+          <Button onClick={() => setShowCreateDialog(true)} data-testid="create-reservation-btn">
+            <Plus className="w-4 h-4 mr-2" />
+            Nueva Reserva
+          </Button>
+        </div>
       </div>
 
       {/* Filters */}
