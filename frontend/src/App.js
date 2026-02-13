@@ -19,6 +19,8 @@ import Maintenance from './pages/Maintenance';
 import Alerts from './pages/Alerts';
 import Reports from './pages/Reports';
 import Settings from './pages/Settings';
+import Tenants from './pages/Tenants';
+import Rates from './pages/Rates';
 
 // Styles
 import '@/App.css';
