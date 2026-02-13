@@ -153,6 +153,19 @@ export const reportsAPI = {
   monthlyOccupancy: (month, year) => api.get('/reports/monthly-occupancy', { params: { month, year } }),
   monthlyRevenue: (month, year) => api.get('/reports/monthly-revenue', { params: { month, year } }),
   monthlyInvoicing: (month, year) => api.get('/reports/monthly-invoicing', { params: { month, year } }),
+  exportExcel: (reportType, month, year) => api.get('/reports/export/excel', { 
+    params: { report_type: reportType, month, year },
+    responseType: 'blob'
+  }),
+  exportPdf: (reportType, month, year) => api.get('/reports/export/pdf', { 
+    params: { report_type: reportType, month, year },
+    responseType: 'blob'
+  }),
+};
+
+// Walk-in
+export const walkinAPI = {
+  create: (data) => api.post('/reservations/walkin', data),
 };
 
 // Search
