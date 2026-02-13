@@ -587,6 +587,87 @@ async def update_room_type(room_type_id: str, data: RoomTypeCreate, user: dict =
         raise HTTPException(status_code=404, detail="Tipo de habitación no encontrado")
     return {"message": "Tipo de habitación actualizado"}
 
+# ============== RATE MANAGEMENT ENDPOINTS ==============
+@api_router.post("/rates")
+async def create_rate(data: RateCreate, user: dict = Depends(require_roles(Role.ADMIN))):
+    rate = {
+        **data.model_dump(),
+        "date_from": data.date_from.isoformat(),
+        "date_to": data.date_to.isoformat(),
+        "tenant_id": user["tenant_id"],
+        "is_active": True,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    result = await db.rates.insert_one(rate)
+    return {"id": str(result.inserted_id), "message": "Tarifa creada"}
+
+@api_router.get("/rates")
+async def list_rates(room_type_id: str = None, user: dict = Depends(get_current_user)):
+    tenant_filter = get_tenant_filter(user)
+    query = {**tenant_filter, "is_active": True}
+    if room_type_id:
+        query["room_type_id"] = room_type_id
+    rates = await db.rates.find(query).sort("date_from", 1).to_list(500)
+    return [serialize_doc(r) for r in rates]
+
+@api_router.delete("/rates/{rate_id}")
+async def delete_rate(rate_id: str, user: dict = Depends(require_roles(Role.ADMIN))):
+    result = await db.rates.update_one(
+        {"_id": ObjectId(rate_id), "tenant_id": user["tenant_id"]},
+        {"$set": {"is_active": False}}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Tarifa no encontrada")
+    return {"message": "Tarifa eliminada"}
+
+@api_router.get("/rates/calculate")
+async def calculate_rate(room_type_id: str, checkin_date: date, checkout_date: date, user: dict = Depends(get_current_user)):
+    """Calculate total price for a stay based on special rates or base price"""
+    tenant_filter = get_tenant_filter(user)
+    
+    room_type = await db.room_types.find_one({"_id": ObjectId(room_type_id), **tenant_filter})
+    if not room_type:
+        raise HTTPException(status_code=404, detail="Tipo de habitación no encontrado")
+    
+    base_price = room_type.get("base_price", 0)
+    total = 0
+    nights_breakdown = []
+    
+    current = checkin_date
+    while current < checkout_date:
+        # Check for special rate on this date
+        special_rate = await db.rates.find_one({
+            "tenant_id": user["tenant_id"],
+            "room_type_id": room_type_id,
+            "is_active": True,
+            "date_from": {"$lte": current.isoformat()},
+            "date_to": {"$gte": current.isoformat()}
+        })
+        
+        if special_rate:
+            price = special_rate["price"]
+            rate_name = special_rate.get("name", "Tarifa Especial")
+        else:
+            price = base_price
+            rate_name = "Tarifa Base"
+        
+        total += price
+        nights_breakdown.append({
+            "date": current.isoformat(),
+            "price": price,
+            "rate_name": rate_name
+        })
+        current += timedelta(days=1)
+    
+    return {
+        "room_type": room_type.get("name"),
+        "checkin_date": checkin_date.isoformat(),
+        "checkout_date": checkout_date.isoformat(),
+        "nights": len(nights_breakdown),
+        "total": total,
+        "breakdown": nights_breakdown
+    }
+
 # ============== ROOM ENDPOINTS ==============
 @api_router.post("/rooms")
 async def create_room(data: RoomCreate, user: dict = Depends(require_roles(Role.ADMIN))):
