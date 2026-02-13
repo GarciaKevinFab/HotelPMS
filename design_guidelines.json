@@ -1,0 +1,141 @@
+{
+  "identity": {
+    "name": "HotelAdmin Pro",
+    "persona": "The Efficient Hotelier",
+    "tone": "Professional, Trustworthy, High-Density, Clear",
+    "archetype": "Swiss & High-Contrast (Hospitality Edition)"
+  },
+  "typography": {
+    "primary_font": "Inter",
+    "secondary_font": "Manrope",
+    "mono_font": "JetBrains Mono",
+    "usage": {
+      "headings": "Manrope, font-bold, tracking-tight",
+      "body": "Inter, font-normal, tracking-normal",
+      "data_tables": "Inter, font-medium, tabular-nums",
+      "code": "JetBrains Mono"
+    }
+  },
+  "colors": {
+    "palette": {
+      "brand": {
+        "primary": "#0F172A",
+        "secondary": "#334155",
+        "accent": "#3B82F6"
+      },
+      "functional": {
+        "vacant_clean": "#10B981",
+        "occupied": "#3B82F6",
+        "dirty": "#F59E0B",
+        "out_of_order": "#F43F5E",
+        "reserved": "#8B5CF6",
+        "checked_out": "#64748B"
+      },
+      "background": {
+        "app": "#F8FAFC",
+        "card": "#FFFFFF",
+        "sidebar": "#0F172A"
+      },
+      "text": {
+        "primary": "#0F172A",
+        "secondary": "#64748B",
+        "muted": "#94A3B8",
+        "on_dark": "#F8FAFC"
+      }
+    },
+    "gradients": {
+      "brand_gradient": "linear-gradient(135deg, #0F172A 0%, #1E293B 100%)",
+      "subtle_glow": "radial-gradient(circle at center, rgba(59, 130, 246, 0.1) 0%, transparent 70%)"
+    }
+  },
+  "layout": {
+    "structure": "Sidebar Navigation (Left) + Top Header + Main Content Area",
+    "grid_system": "Bento Grid Mode B (High Density)",
+    "spacing": {
+      "container_padding": "p-6 md:p-8",
+      "card_padding": "p-5",
+      "gap": "gap-4 md:gap-6"
+    },
+    "sidebar": {
+      "width": "w-64",
+      "collapsed_width": "w-16",
+      "bg": "bg-slate-900",
+      "text": "text-slate-300"
+    }
+  },
+  "components": {
+    "buttons": {
+      "primary": "bg-slate-900 text-white hover:bg-slate-800 shadow-sm rounded-md px-4 py-2 font-medium transition-all",
+      "secondary": "bg-white text-slate-900 border border-slate-200 hover:bg-slate-50 shadow-sm rounded-md px-4 py-2 font-medium transition-all",
+      "ghost": "bg-transparent text-slate-600 hover:bg-slate-100 hover:text-slate-900 rounded-md px-3 py-2 transition-all",
+      "destructive": "bg-red-600 text-white hover:bg-red-700 shadow-sm rounded-md px-4 py-2 font-medium transition-all"
+    },
+    "cards": {
+      "default": "bg-white border border-slate-200 shadow-sm rounded-lg",
+      "interactive": "bg-white border border-slate-200 shadow-sm hover:shadow-md hover:border-slate-300 transition-all cursor-pointer rounded-lg"
+    },
+    "inputs": {
+      "default": "bg-white border border-slate-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 rounded-md h-10 px-3 text-sm transition-all"
+    },
+    "badges": {
+      "vacant": "bg-emerald-100 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded-full text-xs font-semibold",
+      "occupied": "bg-blue-100 text-blue-700 border border-blue-200 px-2 py-0.5 rounded-full text-xs font-semibold",
+      "dirty": "bg-amber-100 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full text-xs font-semibold",
+      "ooo": "bg-rose-100 text-rose-700 border border-rose-200 px-2 py-0.5 rounded-full text-xs font-semibold"
+    }
+  },
+  "visual_enhancers": {
+    "shadows": {
+      "card": "0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06)",
+      "dropdown": "0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)",
+      "modal": "0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)"
+    },
+    "borders": {
+      "default": "1px solid #E2E8F0",
+      "subtle": "1px solid #F1F5F9"
+    },
+    "radius": {
+      "default": "0.5rem",
+      "small": "0.375rem",
+      "large": "0.75rem"
+    }
+  },
+  "motion": {
+    "hover": "transition-all duration-200 ease-in-out",
+    "page_transition": "animate-in fade-in slide-in-from-bottom-4 duration-500",
+    "modal_entry": "animate-in zoom-in-95 duration-200"
+  },
+  "accessibility": {
+    "contrast": "Ensure 4.5:1 contrast ratio for text",
+    "focus_states": "Visible focus rings on all interactive elements (blue-500)",
+    "aria": "Use aria-labels for icon-only buttons"
+  },
+  "image_urls": {
+    "hero_background": "https://images.unsplash.com/photo-1768346564825-6f90c0b89e2e?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2Njd8MHwxfHNlYXJjaHwxfHxtb2Rlcm4lMjBob3RlbCUyMGxvYmJ5JTIwbHV4dXJ5fGVufDB8fHx8MTc3MDk2MTI0MHww&ixlib=rb-4.1.0&q=85",
+    "login_cover": "https://images.unsplash.com/photo-1758194090785-8e09b7288199?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2Njd8MHwxfHNlYXJjaHwyfHxtb2Rlcm4lMjBob3RlbCUyMGxvYmJ5JTIwbHV4dXJ5fGVufDB8fHx8MTc3MDk2MTI0MHww&ixlib=rb-4.1.0&q=85",
+    "user_avatar_1": "https://images.unsplash.com/photo-1678219414783-4a8574603999?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxNzV8MHwxfHNlYXJjaHwxfHxob3RlbCUyMHJlY2VwdGlvbmlzdCUyMHByb2Zlc3Npb25hbCUyMHBvcnRyYWl0fGVufDB8fHx8MTc3MDk2MTI0NHww&ixlib=rb-4.1.0&q=85",
+    "user_avatar_2": "https://images.unsplash.com/photo-1632131016411-0183bc4efdd8?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxNzV8MHwxfHNlYXJjaHwyfHxob3RlbCUyMHJlY2VwdGlvbmlzdCUyMHByb2Zlc3Npb25hbCUyMHBvcnRyYWl0fGVufDB8fHx8MTc3MDk2MTI0NHww&ixlib=rb-4.1.0&q=85",
+    "user_avatar_3": "https://images.unsplash.com/photo-1740153204804-200310378f2f?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxNzV8MHwxfHNlYXJjaHwzfHxob3RlbCUyMHJlY2VwdGlvbmlzdCUyMHByb2Zlc3Npb25hbCUyMHBvcnRyYWl0fGVufDB8fHx8MTc3MDk2MTI0NHww&ixlib=rb-4.1.0&q=85"
+  },
+  "instructions_to_main_agent": {
+    "general": "You are building a high-density admin dashboard. Prioritize information density over whitespace, but keep it legible. Use the 'Bento Grid' layout for the dashboard.",
+    "room_calendar": "This is the most critical component. It must be a grid where Rows = Rooms and Columns = Dates. Use a sticky header for dates and sticky left column for room names. Cells should be clickable to create reservations. Use the functional colors for reservation blocks.",
+    "invoicing": "Peruvian invoicing (SUNAT) requires specific fields: RUC, Razon Social, Address. Ensure the 'Factura' and 'Boleta' options are prominent. The print view must look like a formal invoice.",
+    "language": "All UI text MUST be in Spanish (Peru). Use terms like 'Huésped' (Guest), 'Habitación' (Room), 'Reserva' (Reservation), 'Factura' (Invoice), 'Boleta' (Receipt), 'Caja' (Cash Register).",
+    "currency": "Display all monetary values in PEN (S/). Example: 'S/ 150.00'.",
+    "charts": "Use Recharts. Style them to match the theme (minimalist, thin lines, custom tooltips).",
+    "icons": "Use Lucide React icons. Use specific icons for hotel amenities (Wifi, Bed, Coffee, etc.)."
+  },
+  "UNIVERSAL_GUIDELINES_FOR_MAIN_AGENT": [
+    "Do not use generic centered layouts.",
+    "Create depth through layered design elements with z-index hierarchy.",
+    "Use glass-morphism effects with backdrop filters (12-24px blur) for modals and sticky headers.",
+    "Every interaction needs micro-animations - hover states, transitions.",
+    "Use 2-3x more spacing than feels comfortable in the marketing pages, but keep the dashboard dense.",
+    "Subtle grain textures, noise overlays, custom cursors, selection states, and loading animations: separates good from extraordinary.",
+    "Main agent relies on these image URLs. Missing categories = main agent will use placeholder text which is FORBIDDEN.",
+    "Prioritize using pre-existing components from src/components/ui when applicable.",
+    "Components MUST use named exports.",
+    "Use sonner for toasts."
+  ]
+}
