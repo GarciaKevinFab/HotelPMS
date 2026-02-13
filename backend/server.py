@@ -227,6 +227,32 @@ class ReservationUpdate(BaseModel):
     notes: Optional[str] = None
     cancel_reason: Optional[str] = None
 
+# Group Reservation Models
+class GroupReservationCreate(BaseModel):
+    group_name: str
+    contact_name: str
+    contact_phone: Optional[str] = None
+    contact_email: Optional[str] = None
+    checkin_date: date
+    checkout_date: date
+    rooms: List[dict]  # [{"room_type_id": "...", "quantity": 2}]
+    adults: int = 1
+    children: int = 0
+    deposit_amount: float = 0
+    notes: Optional[str] = None
+
+# Email Models
+class EmailRequest(BaseModel):
+    recipient_email: EmailStr
+    subject: str
+    html_content: str
+
+class EmailTemplate(str, Enum):
+    RESERVATION_CONFIRMATION = "RESERVATION_CONFIRMATION"
+    CHECKIN_CONFIRMATION = "CHECKIN_CONFIRMATION"
+    CHECKOUT_REMINDER = "CHECKOUT_REMINDER"
+    PAYMENT_RECEIPT = "PAYMENT_RECEIPT"
+
 # Rate Management Models
 class RateCreate(BaseModel):
     room_type_id: str
