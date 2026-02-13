@@ -2962,26 +2962,30 @@ def generate_email_template(template_type: str, data: dict) -> tuple:
     
     return subject, html
 
+class NotificationRequest(BaseModel):
+    template: EmailTemplate
+    recipient_email: EmailStr
+    data: dict
+
 @api_router.post("/notifications/send")
 async def send_notification(
-    template: EmailTemplate = Body(...),
-    recipient_email: EmailStr = Body(...),
-    data: dict = Body(...),
+    request: NotificationRequest,
     user: dict = Depends(get_current_user)
 ):
     """Send email notification using template"""
     # Get tenant info
     tenant = await db.tenants.find_one({"_id": ObjectId(user["tenant_id"])})
+    data = request.data.copy()
     data["tenant_name"] = tenant.get("nombre_comercial", tenant.get("name", "Hotel")) if tenant else "Hotel"
     
-    subject, html = generate_email_template(template.value, data)
-    result = await send_email_async(recipient_email, subject, html)
+    subject, html = generate_email_template(request.template.value, data)
+    result = await send_email_async(request.recipient_email, subject, html)
     
     # Log notification
     notification_log = {
         "tenant_id": user["tenant_id"],
-        "template": template.value,
-        "recipient": recipient_email,
+        "template": request.template.value,
+        "recipient": request.recipient_email,
         "status": result.get("status"),
         "created_at": datetime.now(timezone.utc).isoformat()
     }
