@@ -465,8 +465,19 @@ async def get_me(user: dict = Depends(get_current_user)):
 # ============== TENANT ENDPOINTS ==============
 @api_router.post("/tenants")
 async def create_tenant(data: TenantCreate, user: dict = Depends(require_roles(Role.SUPER_ADMIN))):
+    # Check RUC unique
+    existing = await db.tenants.find_one({"ruc": data.ruc})
+    if existing:
+        raise HTTPException(status_code=400, detail="Ya existe un hotel con este RUC")
+    
     tenant = {
-        **data.model_dump(),
+        "name": data.name,
+        "ruc": data.ruc,
+        "razon_social": data.razon_social or data.name,
+        "nombre_comercial": data.nombre_comercial or data.name,
+        "address": data.address,
+        "phone": data.phone,
+        "email": data.email,
         "is_active": True,
         "invoicing_config": TenantInvoicingConfig().model_dump(),
         "settings": {
@@ -478,7 +489,35 @@ async def create_tenant(data: TenantCreate, user: dict = Depends(require_roles(R
         "created_at": datetime.now(timezone.utc).isoformat()
     }
     result = await db.tenants.insert_one(tenant)
-    return {"id": str(result.inserted_id), "message": "Hotel creado exitosamente"}
+    tenant_id = str(result.inserted_id)
+    
+    # Create admin user if provided
+    admin_id = None
+    if data.admin_email and data.admin_password:
+        # Check email unique
+        existing_user = await db.users.find_one({"email": data.admin_email})
+        if existing_user:
+            raise HTTPException(status_code=400, detail="El email del administrador ya está en uso")
+        
+        admin_user = {
+            "email": data.admin_email,
+            "password_hash": hash_password(data.admin_password),
+            "full_name": data.admin_name or "Administrador",
+            "role": Role.ADMIN.value,
+            "tenant_id": tenant_id,
+            "is_active": True,
+            "created_at": datetime.now(timezone.utc).isoformat()
+        }
+        admin_result = await db.users.insert_one(admin_user)
+        admin_id = str(admin_result.inserted_id)
+    
+    await create_audit_log(None, user["user_id"], "tenant", "CREATE", None, {"tenant_id": tenant_id, "name": data.name})
+    
+    return {
+        "id": tenant_id, 
+        "admin_id": admin_id,
+        "message": "Hotel creado exitosamente"
+    }
 
 @api_router.get("/tenants")
 async def list_tenants(user: dict = Depends(require_roles(Role.SUPER_ADMIN))):
