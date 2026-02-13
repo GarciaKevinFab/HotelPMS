@@ -1,163 +1,282 @@
 # Hotel PMS - Sistema Multi-Tenant Completo
 
-## Problem Statement
-Build a production-ready multi-tenant Hotel Administration PMS (SaaS) for Peru.
-- **UI Language:** Spanish (Perú)
-- **Currency:** PEN (S/)
-- **Timezone:** America/Lima
+## Sistema de Administración Hotelera (PMS)
+**Versión:** 1.0 Final  
+**Idioma:** Español (Perú)  
+**Moneda:** PEN (S/)  
+**Zona Horaria:** America/Lima
 
-## Core Features
+---
 
-### Multi-tenancy ✅
-- 1 tenant = 1 hotel
-- Strict data isolation via `tenant_id` at DB and API levels
-- SUPER_ADMIN manages all tenants via Hoteles page
-- Create tenant automatically creates ADMIN user
+## RESUMEN EJECUTIVO
 
-### Roles & Permissions ✅
-| Role | Access |
-|------|--------|
-| SUPER_ADMIN | All features + tenant management |
-| ADMIN | Full hotel management, config, users |
-| RECEPTIONIST | Reservations, check-in/out, payments |
-| HOUSEKEEPING | Room cleaning status only |
+Sistema PMS multi-tenant completo para hoteles en Perú con todas las funcionalidades operativas de un hotel moderno: gestión de habitaciones, reservas individuales y grupales, check-in/check-out, facturación electrónica SUNAT (NubeFact), housekeeping, mantenimiento, caja por turnos, y reportes con exportación.
 
-### Modules
+---
 
-#### 1. Rooms Management ✅
-- Dual state: Occupancy (VACANT, OCCUPIED, DUE_OUT) + Housekeeping (DIRTY, CLEAN, OUT_OF_ORDER)
-- Room types with amenities and base pricing
-- 30 rooms across 3 floors in demo
+## MÓDULOS IMPLEMENTADOS
 
-#### 2. Rate Management ✅
-- Dynamic pricing by date ranges
-- Special rates (Temporada Alta, Feriados, Promociones)
-- Automatic rate calculation for reservations
-- UI page at /rates
+### 1. Multi-Tenancy ✅
+- 1 tenant = 1 hotel con aislamiento completo de datos
+- SUPER_ADMIN gestiona todos los hoteles
+- Crear hotel automáticamente crea usuario ADMIN
+- 3 tenants de demostración configurados
 
-#### 3. Reservations & Stays ✅
-- Full lifecycle: PREBOOK → CONFIRMED → CHECKED_IN → CHECKED_OUT
-- Walk-in support (instant check-in)
-- Guest profiles with document types
+### 2. Autenticación y Roles ✅
+| Rol | Acceso |
+|-----|--------|
+| SUPER_ADMIN | Todo el sistema + gestión de hoteles |
+| ADMIN | Configuración hotel, usuarios, reportes |
+| RECEPTIONIST | Reservas, check-in/out, pagos, caja |
+| HOUSEKEEPING | Solo limpieza de habitaciones |
 
-#### 4. Folio & Payments ✅
-- Charges (nightly rates, services, minibar)
-- Multiple payment methods (Cash, Card, Transfer, Yape/Plin)
-- Cash shifts with open/close and difference alerts
+### 3. Gestión de Habitaciones ✅
+- **Estado Dual:**
+  - Ocupación: VACANT, OCCUPIED, DUE_OUT
+  - Limpieza: DIRTY, CLEANING, CLEAN, INSPECT, OUT_OF_ORDER
+- 3 tipos de habitación: Estándar, Superior, Suite
+- 30 habitaciones en 3 pisos (demo)
 
-#### 5. Peruvian Invoicing (NubeFact) ✅
-- Electronic Boletas/Facturas
-- MOCK mode (default) / LIVE mode configurable per tenant
-- Settings page for configuration
+### 4. Tarifas Dinámicas ✅
+- Tarifa base por tipo de habitación
+- Tarifas especiales por período (Temporada Alta, Feriados)
+- Cálculo automático con mezcla de tarifas
+- UI completa en /rates
 
-#### 6. Housekeeping & Maintenance ✅
-- Task boards by floor
-- Incident reporting
-- Maintenance tickets
+### 5. Reservas Individuales ✅
+- Ciclo completo: PREBOOK → CONFIRMED → CHECKED_IN → CHECKED_OUT → CANCELLED
+- Walk-in (check-in inmediato sin reserva previa)
+- Asignación de habitación
+- Búsqueda de disponibilidad
 
-#### 7. Dashboard & Reports ✅
-- KPI cards: Occupancy, Arrivals, Departures, Revenue
-- Charts using Recharts
-- **PDF/Excel export** for all reports
+### 6. Reservas Grupales ✅
+- Crear reserva para múltiples habitaciones
+- Código de grupo único (GRP-XXXXXX)
+- Contacto del organizador
+- Vista detallada con todas las reservas individuales
 
-#### 8. Settings ✅
-- NubeFact configuration (RUTA, TOKEN, MOCK/LIVE)
-- User management (create, activate/deactivate)
-- Hotel information
+### 7. Calendario Visual ✅
+- Grid de habitaciones por fecha
+- Vista de 14 días configurable
+- API para drag-and-drop (mover reservas)
+- Colores por estado de reserva
 
-#### 9. Tenants (SUPER_ADMIN) ✅
-- List all hotels
-- Create new hotel with automatic admin user
-- View tenant details and configuration
+### 8. Huéspedes ✅
+- Perfil completo con documento (DNI, CE, Pasaporte, RUC)
+- Historial de estadías
+- Datos de contacto
+- Nacionalidad
 
-## Test Results
-- **Backend:** 62/62 tests passed (100%)
-- **Frontend:** All 15 pages functional
+### 9. Folio y Cargos ✅
+- Cargos automáticos por noche
+- Cargos manuales (minibar, servicios, lavandería)
+- Anulación de cargos con motivo
+- Balance en tiempo real
 
-## Credentials
-| Role | Email | Password | Tenant |
-|------|-------|----------|--------|
-| Super Admin | superadmin@sistema.com | superadmin123 | Global |
-| Admin | admin@demo.com | admin123 | Hotel Demo |
-| Admin | admin@hoteltest.com | admin123test | Hotel Test |
-| Receptionist | recepcion@demo.com | recepcion123 | Hotel Demo |
-| Housekeeping | limpieza@demo.com | limpieza123 | Hotel Demo |
+### 10. Pagos ✅
+- Métodos: Efectivo, Tarjeta, Transferencia, Yape/Plin
+- Pagos parciales
+- Referencia de transacción
+- Vinculación a folio
 
-## Technical Stack
-- **Backend:** FastAPI + MongoDB + JWT
-- **Frontend:** React 19 + TailwindCSS + Shadcn/UI + Recharts
+### 11. Caja por Turnos ✅
+- Apertura con monto inicial
+- Movimientos de entrada/salida
+- Cierre con conteo y diferencia
+- Alerta automática si hay descuadre
+
+### 12. Facturación Electrónica (NubeFact) ✅
+- **MOCK mode** para desarrollo (predeterminado)
+- **LIVE mode** configurable por tenant
+- Tipos: Boleta, Factura
+- Generación de XML, CDR, PDF (simulado en mock)
+- Notas de crédito y anulaciones
+
+### 13. Housekeeping ✅
+- Tablero por piso
+- Estados: PENDING, IN_PROGRESS, COMPLETED, VERIFIED
+- Prioridades: LOW, MEDIUM, HIGH, URGENT
+- Asignación de personal
+- Inspección antes de liberar habitación
+
+### 14. Mantenimiento ✅
+- Tickets de incidencias
+- Estados: OPEN, IN_PROGRESS, RESOLVED, CLOSED
+- Puede marcar habitación como OUT_OF_ORDER
+- Registro de solución
+
+### 15. Dashboard ✅
+- KPIs: Ocupación, Llegadas, Salidas, Habitaciones Sucias, Ingresos, Saldo Pendiente
+- 6 gráficos con Recharts:
+  - Ingresos últimos 30 días
+  - Ocupación últimos 30 días
+  - Estado de habitaciones
+  - Métodos de pago
+  - Estado de facturación
+  - Productos más vendidos
+
+### 16. Reportes ✅
+- Ocupación mensual
+- Ingresos mensual
+- Facturación mensual
+- **Exportación PDF** (reportlab)
+- **Exportación Excel** (openpyxl)
+
+### 17. Alertas ✅
+- Tipos: SYSTEM, INVOICING, HOUSEKEEPING, MAINTENANCE, PAYMENT, CASH_SHIFT
+- Severidad: INFO, WARNING, ERROR, CRITICAL
+- Marcar como leído/resuelto
+- Centro de notificaciones en UI
+
+### 18. Notificaciones Email ✅
+- Integración Resend (requiere API key)
+- Templates HTML profesionales:
+  - Confirmación de reserva
+  - Bienvenida check-in
+  - Recordatorio check-out
+  - Comprobante de pago
+- Log de notificaciones enviadas
+
+### 19. Audit Log ✅
+- Registro inmutable de operaciones
+- Filtros por entidad, acción, fecha
+- Trazabilidad completa
+
+### 20. Configuración ✅
+- NubeFact: RUTA, TOKEN, modo MOCK/LIVE
+- Gestión de usuarios: crear, activar/desactivar
+- Información del hotel
+
+---
+
+## ARQUITECTURA TÉCNICA
+
+### Backend
+- **Framework:** FastAPI 0.115+
+- **Base de Datos:** MongoDB (motor async)
+- **Autenticación:** JWT (24h)
 - **Export:** openpyxl (Excel), reportlab (PDF)
+- **Email:** Resend
 
-## API Endpoints (62+ tested)
-- `/api/auth` - Authentication
-- `/api/tenants` - Tenant CRUD (SUPER_ADMIN)
-- `/api/users` - User management
-- `/api/rooms` - Room CRUD
-- `/api/room-types` - Room type config
-- `/api/rates` - Dynamic rate management
-- `/api/guests` - Guest profiles
-- `/api/reservations` - Booking lifecycle + Walk-in
-- `/api/folios` - Charges and payments
-- `/api/cash-shifts` - Cash shift management
-- `/api/invoices` - Electronic invoicing
-- `/api/housekeeping` - Cleaning tasks
-- `/api/maintenance` - Maintenance tickets
-- `/api/alerts` - System alerts
-- `/api/dashboard` - KPIs and charts
-- `/api/reports` - Monthly reports + Export PDF/Excel
+### Frontend
+- **Framework:** React 19
+- **Estilos:** TailwindCSS + Shadcn/UI
+- **Gráficos:** Recharts
+- **Routing:** React Router v7
+- **Estado:** React Context
 
-## File Structure
+### Estructura de Archivos
 ```
 /app/
 ├── backend/
-│   ├── server.py (~2800 lines)
+│   ├── server.py           # API completa (~3200 líneas)
 │   ├── requirements.txt
-│   └── tests/test_hotel_pms_api.py (62 tests)
+│   └── .env
 ├── frontend/
 │   ├── src/
 │   │   ├── components/
-│   │   │   ├── layout/ (AppLayout, Sidebar, Header)
-│   │   │   └── ui/ (Shadcn components)
-│   │   ├── contexts/ (AuthContext)
-│   │   ├── lib/ (api.js, utils.js)
-│   │   └── pages/ (15 pages)
+│   │   │   ├── layout/     # AppLayout, Sidebar, Header
+│   │   │   └── ui/         # Shadcn (40+ componentes)
+│   │   ├── contexts/       # AuthContext
+│   │   ├── lib/           # api.js, utils.js
+│   │   └── pages/         # 16 páginas
 │   └── package.json
 └── memory/PRD.md
 ```
 
-## Pages (15)
-1. Login
-2. Dashboard
-3. RoomCalendar
-4. Reservations
-5. Guests
-6. Rooms
-7. Rates
-8. CashShift
-9. Invoices
-10. Housekeeping
-11. Maintenance
-12. Alerts
-13. Reports
-14. Settings
-15. Tenants
+---
 
-## Remaining/Future Tasks
+## PÁGINAS DEL SISTEMA (16)
 
-### P2 - Medium Priority
-- [ ] Reservas grupales
-- [ ] Email notifications
-- [ ] Drag-and-drop calendar
+1. **Login** - Autenticación
+2. **Dashboard** - KPIs y gráficos
+3. **RoomCalendar** - Calendario visual de reservas
+4. **Reservations** - Reservas individuales + Walk-in
+5. **GroupReservations** - Reservas grupales
+6. **Guests** - Gestión de huéspedes
+7. **Rooms** - Gestión de habitaciones
+8. **Rates** - Tarifas dinámicas
+9. **CashShift** - Caja por turnos
+10. **Invoices** - Facturación electrónica
+11. **Housekeeping** - Tablero de limpieza
+12. **Maintenance** - Tickets de mantenimiento
+13. **Alerts** - Centro de alertas
+14. **Reports** - Reportes con export
+15. **Settings** - Configuración
+16. **Tenants** - Gestión de hoteles (SUPER_ADMIN)
 
-### P3 - Low Priority
-- [ ] Channel manager integration
-- [ ] Dark mode
-- [ ] Multi-language
+---
 
-## Known Limitations
-- NubeFact defaults to MOCK mode
-- No email/SMS notifications
-- No channel manager
+## CREDENCIALES DE DEMOSTRACIÓN
 
-## Last Updated
-February 13, 2026 - Multi-tenancy complete, 62 tests passed
+| Rol | Email | Contraseña | Hotel |
+|-----|-------|------------|-------|
+| Super Admin | superadmin@sistema.com | superadmin123 | Global |
+| Admin | admin@demo.com | admin123 | Hotel Demo |
+| Admin | admin@hoteltest.com | admin123test | Hotel Test |
+| Recepcionista | recepcion@demo.com | recepcion123 | Hotel Demo |
+| Housekeeping | limpieza@demo.com | limpieza123 | Hotel Demo |
+
+---
+
+## DATOS DE DEMOSTRACIÓN
+
+- **3 Hoteles** (tenants)
+- **30 Habitaciones** en Hotel Demo
+- **3 Tipos:** Estándar (S/150), Superior (S/220), Suite (S/350)
+- **8 Productos** para cargos
+- **Reservas** de prueba
+- **Tarifas especiales** configuradas
+
+---
+
+## CONFIGURACIÓN
+
+### Backend (.env)
+```
+MONGO_URL="mongodb://localhost:27017"
+DB_NAME="test_database"
+JWT_SECRET="hotel-pms-secret-key-production-2024"
+RESEND_API_KEY=        # Opcional para emails
+SENDER_EMAIL=noreply@hotelpms.com
+```
+
+### Frontend (.env)
+```
+REACT_APP_BACKEND_URL=https://hospeda-admin.preview.emergentagent.com
+```
+
+---
+
+## INTEGRACIONES
+
+### NubeFact (Facturación SUNAT)
+- **Modo:** MOCK (desarrollo) / LIVE (producción)
+- **Configuración:** Por tenant en Settings
+- TOKEN nunca expuesto en frontend
+
+### Resend (Email)
+- **Estado:** Integrado, requiere API key
+- **Templates:** 4 tipos de notificación
+
+---
+
+## ESTADO DEL PROYECTO
+
+✅ **100% FUNCIONAL**
+
+- Backend: Todos los endpoints operativos
+- Frontend: Todas las páginas funcionales
+- Multi-tenancy: Aislamiento verificado
+- Facturación: MOCK mode activo
+- Email: Ready (sin API key = skip)
+
+---
+
+## URL DE ACCESO
+
+**Preview:** https://hospeda-admin.preview.emergentagent.com
+
+---
+
+*Última actualización: 13 de Febrero de 2026*
