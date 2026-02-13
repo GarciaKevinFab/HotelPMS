@@ -61,6 +61,15 @@ export const roomTypesAPI = {
   update: (id, data) => api.put(`/room-types/${id}`, data),
 };
 
+// Rates (Tarifas)
+export const ratesAPI = {
+  list: (roomTypeId) => api.get('/rates', { params: { room_type_id: roomTypeId } }),
+  create: (data) => api.post('/rates', data),
+  delete: (id) => api.delete(`/rates/${id}`),
+  calculate: (roomTypeId, checkinDate, checkoutDate) => 
+    api.get('/rates/calculate', { params: { room_type_id: roomTypeId, checkin_date: checkinDate, checkout_date: checkoutDate } }),
+};
+
 // Rooms
 export const roomsAPI = {
   list: (params) => api.get('/rooms', { params }),
