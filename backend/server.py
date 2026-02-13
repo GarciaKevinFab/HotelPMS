@@ -2703,6 +2703,402 @@ async def create_walkin(
         "message": "Walk-in registrado exitosamente"
     }
 
+# ============== GROUP RESERVATIONS ==============
+@api_router.post("/reservations/group")
+async def create_group_reservation(
+    data: GroupReservationCreate,
+    user: dict = Depends(get_current_user)
+):
+    """Create a group reservation for multiple rooms"""
+    tenant_id = user["tenant_id"]
+    
+    # Validate dates
+    if data.checkin_date >= data.checkout_date:
+        raise HTTPException(status_code=400, detail="Fecha de checkout debe ser posterior a checkin")
+    
+    nights = (data.checkout_date - data.checkin_date).days
+    
+    # Generate group code
+    count = await db.group_reservations.count_documents({"tenant_id": tenant_id})
+    group_code = f"GRP-{count + 1:06d}"
+    
+    now = datetime.now(timezone.utc).isoformat()
+    
+    # Create group reservation header
+    group = {
+        "code": group_code,
+        "tenant_id": tenant_id,
+        "group_name": data.group_name,
+        "contact_name": data.contact_name,
+        "contact_phone": data.contact_phone,
+        "contact_email": data.contact_email,
+        "checkin_date": data.checkin_date.isoformat(),
+        "checkout_date": data.checkout_date.isoformat(),
+        "nights": nights,
+        "total_rooms": sum(r.get("quantity", 1) for r in data.rooms),
+        "adults": data.adults,
+        "children": data.children,
+        "deposit_amount": data.deposit_amount,
+        "total_estimated": 0,
+        "status": "CONFIRMED",
+        "notes": data.notes,
+        "reservations": [],
+        "created_by": user["user_id"],
+        "created_at": now
+    }
+    
+    total_estimated = 0
+    reservation_ids = []
+    
+    # Create individual reservations for each room request
+    for room_req in data.rooms:
+        room_type_id = room_req.get("room_type_id")
+        quantity = room_req.get("quantity", 1)
+        
+        room_type = await db.room_types.find_one({"_id": ObjectId(room_type_id), "tenant_id": tenant_id})
+        if not room_type:
+            raise HTTPException(status_code=400, detail=f"Tipo de habitación no encontrado: {room_type_id}")
+        
+        base_price = room_type.get("base_price", 0)
+        room_total = nights * base_price
+        
+        for i in range(quantity):
+            res_count = await db.reservations.count_documents({"tenant_id": tenant_id})
+            res_code = f"RES-{res_count + 1:06d}"
+            
+            reservation = {
+                "code": res_code,
+                "tenant_id": tenant_id,
+                "group_code": group_code,
+                "guest_id": None,
+                "room_type_id": room_type_id,
+                "room_id": None,
+                "checkin_date": data.checkin_date.isoformat(),
+                "checkout_date": data.checkout_date.isoformat(),
+                "adults": max(1, data.adults // quantity),
+                "children": 0,
+                "total_estimated": room_total,
+                "deposit_amount": 0,
+                "source": "GRUPO",
+                "status": ReservationStatus.CONFIRMED.value,
+                "notes": f"Grupo: {data.group_name}",
+                "created_by": user["user_id"],
+                "created_at": now
+            }
+            res_result = await db.reservations.insert_one(reservation)
+            reservation_ids.append(str(res_result.inserted_id))
+            total_estimated += room_total
+    
+    group["reservations"] = reservation_ids
+    group["total_estimated"] = total_estimated
+    
+    result = await db.group_reservations.insert_one(group)
+    
+    await create_audit_log(tenant_id, user["user_id"], "group_reservation", "CREATE", None, {"code": group_code, "rooms": len(reservation_ids)})
+    
+    return {
+        "id": str(result.inserted_id),
+        "code": group_code,
+        "reservations_created": len(reservation_ids),
+        "total_estimated": total_estimated,
+        "message": "Reserva grupal creada exitosamente"
+    }
+
+@api_router.get("/reservations/groups")
+async def list_group_reservations(
+    status: Optional[str] = None,
+    user: dict = Depends(get_current_user)
+):
+    """List all group reservations"""
+    tenant_filter = get_tenant_filter(user)
+    query = tenant_filter.copy()
+    if status:
+        query["status"] = status
+    
+    groups = await db.group_reservations.find(query).sort("created_at", -1).to_list(500)
+    return [serialize_doc(g) for g in groups]
+
+@api_router.get("/reservations/groups/{group_id}")
+async def get_group_reservation(group_id: str, user: dict = Depends(get_current_user)):
+    """Get group reservation with all individual reservations"""
+    tenant_filter = get_tenant_filter(user)
+    group = await db.group_reservations.find_one({"_id": ObjectId(group_id), **tenant_filter})
+    if not group:
+        raise HTTPException(status_code=404, detail="Reserva grupal no encontrada")
+    
+    # Get individual reservations
+    reservations = await db.reservations.find({"group_code": group["code"]}).to_list(100)
+    
+    result = serialize_doc(group)
+    result["reservation_details"] = [serialize_doc(r) for r in reservations]
+    return result
+
+# ============== EMAIL NOTIFICATIONS ==============
+async def send_email_async(to_email: str, subject: str, html_content: str):
+    """Send email using Resend (async wrapper)"""
+    try:
+        import resend
+        resend.api_key = os.environ.get("RESEND_API_KEY")
+        sender = os.environ.get("SENDER_EMAIL", "noreply@hotelpms.com")
+        
+        if not resend.api_key:
+            logger.warning("RESEND_API_KEY not configured, email not sent")
+            return {"status": "skipped", "reason": "API key not configured"}
+        
+        params = {
+            "from": sender,
+            "to": [to_email],
+            "subject": subject,
+            "html": html_content
+        }
+        
+        result = await asyncio.to_thread(resend.Emails.send, params)
+        return {"status": "sent", "email_id": result.get("id")}
+    except Exception as e:
+        logger.error(f"Failed to send email: {str(e)}")
+        return {"status": "error", "error": str(e)}
+
+def generate_email_template(template_type: str, data: dict) -> tuple:
+    """Generate email subject and HTML content"""
+    tenant_name = data.get("tenant_name", "Hotel")
+    
+    if template_type == "RESERVATION_CONFIRMATION":
+        subject = f"Confirmación de Reserva - {data.get('code', '')}"
+        html = f"""
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+            <div style="background: #1E3A5F; color: white; padding: 20px; text-align: center;">
+                <h1 style="margin: 0;">{tenant_name}</h1>
+            </div>
+            <div style="padding: 20px; background: #f9f9f9;">
+                <h2 style="color: #1E3A5F;">¡Reserva Confirmada!</h2>
+                <p>Estimado/a <strong>{data.get('guest_name', 'Huésped')}</strong>,</p>
+                <p>Su reserva ha sido confirmada exitosamente.</p>
+                
+                <div style="background: white; padding: 15px; border-radius: 8px; margin: 20px 0;">
+                    <p><strong>Código de Reserva:</strong> {data.get('code', '')}</p>
+                    <p><strong>Check-in:</strong> {data.get('checkin_date', '')} (14:00 hrs)</p>
+                    <p><strong>Check-out:</strong> {data.get('checkout_date', '')} (12:00 hrs)</p>
+                    <p><strong>Tipo de Habitación:</strong> {data.get('room_type', '')}</p>
+                    <p><strong>Total Estimado:</strong> S/ {data.get('total', 0):.2f}</p>
+                </div>
+                
+                <p>¡Le esperamos!</p>
+            </div>
+            <div style="text-align: center; padding: 20px; color: #666; font-size: 12px;">
+                <p>{tenant_name} - Sistema de Reservas</p>
+            </div>
+        </div>
+        """
+    
+    elif template_type == "CHECKIN_CONFIRMATION":
+        subject = f"Bienvenido - Check-in Confirmado"
+        html = f"""
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+            <div style="background: #10B981; color: white; padding: 20px; text-align: center;">
+                <h1 style="margin: 0;">¡Bienvenido!</h1>
+            </div>
+            <div style="padding: 20px; background: #f9f9f9;">
+                <h2 style="color: #1E3A5F;">Check-in Realizado</h2>
+                <p>Estimado/a <strong>{data.get('guest_name', 'Huésped')}</strong>,</p>
+                <p>Su check-in ha sido registrado exitosamente.</p>
+                
+                <div style="background: white; padding: 15px; border-radius: 8px; margin: 20px 0;">
+                    <p><strong>Habitación:</strong> {data.get('room_number', '')}</p>
+                    <p><strong>Piso:</strong> {data.get('floor', '')}</p>
+                    <p><strong>Check-out:</strong> {data.get('checkout_date', '')} (12:00 hrs)</p>
+                    <p><strong>WiFi:</strong> {tenant_name}_Guest / password123</p>
+                </div>
+                
+                <p>Disfrute su estadía. Para cualquier necesidad, contacte a recepción.</p>
+            </div>
+        </div>
+        """
+    
+    elif template_type == "CHECKOUT_REMINDER":
+        subject = f"Recordatorio de Check-out"
+        html = f"""
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+            <div style="background: #F59E0B; color: white; padding: 20px; text-align: center;">
+                <h1 style="margin: 0;">Recordatorio</h1>
+            </div>
+            <div style="padding: 20px; background: #f9f9f9;">
+                <h2 style="color: #1E3A5F;">Check-out Mañana</h2>
+                <p>Estimado/a <strong>{data.get('guest_name', 'Huésped')}</strong>,</p>
+                <p>Le recordamos que su check-out está programado para mañana.</p>
+                
+                <div style="background: white; padding: 15px; border-radius: 8px; margin: 20px 0;">
+                    <p><strong>Fecha:</strong> {data.get('checkout_date', '')}</p>
+                    <p><strong>Hora límite:</strong> 12:00 hrs</p>
+                    <p><strong>Habitación:</strong> {data.get('room_number', '')}</p>
+                </div>
+                
+                <p>Por favor, acérquese a recepción antes de su salida para realizar el check-out.</p>
+            </div>
+        </div>
+        """
+    
+    else:  # PAYMENT_RECEIPT
+        subject = f"Comprobante de Pago - {data.get('invoice_number', '')}"
+        html = f"""
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+            <div style="background: #1E3A5F; color: white; padding: 20px; text-align: center;">
+                <h1 style="margin: 0;">{tenant_name}</h1>
+            </div>
+            <div style="padding: 20px; background: #f9f9f9;">
+                <h2 style="color: #1E3A5F;">Comprobante de Pago</h2>
+                <p>Estimado/a <strong>{data.get('client_name', 'Cliente')}</strong>,</p>
+                
+                <div style="background: white; padding: 15px; border-radius: 8px; margin: 20px 0;">
+                    <p><strong>Número:</strong> {data.get('invoice_number', '')}</p>
+                    <p><strong>Tipo:</strong> {data.get('invoice_type', 'Boleta')}</p>
+                    <p><strong>Fecha:</strong> {data.get('date', '')}</p>
+                    <p><strong>Total:</strong> S/ {data.get('total', 0):.2f}</p>
+                </div>
+                
+                <p>Gracias por su preferencia.</p>
+            </div>
+        </div>
+        """
+    
+    return subject, html
+
+@api_router.post("/notifications/send")
+async def send_notification(
+    template: EmailTemplate,
+    recipient_email: EmailStr = Body(...),
+    data: dict = Body(...),
+    user: dict = Depends(get_current_user)
+):
+    """Send email notification using template"""
+    # Get tenant info
+    tenant = await db.tenants.find_one({"_id": ObjectId(user["tenant_id"])})
+    data["tenant_name"] = tenant.get("nombre_comercial", tenant.get("name", "Hotel")) if tenant else "Hotel"
+    
+    subject, html = generate_email_template(template.value, data)
+    result = await send_email_async(recipient_email, subject, html)
+    
+    # Log notification
+    notification_log = {
+        "tenant_id": user["tenant_id"],
+        "template": template.value,
+        "recipient": recipient_email,
+        "status": result.get("status"),
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.notification_logs.insert_one(notification_log)
+    
+    return result
+
+@api_router.get("/notifications/logs")
+async def get_notification_logs(
+    limit: int = Query(50, ge=1, le=200),
+    user: dict = Depends(require_roles(Role.ADMIN))
+):
+    """Get notification history"""
+    tenant_filter = get_tenant_filter(user)
+    logs = await db.notification_logs.find(tenant_filter).sort("created_at", -1).limit(limit).to_list(limit)
+    return [serialize_doc(l) for l in logs]
+
+# ============== CALENDAR DATA ENDPOINT ==============
+@api_router.get("/calendar/reservations")
+async def get_calendar_reservations(
+    start_date: date = Query(...),
+    end_date: date = Query(...),
+    user: dict = Depends(get_current_user)
+):
+    """Get reservations for calendar view with drag-drop support"""
+    tenant_filter = get_tenant_filter(user)
+    
+    # Get all reservations overlapping with date range
+    reservations = await db.reservations.find({
+        **tenant_filter,
+        "status": {"$in": [ReservationStatus.CONFIRMED.value, ReservationStatus.CHECKED_IN.value]},
+        "$or": [
+            {"checkin_date": {"$gte": start_date.isoformat(), "$lte": end_date.isoformat()}},
+            {"checkout_date": {"$gte": start_date.isoformat(), "$lte": end_date.isoformat()}},
+            {"$and": [
+                {"checkin_date": {"$lte": start_date.isoformat()}},
+                {"checkout_date": {"$gte": end_date.isoformat()}}
+            ]}
+        ]
+    }).to_list(500)
+    
+    # Get rooms and guests
+    result = []
+    for res in reservations:
+        room = await db.rooms.find_one({"_id": ObjectId(res["room_id"])}) if res.get("room_id") else None
+        guest = await db.guests.find_one({"_id": ObjectId(res["guest_id"])}) if res.get("guest_id") else None
+        room_type = await db.room_types.find_one({"_id": ObjectId(res["room_type_id"])}) if res.get("room_type_id") else None
+        
+        result.append({
+            "id": str(res["_id"]),
+            "code": res.get("code"),
+            "title": guest.get("full_name", "Sin huésped") if guest else "Sin huésped",
+            "room_id": res.get("room_id"),
+            "room_number": room.get("number") if room else None,
+            "room_type": room_type.get("name") if room_type else None,
+            "start": res.get("checkin_date"),
+            "end": res.get("checkout_date"),
+            "status": res.get("status"),
+            "color": "#3B82F6" if res.get("status") == ReservationStatus.CONFIRMED.value else "#10B981"
+        })
+    
+    return result
+
+@api_router.put("/calendar/reservations/{reservation_id}/move")
+async def move_reservation(
+    reservation_id: str,
+    new_room_id: str = Body(...),
+    new_checkin: date = Body(None),
+    new_checkout: date = Body(None),
+    user: dict = Depends(get_current_user)
+):
+    """Move reservation to different room or dates (drag-drop)"""
+    tenant_filter = get_tenant_filter(user)
+    
+    reservation = await db.reservations.find_one({"_id": ObjectId(reservation_id), **tenant_filter})
+    if not reservation:
+        raise HTTPException(status_code=404, detail="Reserva no encontrada")
+    
+    # Validate new room
+    new_room = await db.rooms.find_one({"_id": ObjectId(new_room_id), **tenant_filter})
+    if not new_room:
+        raise HTTPException(status_code=404, detail="Habitación no encontrada")
+    
+    update_data = {"room_id": new_room_id}
+    
+    if new_checkin:
+        update_data["checkin_date"] = new_checkin.isoformat()
+    if new_checkout:
+        update_data["checkout_date"] = new_checkout.isoformat()
+    
+    # Check for conflicts
+    check_in = new_checkin.isoformat() if new_checkin else reservation.get("checkin_date")
+    check_out = new_checkout.isoformat() if new_checkout else reservation.get("checkout_date")
+    
+    conflict = await db.reservations.find_one({
+        "_id": {"$ne": ObjectId(reservation_id)},
+        "room_id": new_room_id,
+        "status": {"$in": [ReservationStatus.CONFIRMED.value, ReservationStatus.CHECKED_IN.value]},
+        "$or": [
+            {"checkin_date": {"$lt": check_out}, "checkout_date": {"$gt": check_in}}
+        ]
+    })
+    
+    if conflict:
+        raise HTTPException(status_code=400, detail="Conflicto con otra reserva en esa habitación")
+    
+    await db.reservations.update_one(
+        {"_id": ObjectId(reservation_id)},
+        {"$set": update_data}
+    )
+    
+    await create_audit_log(user["tenant_id"], user["user_id"], "reservation", "MOVE", 
+                          {"room_id": reservation.get("room_id")}, 
+                          {"room_id": new_room_id, "dates": f"{check_in} - {check_out}"})
+    
+    return {"message": "Reserva movida exitosamente"}
+
 # ============== SEARCH ENDPOINT ==============
 @api_router.get("/search")
 async def global_search(q: str = Query(..., min_length=2), user: dict = Depends(get_current_user)):
