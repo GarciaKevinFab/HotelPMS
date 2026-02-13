@@ -792,6 +792,154 @@ export function Reservations() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Walk-in Dialog */}
+      <Dialog open={showWalkinDialog} onOpenChange={setShowWalkinDialog}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Zap className="w-5 h-5 text-amber-500" />
+              Walk-in
+            </DialogTitle>
+            <DialogDescription>
+              Registro rápido de huésped sin reserva previa
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            {/* Guest Info */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>Tipo Documento *</Label>
+                <Select 
+                  value={walkinForm.doc_type} 
+                  onValueChange={(v) => setWalkinForm(prev => ({ ...prev, doc_type: v }))}
+                >
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="DNI">DNI</SelectItem>
+                    <SelectItem value="CE">Carné Extranjería</SelectItem>
+                    <SelectItem value="PASAPORTE">Pasaporte</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Número Documento *</Label>
+                <Input
+                  value={walkinForm.doc_number}
+                  onChange={(e) => setWalkinForm(prev => ({ ...prev, doc_number: e.target.value }))}
+                  placeholder="12345678"
+                />
+              </div>
+            </div>
+            
+            <div>
+              <Label>Nombre Completo *</Label>
+              <Input
+                value={walkinForm.full_name}
+                onChange={(e) => setWalkinForm(prev => ({ ...prev, full_name: e.target.value }))}
+                placeholder="Nombre del huésped"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>Teléfono</Label>
+                <Input
+                  value={walkinForm.phone}
+                  onChange={(e) => setWalkinForm(prev => ({ ...prev, phone: e.target.value }))}
+                  placeholder="+51 999 999 999"
+                />
+              </div>
+              <div>
+                <Label>Email</Label>
+                <Input
+                  type="email"
+                  value={walkinForm.email}
+                  onChange={(e) => setWalkinForm(prev => ({ ...prev, email: e.target.value }))}
+                />
+              </div>
+            </div>
+
+            {/* Room Selection */}
+            <div>
+              <Label>Habitación Disponible *</Label>
+              <Select 
+                value={walkinForm.room_id} 
+                onValueChange={(v) => setWalkinForm(prev => ({ ...prev, room_id: v }))}
+              >
+                <SelectTrigger><SelectValue placeholder="Seleccione habitación" /></SelectTrigger>
+                <SelectContent>
+                  {walkinRooms.map(room => (
+                    <SelectItem key={room.id} value={room.id}>
+                      Hab. {room.number} - {room.room_type?.name} - {formatCurrency(room.room_type?.base_price)}/noche
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {walkinRooms.length === 0 && (
+                <p className="text-sm text-amber-600 mt-1">No hay habitaciones disponibles</p>
+              )}
+            </div>
+
+            {/* Checkout date */}
+            <div>
+              <Label>Fecha de Check-out *</Label>
+              <Input
+                type="date"
+                value={walkinForm.checkout_date}
+                min={new Date().toISOString().split('T')[0]}
+                onChange={(e) => setWalkinForm(prev => ({ ...prev, checkout_date: e.target.value }))}
+              />
+            </div>
+
+            {/* Guests */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>Adultos</Label>
+                <Input
+                  type="number"
+                  min="1"
+                  value={walkinForm.adults}
+                  onChange={(e) => setWalkinForm(prev => ({ ...prev, adults: parseInt(e.target.value) || 1 }))}
+                />
+              </div>
+              <div>
+                <Label>Niños</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  value={walkinForm.children}
+                  onChange={(e) => setWalkinForm(prev => ({ ...prev, children: parseInt(e.target.value) || 0 }))}
+                />
+              </div>
+            </div>
+
+            {/* Notes */}
+            <div>
+              <Label>Notas</Label>
+              <Textarea
+                value={walkinForm.notes}
+                onChange={(e) => setWalkinForm(prev => ({ ...prev, notes: e.target.value }))}
+                placeholder="Observaciones..."
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowWalkinDialog(false)}>
+              Cancelar
+            </Button>
+            <Button 
+              onClick={handleWalkinCreate} 
+              disabled={creatingWalkin || walkinRooms.length === 0}
+              className="bg-amber-500 hover:bg-amber-600"
+            >
+              {creatingWalkin ? 'Registrando...' : 'Registrar Walk-in'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
