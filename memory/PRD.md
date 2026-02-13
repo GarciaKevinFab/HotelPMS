@@ -25,12 +25,12 @@ Build a production-ready multi-tenant Hotel Administration PMS (SaaS) for Peru.
 #### 1. Rooms Management
 - Dual state system:
   - Occupancy: VACANT, OCCUPIED, DUE_OUT
-  - Housekeeping: DIRTY, CLEAN, CLEANING, INSPECT, OUT_OF_ORDER
+  - Housekeeping: DIRTY, CLEANING, CLEAN, INSPECT, OUT_OF_ORDER
 - Room types with amenities and base pricing
 
 #### 2. Reservations & Stays
 - Full lifecycle: PREBOOK → CONFIRMED → CHECKED_IN → CHECKED_OUT
-- Walk-ins support
+- Walk-ins support (instant check-in)
 - Guest profiles with document types (DNI, CE, Passport, RUC)
 
 #### 3. Folio & Payments
@@ -41,83 +41,68 @@ Build a production-ready multi-tenant Hotel Administration PMS (SaaS) for Peru.
 
 #### 4. Peruvian Invoicing (NubeFact)
 - Electronic Boletas/Facturas
-- MOCK mode for development
-- LIVE mode with RUTA+TOKEN per tenant
+- MOCK mode for development (default)
+- LIVE mode configurable per tenant via Settings page
 - Credit notes and voiding support
-- Artifact storage (XML, CDR, PDF)
 
 #### 5. Housekeeping & Maintenance
 - Task boards by floor
 - Incident reporting
 - Maintenance tickets (can set rooms to OUT_OF_ORDER)
 
-#### 6. Dashboard & Reports
+#### 6. Rate Management
+- Dynamic pricing by date ranges
+- Special rates (Temporada Alta, Feriados)
+- Automatic rate calculation for reservations
+
+#### 7. Dashboard & Reports
 - KPI cards: Occupancy, Arrivals, Departures, Revenue
-- Charts using Recharts: Revenue, Occupancy trends, Payment methods, Room status
-- Monthly reports with PDF/Excel export (pending)
+- Charts using Recharts
+- Monthly reports with **PDF/Excel export**
 
-#### 7. Alerts & Audit
-- Notification center for critical events
-- Immutable audit log for all operations
+#### 8. Settings
+- NubeFact configuration (RUTA, TOKEN)
+- User management (create, activate/deactivate)
+- Hotel information display
 
-## Technical Architecture
+## What's Been Implemented ✅
 
-### Backend
-- **Framework:** FastAPI
-- **Database:** MongoDB (motor async driver)
-- **Authentication:** JWT (24h expiration)
-- **Port:** 8001 (internal)
-
-### Frontend
-- **Framework:** React 19
-- **Styling:** TailwindCSS + Shadcn/UI
-- **Charts:** Recharts
-- **State:** React Context (AuthContext)
-- **Routing:** React Router v7
-
-### API Structure
-All endpoints prefixed with `/api`:
-- `/api/auth` - Authentication
-- `/api/tenants` - Tenant management
-- `/api/users` - User management
-- `/api/rooms` - Room CRUD
-- `/api/room-types` - Room type configuration
-- `/api/guests` - Guest profiles
-- `/api/reservations` - Booking lifecycle
-- `/api/folios` - Charges and payments
-- `/api/cash-shifts` - Cash shift management
-- `/api/invoices` - Electronic invoicing
-- `/api/housekeeping` - Cleaning tasks
-- `/api/maintenance` - Maintenance tickets
-- `/api/alerts` - System alerts
-- `/api/dashboard` - KPIs and charts
-- `/api/reports` - Monthly reports
-
-## What's Been Implemented
-
-### ✅ Completed (Feb 13, 2025)
-- [x] Full backend API with all endpoints
-- [x] JWT authentication system
+### Backend (55/55 tests passed - 100%)
+- [x] JWT authentication with role-based access
 - [x] Multi-tenant data isolation
-- [x] Role-based access control
-- [x] Seed data generation (30 rooms, 3 types, 3 users)
-- [x] Complete frontend with 12 pages
-- [x] Dashboard with KPIs and Recharts
 - [x] Room management with dual state
-- [x] Reservation lifecycle (create, assign room, check-in, check-out)
+- [x] Reservation lifecycle (CRUD, assign room, check-in/out)
+- [x] Walk-in endpoint with instant check-in
 - [x] Folio system with charges and payments
-- [x] Cash shift open/close with difference alerts
-- [x] NubeFact MOCK integration
-- [x] Housekeeping board view
+- [x] Cash shift management (open/close with difference alerts)
+- [x] NubeFact integration (MOCK mode)
+- [x] Housekeeping task management
 - [x] Maintenance ticket system
-- [x] Alert notification center
+- [x] Alert notification system
 - [x] Audit logging
-- [x] Spanish localization
-- [x] Responsive design
+- [x] **Rate Management** - create, list, delete special rates
+- [x] **Rate Calculation** - dynamic pricing with base + special rates
+- [x] **Report Export** - PDF and Excel export endpoints
+- [x] **User Management** - create, update status, change roles
+- [x] **Tenant Invoicing Config** - MOCK/LIVE mode switch
 
-### Test Results
-- **Backend:** 100% (34/34 tests passed)
-- **Frontend:** 100% (all pages functional)
+### Frontend (100% functional)
+- [x] Login page with authentication
+- [x] Dashboard with 6 charts and KPI cards
+- [x] Rooms page with 30 rooms, 3 types
+- [x] Room Calendar grid view
+- [x] Reservations with Walk-in dialog
+- [x] Guests management
+- [x] Cash Shift with open/close/movements
+- [x] Invoices list with filters
+- [x] Housekeeping board by floor
+- [x] Maintenance tickets
+- [x] Alerts notification center
+- [x] Reports with **Export Excel/PDF dropdown**
+- [x] **Settings page** with 3 tabs:
+  - Facturación (NubeFact config)
+  - Hotel (info display)
+  - Usuarios (user management)
 
 ## Demo Credentials
 | Role | Email | Password |
@@ -130,61 +115,29 @@ All endpoints prefixed with `/api`:
 ## Seed Data
 - **Tenant:** Hotel Demo (RUC: 20123456789)
 - **Rooms:** 30 rooms across 3 floors
-  - Floor 1: 101-110 (6 Standard, 3 Superior, 1 Suite)
-  - Floor 2: 201-210 (6 Standard, 3 Superior, 1 Suite)
-  - Floor 3: 301-310 (6 Standard, 3 Superior, 1 Suite)
-- **Room Types:**
-  - Estándar: S/150/noche, 2 pax
-  - Superior: S/220/noche, 2 pax
-  - Suite: S/350/noche, 4 pax
-- **Products:** 8 products (Minibar, Lavandería, Servicios)
+- **Room Types:** Estándar (S/150), Superior (S/220), Suite (S/350)
+- **Products:** 8 products for charges
+- **Special Rates:** Temporada Alta sample rate created
 
-## Environment Configuration
+## Technical Architecture
 
-### Backend (.env)
-```
-MONGO_URL=mongodb://localhost:27017
-DB_NAME=test_database
-JWT_SECRET=hotel-pms-secret-key-production-2024
-CORS_ORIGINS=*
-```
+### Backend
+- **Framework:** FastAPI
+- **Database:** MongoDB (motor async)
+- **Authentication:** JWT (24h expiration)
+- **Export:** openpyxl (Excel), reportlab (PDF)
 
-### Frontend (.env)
-```
-REACT_APP_BACKEND_URL=https://hospeda-admin.preview.emergentagent.com
-```
-
-## Upcoming/Future Tasks
-
-### P1 - High Priority
-- [ ] Calendar/Grid view for reservations
-- [ ] Walk-in reservations flow
-- [ ] PDF/Excel export for reports
-- [ ] NubeFact LIVE mode configuration UI
-
-### P2 - Medium Priority
-- [ ] Room rate management by date
-- [ ] Group reservations
-- [ ] Guest history and preferences
-- [ ] Email notifications (check-in confirmation)
-
-### P3 - Low Priority
-- [ ] Channel manager integration
-- [ ] Mobile responsive optimizations
-- [ ] Dark mode support
-- [ ] Multi-language support
-
-## Known Limitations
-- NubeFact is in MOCK mode (simulated responses)
-- Calendar view shows room grid, not timeline view
-- No PDF export yet for invoices/reports
-- No email/SMS notifications configured
+### Frontend
+- **Framework:** React 19
+- **Styling:** TailwindCSS + Shadcn/UI
+- **Charts:** Recharts
+- **Routing:** React Router v7
 
 ## File Structure
 ```
 /app/
 ├── backend/
-│   ├── server.py          # Monolithic API (2300+ lines)
+│   ├── server.py          # All API endpoints (~2600 lines)
 │   ├── requirements.txt
 │   └── tests/
 │       └── test_hotel_pms_api.py
@@ -195,8 +148,45 @@ REACT_APP_BACKEND_URL=https://hospeda-admin.preview.emergentagent.com
 │   │   │   └── ui/        # Shadcn components
 │   │   ├── contexts/      # AuthContext
 │   │   ├── lib/           # api.js, utils.js
-│   │   └── pages/         # 12 page components
+│   │   └── pages/         # 13 page components
 │   └── package.json
 └── memory/
     └── PRD.md
 ```
+
+## Environment Configuration
+
+### Backend (.env)
+```
+MONGO_URL=mongodb://localhost:27017
+DB_NAME=test_database
+JWT_SECRET=hotel-pms-secret-key-production-2024
+```
+
+### Frontend (.env)
+```
+REACT_APP_BACKEND_URL=https://hospeda-admin.preview.emergentagent.com
+```
+
+## Remaining/Future Tasks
+
+### P2 - Medium Priority
+- [ ] Reservas grupales
+- [ ] Historial y preferencias de huéspedes
+- [ ] Email notifications (check-in confirmation)
+- [ ] Rates management UI page
+
+### P3 - Low Priority
+- [ ] Channel manager integration
+- [ ] Mobile responsive optimizations
+- [ ] Dark mode support
+- [ ] Multi-language support
+
+## Known Limitations
+- NubeFact defaults to MOCK mode (configurable via Settings)
+- Email/SMS notifications not implemented
+- No channel manager integration
+
+## Test Reports
+- `/app/test_reports/iteration_3.json` - Latest test results
+- `/app/backend/tests/test_hotel_pms_api.py` - 55 test cases
