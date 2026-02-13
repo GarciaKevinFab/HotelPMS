@@ -2265,6 +2265,34 @@ async def seed_demo_data(user: dict = Depends(require_roles(Role.SUPER_ADMIN))):
     
     return {"message": "Datos demo creados exitosamente", "tenant_id": tenant_id, "credentials": {"admin": "admin@demo.com / admin123", "recepcion": "recepcion@demo.com / recepcion123", "limpieza": "limpieza@demo.com / limpieza123"}}
 
+# Initial setup endpoint (only works when no users exist)
+@api_router.post("/setup")
+async def initial_setup():
+    """Create super admin - only works if no users exist"""
+    user_count = await db.users.count_documents({})
+    if user_count > 0:
+        raise HTTPException(status_code=400, detail="Sistema ya inicializado. Use /seed con credenciales de Super Admin")
+    
+    # Create super admin
+    super_admin = {
+        "email": "superadmin@sistema.com",
+        "password_hash": hash_password("superadmin123"),
+        "full_name": "Super Administrador",
+        "role": Role.SUPER_ADMIN.value,
+        "tenant_id": None,
+        "is_active": True,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    result = await db.users.insert_one(super_admin)
+    
+    return {
+        "message": "Super Admin creado exitosamente",
+        "credentials": {
+            "email": "superadmin@sistema.com",
+            "password": "superadmin123"
+        }
+    }
+
 # Root endpoint
 @api_router.get("/")
 async def root():
