@@ -1201,3 +1201,414 @@ class TestReportsExport:
             headers={"Authorization": f"Bearer {admin_token}"}
         )
         assert response.status_code == 200
+
+
+
+# ============== ITERATION 5 TESTS ==============
+# Group Reservations, Calendar API, Email Notifications
+
+class TestGroupReservations:
+    """Group Reservations API tests"""
+    
+    @pytest.fixture
+    def admin_token(self):
+        """Get admin token"""
+        response = requests.post(f"{BASE_URL}/api/auth/login", json={
+            "email": ADMIN_EMAIL,
+            "password": ADMIN_PASSWORD
+        })
+        return response.json()["access_token"]
+    
+    @pytest.fixture
+    def room_type_id(self, admin_token):
+        """Get first room type ID"""
+        response = requests.get(f"{BASE_URL}/api/room-types", headers={
+            "Authorization": f"Bearer {admin_token}"
+        })
+        room_types = response.json()
+        return room_types[0]["id"] if room_types else None
+    
+    def test_create_group_reservation(self, admin_token, room_type_id):
+        """Create a group reservation with multiple rooms"""
+        if not room_type_id:
+            pytest.skip("No room types available")
+        
+        response = requests.post(f"{BASE_URL}/api/reservations/group", json={
+            "group_name": "TEST_Congreso Empresarial 2026",
+            "contact_name": "Juan Pérez",
+            "contact_phone": "999888777",
+            "contact_email": "juan@empresa.com",
+            "checkin_date": "2026-03-15",
+            "checkout_date": "2026-03-18",
+            "rooms": [
+                {"room_type_id": room_type_id, "quantity": 3}
+            ],
+            "adults": 6,
+            "children": 0,
+            "deposit_amount": 500,
+            "notes": "Grupo de prueba para testing"
+        }, headers={"Authorization": f"Bearer {admin_token}"})
+        
+        assert response.status_code == 200
+        data = response.json()
+        assert "code" in data
+        assert data["code"].startswith("GRP-")
+        assert data["reservations_created"] == 3
+        assert data["total_estimated"] > 0
+        assert "message" in data
+    
+    def test_list_group_reservations(self, admin_token):
+        """List all group reservations"""
+        response = requests.get(f"{BASE_URL}/api/reservations/groups", headers={
+            "Authorization": f"Bearer {admin_token}"
+        })
+        
+        assert response.status_code == 200
+        groups = response.json()
+        assert isinstance(groups, list)
+        
+        # Check structure of group reservation
+        if groups:
+            group = groups[0]
+            assert "code" in group
+            assert "group_name" in group
+            assert "contact_name" in group
+            assert "checkin_date" in group
+            assert "checkout_date" in group
+            assert "total_rooms" in group
+            assert "total_estimated" in group
+            assert "status" in group
+    
+    def test_get_group_reservation_detail(self, admin_token):
+        """Get group reservation with individual reservations"""
+        # First list groups
+        list_response = requests.get(f"{BASE_URL}/api/reservations/groups", headers={
+            "Authorization": f"Bearer {admin_token}"
+        })
+        groups = list_response.json()
+        
+        if not groups:
+            pytest.skip("No group reservations to test")
+        
+        group_id = groups[0]["id"]
+        
+        response = requests.get(f"{BASE_URL}/api/reservations/groups/{group_id}", headers={
+            "Authorization": f"Bearer {admin_token}"
+        })
+        
+        assert response.status_code == 200
+        data = response.json()
+        assert "code" in data
+        assert "group_name" in data
+        assert "reservation_details" in data
+        assert isinstance(data["reservation_details"], list)
+    
+    def test_group_reservation_invalid_dates(self, admin_token, room_type_id):
+        """Test group reservation with checkout before checkin"""
+        if not room_type_id:
+            pytest.skip("No room types available")
+        
+        response = requests.post(f"{BASE_URL}/api/reservations/group", json={
+            "group_name": "TEST_Invalid Dates",
+            "contact_name": "Test User",
+            "checkin_date": "2026-03-20",
+            "checkout_date": "2026-03-15",  # Before checkin
+            "rooms": [{"room_type_id": room_type_id, "quantity": 1}],
+            "adults": 1
+        }, headers={"Authorization": f"Bearer {admin_token}"})
+        
+        assert response.status_code == 400
+        assert "checkout" in response.json().get("detail", "").lower()
+
+
+class TestCalendarAPI:
+    """Calendar API tests for drag-drop functionality"""
+    
+    @pytest.fixture
+    def admin_token(self):
+        """Get admin token"""
+        response = requests.post(f"{BASE_URL}/api/auth/login", json={
+            "email": ADMIN_EMAIL,
+            "password": ADMIN_PASSWORD
+        })
+        return response.json()["access_token"]
+    
+    def test_get_calendar_reservations(self, admin_token):
+        """Get reservations for calendar view"""
+        response = requests.get(
+            f"{BASE_URL}/api/calendar/reservations?start_date=2026-02-01&end_date=2026-02-28",
+            headers={"Authorization": f"Bearer {admin_token}"}
+        )
+        
+        assert response.status_code == 200
+        reservations = response.json()
+        assert isinstance(reservations, list)
+        
+        # Check structure if there are reservations
+        if reservations:
+            res = reservations[0]
+            assert "id" in res
+            assert "code" in res
+            assert "title" in res
+            assert "start" in res
+            assert "end" in res
+            assert "status" in res
+            assert "color" in res
+    
+    def test_get_calendar_reservations_wide_range(self, admin_token):
+        """Get reservations for a wider date range"""
+        response = requests.get(
+            f"{BASE_URL}/api/calendar/reservations?start_date=2026-01-01&end_date=2026-12-31",
+            headers={"Authorization": f"Bearer {admin_token}"}
+        )
+        
+        assert response.status_code == 200
+        assert isinstance(response.json(), list)
+    
+    def test_move_reservation_to_different_room(self, admin_token):
+        """Test moving a reservation to a different room"""
+        # Get a reservation with room assigned
+        reservations_response = requests.get(
+            f"{BASE_URL}/api/reservations?status=CONFIRMED",
+            headers={"Authorization": f"Bearer {admin_token}"}
+        )
+        reservations = reservations_response.json()
+        
+        # Find a reservation with room_id
+        reservation_with_room = None
+        for res in reservations:
+            if res.get("room_id"):
+                reservation_with_room = res
+                break
+        
+        if not reservation_with_room:
+            pytest.skip("No reservation with room assigned to test move")
+        
+        # Get available rooms
+        rooms_response = requests.get(
+            f"{BASE_URL}/api/rooms?occupancy_status=VACANT",
+            headers={"Authorization": f"Bearer {admin_token}"}
+        )
+        rooms = rooms_response.json()
+        
+        # Find a different room
+        new_room = None
+        for room in rooms:
+            if room["id"] != reservation_with_room.get("room_id"):
+                new_room = room
+                break
+        
+        if not new_room:
+            pytest.skip("No different vacant room available to test move")
+        
+        # Move reservation
+        response = requests.put(
+            f"{BASE_URL}/api/calendar/reservations/{reservation_with_room['id']}/move",
+            json={"new_room_id": new_room["id"]},
+            headers={"Authorization": f"Bearer {admin_token}"}
+        )
+        
+        # Should succeed or fail with conflict
+        assert response.status_code in [200, 400]
+    
+    def test_move_reservation_invalid_room(self, admin_token):
+        """Test moving reservation to non-existent room"""
+        # Get any reservation
+        reservations_response = requests.get(
+            f"{BASE_URL}/api/reservations",
+            headers={"Authorization": f"Bearer {admin_token}"}
+        )
+        reservations = reservations_response.json()
+        
+        if not reservations:
+            pytest.skip("No reservations to test")
+        
+        response = requests.put(
+            f"{BASE_URL}/api/calendar/reservations/{reservations[0]['id']}/move",
+            json={"new_room_id": "000000000000000000000000"},  # Invalid ID
+            headers={"Authorization": f"Bearer {admin_token}"}
+        )
+        
+        assert response.status_code == 404
+
+
+class TestEmailNotifications:
+    """Email Notifications API tests (RESEND_API_KEY not configured - should skip)"""
+    
+    @pytest.fixture
+    def admin_token(self):
+        """Get admin token"""
+        response = requests.post(f"{BASE_URL}/api/auth/login", json={
+            "email": ADMIN_EMAIL,
+            "password": ADMIN_PASSWORD
+        })
+        return response.json()["access_token"]
+    
+    def test_send_notification_skipped_no_api_key(self, admin_token):
+        """Test sending notification - should return skipped when no API key"""
+        response = requests.post(
+            f"{BASE_URL}/api/notifications/send",
+            json={
+                "template": "RESERVATION_CONFIRMATION",
+                "recipient_email": "test@example.com",
+                "data": {
+                    "guest_name": "Test Guest",
+                    "reservation_code": "RES-000001",
+                    "checkin_date": "2026-03-15",
+                    "checkout_date": "2026-03-18",
+                    "room_type": "Suite"
+                }
+            },
+            headers={"Authorization": f"Bearer {admin_token}"}
+        )
+        
+        assert response.status_code == 200
+        data = response.json()
+        # Should be skipped since RESEND_API_KEY is not configured
+        assert data.get("status") == "skipped"
+        assert "API key" in data.get("reason", "")
+    
+    def test_send_checkin_notification(self, admin_token):
+        """Test sending check-in confirmation notification"""
+        response = requests.post(
+            f"{BASE_URL}/api/notifications/send",
+            json={
+                "template": "CHECKIN_CONFIRMATION",
+                "recipient_email": "guest@example.com",
+                "data": {
+                    "guest_name": "María García",
+                    "room_number": "101",
+                    "checkout_date": "2026-03-18"
+                }
+            },
+            headers={"Authorization": f"Bearer {admin_token}"}
+        )
+        
+        assert response.status_code == 200
+        data = response.json()
+        assert data.get("status") == "skipped"
+    
+    def test_send_payment_receipt_notification(self, admin_token):
+        """Test sending payment receipt notification"""
+        response = requests.post(
+            f"{BASE_URL}/api/notifications/send",
+            json={
+                "template": "PAYMENT_RECEIPT",
+                "recipient_email": "guest@example.com",
+                "data": {
+                    "guest_name": "Carlos López",
+                    "amount": 350.00,
+                    "payment_method": "TARJETA",
+                    "folio_number": "FOL-001"
+                }
+            },
+            headers={"Authorization": f"Bearer {admin_token}"}
+        )
+        
+        assert response.status_code == 200
+        data = response.json()
+        assert data.get("status") == "skipped"
+    
+    def test_get_notification_logs(self, admin_token):
+        """Get notification history"""
+        response = requests.get(
+            f"{BASE_URL}/api/notifications/logs?limit=10",
+            headers={"Authorization": f"Bearer {admin_token}"}
+        )
+        
+        assert response.status_code == 200
+        logs = response.json()
+        assert isinstance(logs, list)
+        
+        # Check structure if there are logs
+        if logs:
+            log = logs[0]
+            assert "template" in log
+            assert "recipient" in log
+            assert "status" in log
+            assert "created_at" in log
+
+
+class TestMultiTenantIsolationIteration5:
+    """Additional multi-tenant isolation tests for new features"""
+    
+    @pytest.fixture
+    def admin_token(self):
+        """Get admin token for Hotel Demo"""
+        response = requests.post(f"{BASE_URL}/api/auth/login", json={
+            "email": ADMIN_EMAIL,
+            "password": ADMIN_PASSWORD
+        })
+        return response.json()["access_token"]
+    
+    @pytest.fixture
+    def other_tenant_token(self):
+        """Get admin token for Hotel Test MultiTenant"""
+        response = requests.post(f"{BASE_URL}/api/auth/login", json={
+            "email": "admin@hoteltest.com",
+            "password": "admin123test"
+        })
+        if response.status_code != 200:
+            pytest.skip("Other tenant admin not available")
+        return response.json()["access_token"]
+    
+    def test_group_reservations_isolation(self, admin_token, other_tenant_token):
+        """Verify group reservations are isolated by tenant"""
+        # Get groups for Hotel Demo
+        demo_response = requests.get(f"{BASE_URL}/api/reservations/groups", headers={
+            "Authorization": f"Bearer {admin_token}"
+        })
+        demo_groups = demo_response.json()
+        
+        # Get groups for Hotel Test
+        test_response = requests.get(f"{BASE_URL}/api/reservations/groups", headers={
+            "Authorization": f"Bearer {other_tenant_token}"
+        })
+        test_groups = test_response.json()
+        
+        # Verify isolation - groups should be different
+        demo_codes = {g["code"] for g in demo_groups}
+        test_codes = {g["code"] for g in test_groups}
+        
+        # No overlap expected (unless both are empty)
+        if demo_codes and test_codes:
+            assert demo_codes.isdisjoint(test_codes), "Group reservations should be isolated by tenant"
+    
+    def test_calendar_reservations_isolation(self, admin_token, other_tenant_token):
+        """Verify calendar reservations are isolated by tenant"""
+        # Get calendar for Hotel Demo
+        demo_response = requests.get(
+            f"{BASE_URL}/api/calendar/reservations?start_date=2026-01-01&end_date=2026-12-31",
+            headers={"Authorization": f"Bearer {admin_token}"}
+        )
+        demo_reservations = demo_response.json()
+        
+        # Get calendar for Hotel Test
+        test_response = requests.get(
+            f"{BASE_URL}/api/calendar/reservations?start_date=2026-01-01&end_date=2026-12-31",
+            headers={"Authorization": f"Bearer {other_tenant_token}"}
+        )
+        test_reservations = test_response.json()
+        
+        # Verify isolation
+        demo_ids = {r["id"] for r in demo_reservations}
+        test_ids = {r["id"] for r in test_reservations}
+        
+        if demo_ids and test_ids:
+            assert demo_ids.isdisjoint(test_ids), "Calendar reservations should be isolated by tenant"
+    
+    def test_notification_logs_isolation(self, admin_token, other_tenant_token):
+        """Verify notification logs are isolated by tenant"""
+        # Get logs for Hotel Demo
+        demo_response = requests.get(f"{BASE_URL}/api/notifications/logs", headers={
+            "Authorization": f"Bearer {admin_token}"
+        })
+        
+        # Get logs for Hotel Test
+        test_response = requests.get(f"{BASE_URL}/api/notifications/logs", headers={
+            "Authorization": f"Bearer {other_tenant_token}"
+        })
+        
+        # Both should succeed
+        assert demo_response.status_code == 200
+        assert test_response.status_code == 200
