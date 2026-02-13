@@ -2105,6 +2105,420 @@ async def get_monthly_invoicing_report(month: int = None, year: int = None, user
         "by_status": by_status
     }
 
+# ============== EXPORT ENDPOINTS ==============
+@api_router.get("/reports/export/excel")
+async def export_report_excel(
+    report_type: str = Query(..., enum=["occupancy", "revenue", "invoicing"]),
+    month: int = None,
+    year: int = None,
+    user: dict = Depends(get_current_user)
+):
+    """Export report to Excel"""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    
+    today = datetime.now(timezone.utc).date()
+    if not month:
+        month = today.month
+    if not year:
+        year = today.year
+    
+    # Get report data
+    if report_type == "occupancy":
+        report_data = await get_monthly_occupancy_report(month, year, user)
+        filename = f"ocupacion_{year}_{month:02d}.xlsx"
+    elif report_type == "revenue":
+        report_data = await get_monthly_revenue_report(month, year, user)
+        filename = f"ingresos_{year}_{month:02d}.xlsx"
+    else:
+        report_data = await get_monthly_invoicing_report(month, year, user)
+        filename = f"facturacion_{year}_{month:02d}.xlsx"
+    
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Reporte"
+    
+    # Styles
+    header_font = Font(bold=True, color="FFFFFF")
+    header_fill = PatternFill(start_color="1E3A5F", end_color="1E3A5F", fill_type="solid")
+    border = Border(
+        left=Side(style='thin'),
+        right=Side(style='thin'),
+        top=Side(style='thin'),
+        bottom=Side(style='thin')
+    )
+    
+    # Title
+    months_es = ["", "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
+    ws.merge_cells('A1:D1')
+    ws['A1'] = f"Reporte de {report_type.title()} - {months_es[month]} {year}"
+    ws['A1'].font = Font(bold=True, size=14)
+    
+    ws['A3'] = "Período:"
+    ws['B3'] = f"{months_es[month]} {year}"
+    
+    row = 5
+    
+    # Summary section
+    ws[f'A{row}'] = "Resumen"
+    ws[f'A{row}'].font = Font(bold=True, size=12)
+    row += 1
+    
+    summary = report_data.get("summary", {})
+    for key, value in summary.items():
+        ws[f'A{row}'] = key.replace("_", " ").title()
+        ws[f'B{row}'] = f"S/ {value:.2f}" if isinstance(value, float) else value
+        ws[f'A{row}'].border = border
+        ws[f'B{row}'].border = border
+        row += 1
+    
+    row += 2
+    
+    # Category breakdown if available
+    if "by_category" in report_data:
+        ws[f'A{row}'] = "Por Categoría"
+        ws[f'A{row}'].font = Font(bold=True, size=12)
+        row += 1
+        ws[f'A{row}'] = "Categoría"
+        ws[f'A{row}'].font = header_font
+        ws[f'A{row}'].fill = header_fill
+        ws[f'B{row}'] = "Total"
+        ws[f'B{row}'].font = header_font
+        ws[f'B{row}'].fill = header_fill
+        row += 1
+        for key, value in report_data["by_category"].items():
+            ws[f'A{row}'] = key
+            ws[f'B{row}'] = f"S/ {value:.2f}"
+            ws[f'A{row}'].border = border
+            ws[f'B{row}'].border = border
+            row += 1
+    
+    # Payment method breakdown if available
+    if "by_payment_method" in report_data:
+        row += 1
+        ws[f'A{row}'] = "Por Método de Pago"
+        ws[f'A{row}'].font = Font(bold=True, size=12)
+        row += 1
+        ws[f'A{row}'] = "Método"
+        ws[f'A{row}'].font = header_font
+        ws[f'A{row}'].fill = header_fill
+        ws[f'B{row}'] = "Total"
+        ws[f'B{row}'].font = header_font
+        ws[f'B{row}'].fill = header_fill
+        row += 1
+        for key, value in report_data["by_payment_method"].items():
+            ws[f'A{row}'] = key
+            ws[f'B{row}'] = f"S/ {value:.2f}"
+            ws[f'A{row}'].border = border
+            ws[f'B{row}'].border = border
+            row += 1
+    
+    # Invoice type breakdown if available
+    if "by_type" in report_data:
+        row += 1
+        ws[f'A{row}'] = "Por Tipo de Comprobante"
+        ws[f'A{row}'].font = Font(bold=True, size=12)
+        row += 1
+        ws[f'A{row}'] = "Tipo"
+        ws[f'A{row}'].font = header_font
+        ws[f'A{row}'].fill = header_fill
+        ws[f'B{row}'] = "Cantidad"
+        ws[f'B{row}'].font = header_font
+        ws[f'B{row}'].fill = header_fill
+        ws[f'C{row}'] = "Total"
+        ws[f'C{row}'].font = header_font
+        ws[f'C{row}'].fill = header_fill
+        row += 1
+        for key, data in report_data["by_type"].items():
+            ws[f'A{row}'] = key
+            ws[f'B{row}'] = data.get("count", 0)
+            ws[f'C{row}'] = f"S/ {data.get('total', 0):.2f}"
+            ws[f'A{row}'].border = border
+            ws[f'B{row}'].border = border
+            ws[f'C{row}'].border = border
+            row += 1
+    
+    # Adjust column widths
+    ws.column_dimensions['A'].width = 30
+    ws.column_dimensions['B'].width = 20
+    ws.column_dimensions['C'].width = 20
+    
+    # Save to bytes
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+    
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
+
+@api_router.get("/reports/export/pdf")
+async def export_report_pdf(
+    report_type: str = Query(..., enum=["occupancy", "revenue", "invoicing"]),
+    month: int = None,
+    year: int = None,
+    user: dict = Depends(get_current_user)
+):
+    """Export report to PDF"""
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import letter, A4
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import inch
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+    
+    today = datetime.now(timezone.utc).date()
+    if not month:
+        month = today.month
+    if not year:
+        year = today.year
+    
+    # Get report data
+    if report_type == "occupancy":
+        report_data = await get_monthly_occupancy_report(month, year, user)
+        title = "Reporte de Ocupación"
+        filename = f"ocupacion_{year}_{month:02d}.pdf"
+    elif report_type == "revenue":
+        report_data = await get_monthly_revenue_report(month, year, user)
+        title = "Reporte de Ingresos"
+        filename = f"ingresos_{year}_{month:02d}.pdf"
+    else:
+        report_data = await get_monthly_invoicing_report(month, year, user)
+        title = "Reporte de Facturación"
+        filename = f"facturacion_{year}_{month:02d}.pdf"
+    
+    months_es = ["", "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
+    
+    output = io.BytesIO()
+    doc = SimpleDocTemplate(output, pagesize=A4, rightMargin=50, leftMargin=50, topMargin=50, bottomMargin=50)
+    
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle('CustomTitle', parent=styles['Heading1'], fontSize=16, spaceAfter=20)
+    subtitle_style = ParagraphStyle('SubTitle', parent=styles['Heading2'], fontSize=12, spaceAfter=10)
+    
+    elements = []
+    
+    # Title
+    elements.append(Paragraph(f"{title} - {months_es[month]} {year}", title_style))
+    elements.append(Spacer(1, 20))
+    
+    # Summary table
+    elements.append(Paragraph("Resumen", subtitle_style))
+    summary = report_data.get("summary", {})
+    summary_data = [["Métrica", "Valor"]]
+    for key, value in summary.items():
+        display_value = f"S/ {value:.2f}" if isinstance(value, float) else str(value)
+        summary_data.append([key.replace("_", " ").title(), display_value])
+    
+    summary_table = Table(summary_data, colWidths=[200, 150])
+    summary_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1E3A5F')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, -1), 10),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 10),
+        ('TOPPADDING', (0, 0), (-1, 0), 10),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black),
+        ('ROWHEIGHTS', (0, 0), (-1, -1), 25),
+    ]))
+    elements.append(summary_table)
+    elements.append(Spacer(1, 30))
+    
+    # By category if available
+    if "by_category" in report_data and report_data["by_category"]:
+        elements.append(Paragraph("Por Categoría", subtitle_style))
+        cat_data = [["Categoría", "Total"]]
+        for key, value in report_data["by_category"].items():
+            cat_data.append([key, f"S/ {value:.2f}"])
+        cat_table = Table(cat_data, colWidths=[200, 150])
+        cat_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1E3A5F')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, -1), 10),
+            ('ROWHEIGHTS', (0, 0), (-1, -1), 22),
+        ]))
+        elements.append(cat_table)
+        elements.append(Spacer(1, 20))
+    
+    # By payment method if available
+    if "by_payment_method" in report_data and report_data["by_payment_method"]:
+        elements.append(Paragraph("Por Método de Pago", subtitle_style))
+        pm_data = [["Método", "Total"]]
+        for key, value in report_data["by_payment_method"].items():
+            pm_data.append([key, f"S/ {value:.2f}"])
+        pm_table = Table(pm_data, colWidths=[200, 150])
+        pm_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1E3A5F')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, -1), 10),
+            ('ROWHEIGHTS', (0, 0), (-1, -1), 22),
+        ]))
+        elements.append(pm_table)
+        elements.append(Spacer(1, 20))
+    
+    # By type if available (invoicing)
+    if "by_type" in report_data and report_data["by_type"]:
+        elements.append(Paragraph("Por Tipo de Comprobante", subtitle_style))
+        type_data = [["Tipo", "Cantidad", "Total"]]
+        for key, data in report_data["by_type"].items():
+            type_data.append([key, str(data.get("count", 0)), f"S/ {data.get('total', 0):.2f}"])
+        type_table = Table(type_data, colWidths=[150, 100, 100])
+        type_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1E3A5F')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, -1), 10),
+            ('ROWHEIGHTS', (0, 0), (-1, -1), 22),
+        ]))
+        elements.append(type_table)
+    
+    # Footer
+    elements.append(Spacer(1, 40))
+    elements.append(Paragraph(f"Generado el: {today.strftime('%d/%m/%Y')}", styles['Normal']))
+    
+    doc.build(elements)
+    output.seek(0)
+    
+    return StreamingResponse(
+        output,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
+
+# ============== WALK-IN ENDPOINT ==============
+@api_router.post("/reservations/walkin")
+async def create_walkin(
+    guest_data: GuestCreate,
+    room_id: str = Body(...),
+    checkout_date: date = Body(...),
+    adults: int = Body(1),
+    children: int = Body(0),
+    notes: str = Body(None),
+    user: dict = Depends(get_current_user)
+):
+    """Create walk-in reservation with immediate check-in"""
+    tenant_id = user["tenant_id"]
+    
+    # Create or get guest
+    existing = await db.guests.find_one({"tenant_id": tenant_id, "doc_type": guest_data.doc_type.value, "doc_number": guest_data.doc_number})
+    if existing:
+        guest_id = str(existing["_id"])
+    else:
+        guest = {
+            **guest_data.model_dump(),
+            "doc_type": guest_data.doc_type.value,
+            "tenant_id": tenant_id,
+            "created_at": datetime.now(timezone.utc).isoformat()
+        }
+        result = await db.guests.insert_one(guest)
+        guest_id = str(result.inserted_id)
+    
+    # Get room and validate
+    room = await db.rooms.find_one({"_id": ObjectId(room_id), "tenant_id": tenant_id})
+    if not room:
+        raise HTTPException(status_code=404, detail="Habitación no encontrada")
+    if room.get("occupancy_status") != OccupancyStatus.VACANT.value:
+        raise HTTPException(status_code=400, detail="Habitación no disponible")
+    if room.get("housekeeping_status") == HousekeepingStatus.OUT_OF_ORDER.value:
+        raise HTTPException(status_code=400, detail="Habitación fuera de servicio")
+    
+    # Get room type for pricing
+    room_type = await db.room_types.find_one({"_id": ObjectId(room.get("room_type_id"))})
+    base_price = room_type.get("base_price", 0) if room_type else 0
+    
+    today = datetime.now(timezone.utc).date()
+    nights = (checkout_date - today).days
+    if nights < 1:
+        raise HTTPException(status_code=400, detail="Fecha de checkout debe ser posterior a hoy")
+    
+    total_estimated = nights * base_price
+    
+    # Generate reservation code
+    count = await db.reservations.count_documents({"tenant_id": tenant_id})
+    code = f"WLK-{count + 1:06d}"
+    
+    now = datetime.now(timezone.utc).isoformat()
+    
+    # Create reservation
+    reservation = {
+        "code": code,
+        "tenant_id": tenant_id,
+        "guest_id": guest_id,
+        "room_type_id": room.get("room_type_id"),
+        "room_id": room_id,
+        "checkin_date": today.isoformat(),
+        "checkout_date": checkout_date.isoformat(),
+        "adults": adults,
+        "children": children,
+        "total_estimated": total_estimated,
+        "deposit_amount": 0,
+        "source": "WALK-IN",
+        "status": ReservationStatus.CHECKED_IN.value,
+        "notes": notes,
+        "created_by": user["user_id"],
+        "created_at": now
+    }
+    res_result = await db.reservations.insert_one(reservation)
+    reservation_id = str(res_result.inserted_id)
+    
+    # Create stay
+    stay = {
+        "tenant_id": tenant_id,
+        "reservation_id": reservation_id,
+        "room_id": room_id,
+        "guest_id": guest_id,
+        "checkin_at": now,
+        "checkout_at": None,
+        "status": "ACTIVE",
+        "created_by": user["user_id"]
+    }
+    stay_result = await db.stays.insert_one(stay)
+    stay_id = str(stay_result.inserted_id)
+    
+    # Create folio
+    folio = {
+        "tenant_id": tenant_id,
+        "stay_id": stay_id,
+        "reservation_id": reservation_id,
+        "status": "OPEN",
+        "total_charges": 0,
+        "total_payments": 0,
+        "balance": 0,
+        "created_at": now
+    }
+    folio_result = await db.folios.insert_one(folio)
+    folio_id = str(folio_result.inserted_id)
+    
+    # Update reservation with stay and folio IDs
+    await db.reservations.update_one(
+        {"_id": ObjectId(reservation_id)},
+        {"$set": {"stay_id": stay_id, "folio_id": folio_id}}
+    )
+    
+    # Update room status
+    await db.rooms.update_one(
+        {"_id": ObjectId(room_id)},
+        {"$set": {"occupancy_status": OccupancyStatus.OCCUPIED.value}}
+    )
+    
+    await create_audit_log(tenant_id, user["user_id"], "reservation", "WALKIN", None, {"code": code, "room": room.get("number")})
+    
+    return {
+        "id": reservation_id,
+        "code": code,
+        "stay_id": stay_id,
+        "folio_id": folio_id,
+        "message": "Walk-in registrado exitosamente"
+    }
+
 # ============== SEARCH ENDPOINT ==============
 @api_router.get("/search")
 async def global_search(q: str = Query(..., min_length=2), user: dict = Depends(get_current_user)):
