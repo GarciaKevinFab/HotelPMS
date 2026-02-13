@@ -46,7 +46,7 @@ import {
 } from '../components/ui/dialog';
 import { Label } from '../components/ui/label';
 import { Textarea } from '../components/ui/textarea';
-import { reservationsAPI, guestsAPI, roomTypesAPI, roomsAPI } from '../lib/api';
+import { reservationsAPI, guestsAPI, roomTypesAPI, roomsAPI, walkinAPI } from '../lib/api';
 import { formatDate, formatCurrency, getStatusLabel, getStatusClass, calculateNights, cn } from '../lib/utils';
 import { toast } from 'sonner';
 
