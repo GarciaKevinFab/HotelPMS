@@ -2964,7 +2964,7 @@ def generate_email_template(template_type: str, data: dict) -> tuple:
 
 @api_router.post("/notifications/send")
 async def send_notification(
-    template: EmailTemplate,
+    template: EmailTemplate = Body(...),
     recipient_email: EmailStr = Body(...),
     data: dict = Body(...),
     user: dict = Depends(get_current_user)
