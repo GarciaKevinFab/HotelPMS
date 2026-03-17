@@ -131,6 +131,7 @@ export function getStatusLabel(status) {
     'ADMIN': 'Administrador',
     'RECEPTIONIST': 'Recepcionista',
     'HOUSEKEEPING': 'Housekeeping',
+    'SECURITY': 'Seguridad',
     // Cash shift
     'OPEN': 'Abierta',
     'CLOSED': 'Cerrada',

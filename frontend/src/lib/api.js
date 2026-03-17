@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
+const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || '';
 export const API_BASE = `${BACKEND_URL}/api`;
 
 // Create axios instance
@@ -50,8 +50,11 @@ export const tenantsAPI = {
 // Users
 export const usersAPI = {
   list: () => api.get('/users'),
+  get: (id) => api.get(`/users/${id}`),
   create: (data) => api.post('/users', data),
   update: (id, data) => api.put(`/users/${id}`, data),
+  delete: (id) => api.delete(`/users/${id}`),
+  resetPassword: (id, password) => api.put(`/users/${id}/password`, { password }),
 };
 
 // Room Types

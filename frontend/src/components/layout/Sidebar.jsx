@@ -102,9 +102,15 @@ const navItems = [
     label: 'Reportes',
     roles: ['SUPER_ADMIN', 'ADMIN', 'RECEPTIONIST']
   },
-  { 
-    path: '/settings', 
-    icon: Settings, 
+  {
+    path: '/employees',
+    icon: Users,
+    label: 'Empleados',
+    roles: ['SUPER_ADMIN', 'ADMIN']
+  },
+  {
+    path: '/settings',
+    icon: Settings,
     label: 'Configuración',
     roles: ['SUPER_ADMIN', 'ADMIN']
   },

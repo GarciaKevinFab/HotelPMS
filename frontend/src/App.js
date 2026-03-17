@@ -22,6 +22,7 @@ import Reports from './pages/Reports';
 import Settings from './pages/Settings';
 import Tenants from './pages/Tenants';
 import Rates from './pages/Rates';
+import Employees from './pages/Employees';
 
 // Styles
 import '@/App.css';
@@ -51,6 +52,7 @@ function App() {
             <Route path="/maintenance" element={<Maintenance />} />
             <Route path="/alerts" element={<Alerts />} />
             <Route path="/reports" element={<Reports />} />
+            <Route path="/employees" element={<Employees />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="/tenants" element={<Tenants />} />
           </Route>

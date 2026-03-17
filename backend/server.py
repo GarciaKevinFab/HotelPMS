@@ -51,6 +51,7 @@ class Role(str, Enum):
     ADMIN = "ADMIN"
     RECEPTIONIST = "RECEPTIONIST"
     HOUSEKEEPING = "HOUSEKEEPING"
+    SECURITY = "SECURITY"
 
 class OccupancyStatus(str, Enum):
     VACANT = "VACANT"
@@ -603,30 +604,93 @@ async def list_users(user: dict = Depends(require_roles(Role.SUPER_ADMIN, Role.A
     users = await db.users.find(tenant_filter, {"password_hash": 0}).to_list(1000)
     return [serialize_doc(u) for u in users]
 
+@api_router.get("/users/{user_id}", dependencies=[Depends(require_roles(Role.SUPER_ADMIN, Role.ADMIN))])
+async def get_user(user_id: str, current_user: dict = Depends(get_current_user)):
+    user = await db.users.find_one({"_id": ObjectId(user_id)})
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    if current_user['role'] != Role.SUPER_ADMIN.value and str(user.get('tenant_id')) != str(current_user.get('tenant_id')):
+        raise HTTPException(status_code=403, detail="No autorizado")
+    user.pop('password_hash', None)
+    return serialize_doc(user)
+
 @api_router.put("/users/{user_id}")
 async def update_user(user_id: str, data: dict = Body(...), user: dict = Depends(require_roles(Role.SUPER_ADMIN, Role.ADMIN))):
     target_user = await db.users.find_one({"_id": ObjectId(user_id)})
     if not target_user:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
-    
+
     # Check tenant access
     if user["role"] != Role.SUPER_ADMIN.value and target_user.get("tenant_id") != user.get("tenant_id"):
         raise HTTPException(status_code=403, detail="Sin permisos para modificar este usuario")
-    
+
     # Only allow updating certain fields
-    allowed_fields = {"is_active", "full_name", "role"}
+    allowed_fields = {"is_active", "full_name", "role", "email"}
     update_data = {k: v for k, v in data.items() if k in allowed_fields}
-    
+
     if not update_data:
         raise HTTPException(status_code=400, detail="No hay campos válidos para actualizar")
-    
+
+    # ADMIN cannot set SUPER_ADMIN role
+    if "role" in update_data and update_data["role"] == Role.SUPER_ADMIN.value and user["role"] != Role.SUPER_ADMIN.value:
+        raise HTTPException(status_code=403, detail="No autorizado para asignar rol Super Admin")
+
+    # Email uniqueness check
+    if "email" in update_data:
+        existing = await db.users.find_one({"email": update_data["email"], "_id": {"$ne": ObjectId(user_id)}})
+        if existing:
+            raise HTTPException(status_code=400, detail="Email ya registrado por otro usuario")
+
     await db.users.update_one(
         {"_id": ObjectId(user_id)},
         {"$set": update_data}
     )
-    
+
     await create_audit_log(user.get("tenant_id"), user["user_id"], "user", "UPDATE", None, {"user_id": user_id, **update_data})
     return {"message": "Usuario actualizado"}
+
+@api_router.put("/users/{user_id}/password", dependencies=[Depends(require_roles(Role.SUPER_ADMIN, Role.ADMIN))])
+async def reset_user_password(user_id: str, body: dict = Body(...), current_user: dict = Depends(get_current_user)):
+    """Reset a user's password (admin only)"""
+    new_password = body.get('password')
+    if not new_password or len(new_password) < 6:
+        raise HTTPException(status_code=400, detail="La contraseña debe tener al menos 6 caracteres")
+
+    user = await db.users.find_one({"_id": ObjectId(user_id)})
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+
+    # Tenant isolation
+    if current_user['role'] != Role.SUPER_ADMIN.value and str(user.get('tenant_id')) != str(current_user.get('tenant_id')):
+        raise HTTPException(status_code=403, detail="No autorizado")
+
+    hashed = hash_password(new_password)
+    await db.users.update_one({"_id": ObjectId(user_id)}, {"$set": {"password_hash": hashed}})
+    await create_audit_log(current_user.get("tenant_id"), current_user["user_id"], "user", "USER_PASSWORD_RESET", None, {"user_id": user_id, "password": "***"})
+    return {"message": "Contraseña actualizada exitosamente"}
+
+@api_router.delete("/users/{user_id}", dependencies=[Depends(require_roles(Role.SUPER_ADMIN, Role.ADMIN))])
+async def delete_user(user_id: str, current_user: dict = Depends(get_current_user)):
+    """Delete a user (admin only)"""
+    user = await db.users.find_one({"_id": ObjectId(user_id)})
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+
+    # Cannot delete yourself
+    if str(user['_id']) == current_user['user_id']:
+        raise HTTPException(status_code=400, detail="No puedes eliminar tu propia cuenta")
+
+    # Tenant isolation
+    if current_user['role'] != Role.SUPER_ADMIN.value and str(user.get('tenant_id')) != str(current_user.get('tenant_id')):
+        raise HTTPException(status_code=403, detail="No autorizado")
+
+    # ADMIN cannot delete SUPER_ADMIN
+    if user.get('role') == Role.SUPER_ADMIN.value and current_user['role'] != Role.SUPER_ADMIN.value:
+        raise HTTPException(status_code=403, detail="No autorizado para eliminar Super Administradores")
+
+    await db.users.delete_one({"_id": ObjectId(user_id)})
+    await create_audit_log(current_user.get("tenant_id"), current_user["user_id"], "user", "USER_DELETED", None, {"user_id": user_id, "email": user.get('email')})
+    return {"message": "Usuario eliminado exitosamente"}
 
 # ============== ROOM TYPE ENDPOINTS ==============
 @api_router.post("/room-types")
@@ -3209,7 +3273,8 @@ async def seed_demo_data(user: dict = Depends(require_roles(Role.SUPER_ADMIN))):
     users = [
         {"email": "admin@demo.com", "password_hash": hash_password("admin123"), "full_name": "Admin Demo", "role": "ADMIN", "tenant_id": tenant_id},
         {"email": "recepcion@demo.com", "password_hash": hash_password("recepcion123"), "full_name": "María García", "role": "RECEPTIONIST", "tenant_id": tenant_id},
-        {"email": "limpieza@demo.com", "password_hash": hash_password("limpieza123"), "full_name": "Carlos López", "role": "HOUSEKEEPING", "tenant_id": tenant_id}
+        {"email": "limpieza@demo.com", "password_hash": hash_password("limpieza123"), "full_name": "Carlos López", "role": "HOUSEKEEPING", "tenant_id": tenant_id},
+        {"email": "seguridad@demo.com", "password_hash": hash_password("seguridad123"), "full_name": "Pedro Ramirez", "role": "SECURITY", "tenant_id": tenant_id}
     ]
     for u in users:
         u["is_active"] = True
