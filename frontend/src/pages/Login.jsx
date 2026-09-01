@@ -53,14 +53,15 @@ export function Login() {
         <div className="absolute inset-0 bg-gradient-to-r from-slate-900/90 to-slate-900/50" />
         <div className="relative z-10 flex flex-col justify-end p-12">
           <div className="mb-8">
+            {/* El logotipo registrado, no un icono genérico sobre azul: el
+                azul no aparece en ninguna parte de la identidad de ZenStay. */}
             <div className="flex items-center gap-3 mb-4">
-              <div className="w-12 h-12 bg-blue-500 rounded-xl flex items-center justify-center">
-                <Building2 className="w-7 h-7 text-white" />
-              </div>
-              <span className="text-3xl font-bold text-white tracking-tight">HotelPMS</span>
+              <img src="/logo-zenstay.png" alt="ZenStay" className="w-14 h-14 object-contain" />
+              <span className="text-3xl font-bold text-white tracking-tight">ZenStay</span>
             </div>
             <p className="text-slate-300 text-lg max-w-md">
-              Sistema de Administración Hotelera. Gestiona reservas, housekeeping, facturación y más desde un solo lugar.
+              De la reserva a la boleta, sin cuadernos. Recepción, limpieza, caja
+              y comprobantes SUNAT en un solo sitio.
             </p>
           </div>
           <div className="flex gap-6 text-sm text-slate-400">
@@ -77,6 +78,15 @@ export function Login() {
               <p>Integrado</p>
             </div>
           </div>
+          <a href="https://sisac.pe" target="_blank" rel="noopener noreferrer"
+             className="mt-10 inline-flex items-center gap-2.5 rounded-full border border-white/15 bg-white/5 px-4 py-2 transition-colors hover:border-teal-400/50">
+            <img src="/logo-zenstay.png" alt="" className="h-6 w-6 object-contain" />
+            <span className="leading-tight">
+              <span className="block text-[9px] font-bold uppercase tracking-[0.16em] text-slate-400">Hecho por</span>
+              <span className="block text-xs font-semibold text-slate-200">Star Insights IT by SISAC</span>
+            </span>
+            <span className="ml-1 h-2 w-2 rounded-full bg-teal-400" />
+          </a>
         </div>
       </div>
 
@@ -85,10 +95,8 @@ export function Login() {
         <div className="w-full max-w-md">
           {/* Mobile logo */}
           <div className="lg:hidden flex items-center justify-center gap-3 mb-8">
-            <div className="w-10 h-10 bg-slate-900 rounded-xl flex items-center justify-center">
-              <Building2 className="w-6 h-6 text-white" />
-            </div>
-            <span className="text-2xl font-bold text-slate-900 tracking-tight">HotelPMS</span>
+            <img src="/logo-zenstay.png" alt="ZenStay" className="w-11 h-11 object-contain" />
+            <span className="text-2xl font-bold text-slate-900 tracking-tight">ZenStay</span>
           </div>
 
           <Card className="border-0 shadow-xl">
@@ -167,15 +175,27 @@ export function Login() {
                 </Button>
               </form>
 
-              {/* Demo credentials hint */}
-              <div className="mt-6 p-4 bg-slate-50 rounded-lg border border-slate-200">
-                <p className="text-xs font-medium text-slate-600 mb-2">Credenciales Demo:</p>
-                <div className="space-y-1 text-xs text-slate-500">
-                  <p><span className="font-medium">Admin:</span> admin@demo.com / admin123</p>
-                  <p><span className="font-medium">Recepción:</span> recepcion@demo.com / recepcion123</p>
-                  <p><span className="font-medium">Housekeeping:</span> limpieza@demo.com / limpieza123</p>
-                </div>
-              </div>
+              {/*
+                Aquí había un recuadro con las credenciales del hotel demo
+                (admin@demo.com / admin123, y las de recepción y limpieza),
+                visible en la pantalla de entrada de PRODUCCIÓN.
+
+                Se quita por dos motivos. El primero es de seguridad: publicar
+                usuarios y contraseñas en la portada del sistema invita a
+                probarlos, y hasta hace poco esas claves estaban de verdad en
+                el código. El segundo es que ya ni siquiera servían —
+                /api/seed toma ahora la clave de SEED_DEMO_PASSWORD — así que
+                además de peligroso era un cartel que mentía.
+
+                En su lugar, la puerta de entrada para quien todavía no tiene
+                cuenta: la prueba gratuita.
+              */}
+              <p className="mt-6 text-center text-sm text-slate-500">
+                ¿Aún no tienes cuenta?{' '}
+                <a href="/registro" className="font-semibold text-slate-900 hover:underline">
+                  Prueba ZenStay 14 días gratis
+                </a>
+              </p>
             </CardContent>
           </Card>
 

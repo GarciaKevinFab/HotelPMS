@@ -135,21 +135,20 @@ export function Sidebar({ collapsed, onToggle }) {
       "sidebar flex flex-col",
       collapsed && "collapsed"
     )}>
-      {/* Logo */}
+      {/*
+        Marca. Antes era un icono genérico de edificio sobre un cuadrado azul
+        y el rótulo "HotelPMS" — ni el logotipo registrado ni el nombre del
+        producto. El azul además no aparece en ninguna parte de la identidad:
+        la marca es fucsia, turquesa, lima y oliva.
+      */}
       <div className="h-16 flex items-center px-4 border-b border-slate-800">
         {!collapsed ? (
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center">
-              <Building2 className="w-5 h-5 text-white" />
-            </div>
-            <div>
-              <h1 className="text-white font-bold text-lg tracking-tight">HotelPMS</h1>
-            </div>
+          <div className="flex items-center gap-2.5">
+            <img src="/logo-zenstay.png" alt="ZenStay" className="h-9 w-9 object-contain" />
+            <h1 className="text-white font-bold text-lg tracking-tight">ZenStay</h1>
           </div>
         ) : (
-          <div className="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center mx-auto">
-            <Building2 className="w-5 h-5 text-white" />
-          </div>
+          <img src="/logo-zenstay.png" alt="ZenStay" className="h-9 w-9 object-contain mx-auto" />
         )}
       </div>
 
@@ -206,6 +205,14 @@ export function Sidebar({ collapsed, onToggle }) {
           <LogOut className="w-5 h-5" />
           {!collapsed && <span>Cerrar Sesión</span>}
         </button>
+
+        {/*
+          Aquí llegué a poner una firma de Star Insights, hasta darme cuenta de
+          que ya existe uno flotante en frontend/public/index.html, visible en
+          todas las pantallas del sistema. Dos firmas en la misma vista es
+          ruido, así que se queda la que ya estaba — solo hubo que corregirle
+          el nombre: decía "Confort Inn", que es el cliente, no el producto.
+        */}
       </div>
 
       {/* Collapse button */}
