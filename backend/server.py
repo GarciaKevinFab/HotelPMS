@@ -4092,7 +4092,13 @@ async def servir_web(ruta: str):
     #    cargas pierde gente por el camino. /precios existe igual y lleva al
     #    ancla, para que el enlace se pueda compartir.
     if LANDING.exists():
-        paginas = {"": "index.html", "registro": "registro.html"}
+        paginas = {
+            "": "index.html",
+            "registro": "registro.html",
+            "terminos": "terminos.html",
+            "privacidad": "privacidad.html",
+            "reclamaciones": "reclamaciones.html",
+        }
         if ruta in paginas:
             archivo = LANDING / paginas[ruta]
             if archivo.is_file():
@@ -4104,14 +4110,36 @@ async def servir_web(ruta: str):
         raise HTTPException(status_code=404, detail="No encontrado")
 
     # 2. Un archivo real del build (logo.png, manifest.json, favicon...).
+    #
+    #    Se prueba la ruta tal cual Y sin el prefijo "app/": el package.json
+    #    declara homepage="/app", asi que CRA reescribe %PUBLIC_URL% y el HTML
+    #    pide /app/logo-zenstay.png, /app/manifest.json... pero esos archivos
+    #    viven en la RAIZ del build, no en un subdirectorio app/. Sin esta
+    #    equivalencia, el logotipo salia roto en todo el sistema y el manifest
+    #    de la PWA no cargaba -- devolvian el index.html con un 200, asi que no
+    #    aparecia como error en ningun sitio.
+    #
     #    resolve() y el chequeo de prefijo evitan que una ruta con ../ se escape
     #    del directorio del build y sirva archivos del contenedor.
-    if ruta:
-        candidato = FRONTEND_BUILD / ruta
+    for candidata in (ruta, ruta[4:] if ruta.startswith("app/") else None):
+        if not candidata:
+            continue
+        candidato = FRONTEND_BUILD / candidata
         if candidato.is_file() and str(candidato.resolve()).startswith(str(FRONTEND_BUILD.resolve())):
             return FileResponse(candidato)
 
-    # 3. Cualquier otra cosa es una ruta de la SPA. Se devuelve el index.html y
+    # 3. Si la ruta PARECE un archivo (tiene extension) y no se encontro, es un
+    #    404 de verdad -- no una ruta de la SPA.
+    #
+    #    Importa mas de lo que parece: devolver el index.html con un 200 para
+    #    /app/logo-zenstay.png hizo que Cloudflare cachease ese HTML como si
+    #    fuera la imagen, con max-age de 4 horas. El logotipo salio roto en todo
+    #    el sistema y siguio roto despues de arreglar la ruta, porque lo que
+    #    servia el CDN ya no dependia del servidor. Un 404 no se cachea asi.
+    if "." in ruta.rsplit("/", 1)[-1]:
+        raise HTTPException(status_code=404, detail="No encontrado")
+
+    # 4. Cualquier otra cosa es una ruta de la SPA. Se devuelve el index.html y
     #    React resuelve el enrutado: es lo que hace falta para que recargar
     #    /app/reservations o entrar por un enlace directo no de 404.
     return FileResponse(FRONTEND_BUILD / "index.html")
