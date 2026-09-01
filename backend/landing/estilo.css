@@ -253,3 +253,48 @@ p  { margin: 0 0 1rem; }
   .cabecera nav a.oculta-movil { display: none; }
   .cabecera nav { gap: 16px; }
 }
+
+/* --- Movil estrecho ---------------------------------------------------- */
+/*
+  A 390 px la cabecera se desbordaba: la marca terminaba justo donde empezaba
+  "Precios" -- pegadas, sin un pixel entre ellas -- y el boton "Probar gratis"
+  llegaba a 390 cuando el contenedor acababa en 347. Se salia 43 px.
+  Y no se veia como un error obvio porque el `overflow-x: hidden` del body lo
+  recortaba en silencio en vez de dejar barra horizontal.
+
+  Aqui se resuelve quitando lo que sobra en una pantalla de mano: "Precios" no
+  hace falta en la barra, porque el propio titular tiene un boton "Ver
+  precios". Lo que no puede faltar es "Entrar" (el cliente que ya paga) y el
+  boton de prueba (el que todavia no).
+*/
+@media (max-width: 560px) {
+  .cabecera { padding: 14px 0; gap: 10px; }
+  .cabecera nav { gap: 14px; flex-shrink: 0; }
+
+  /* "Precios" fuera: el hero ya lleva su propio boton. */
+  .cabecera nav a[href="#planes"] { display: none; }
+
+  .marca { min-width: 0; }
+  .marca img { width: 32px; height: 32px; }
+  .marca span { font-size: 1.15rem; }
+
+  /* El boton, compacto pero todavia comodo de tocar. */
+  .cabecera nav .boton { padding: 10px 15px; font-size: .87rem; white-space: nowrap; }
+
+  .envoltorio { padding: 0 20px; }
+  .portada { padding: 40px 0 56px; }
+  .seccion { padding: 56px 0; }
+  .contraste > div { padding: 24px; }
+  .plan { padding: 26px 22px; }
+}
+
+/*
+  Objetivos tactiles. Los enlaces del menu median 25 px de alto y los del pie
+  16: por debajo de los ~44 px que hacen falta para acertar con el pulgar sin
+  mirar. Se agrandan con padding, que no cambia como se ven pero si donde se
+  puede tocar.
+*/
+@media (pointer: coarse) {
+  .cabecera nav a:not(.boton) { padding: 10px 0; }
+  .pie a, .seccion a:not(.boton) { display: inline-block; padding: 6px 0; }
+}
