@@ -142,10 +142,23 @@ p  { margin: 0 0 1rem; }
   aspect-ratio: 1; border-radius: 3px; display: grid; place-items: center;
   font-size: .72rem; font-weight: 700; font-variant-numeric: tabular-nums;
 }
-.hab.libre   { background: var(--superficie-alta); color: var(--texto-suave); border: 1px solid var(--borde); }
-.hab.ocupada { background: var(--fucsia); color: #fff; }
-.hab.sucia   { background: var(--lima); color: #1a1a10; }
-.hab.fuera   { background: transparent; border: 1px dashed var(--borde); color: #5c6b62; text-decoration: line-through; }
+/* Los cuatro estados de una habitacion, definidos UNA sola vez.
+   La ficha del tablero y el cuadradito de la leyenda comparten estas reglas a
+   proposito: antes la leyenda llevaba los colores a mano en el HTML
+   (background:#b84a2b y compania) y se quedaron los de la paleta terracota
+   ANTERIOR al rebranding. Resultado: las fichas se pintaban fucsia y la
+   leyenda afirmaba que "Ocupada" era teja. Con un selector compartido, cambiar
+   la marca vuelve a ser cambiar una variable. */
+.hab.libre,   .leyenda i.libre   { background: var(--superficie-alta); border: 1px solid var(--borde); }
+.hab.ocupada, .leyenda i.ocupada { background: var(--fucsia); }
+.hab.sucia,   .leyenda i.sucia   { background: var(--lima); }
+.hab.fuera,   .leyenda i.fuera   { background: transparent; border: 1px dashed var(--borde); }
+
+.hab.libre   { color: var(--texto-suave); }
+.hab.ocupada { color: #fff; }
+.hab.sucia   { color: #1a1a10; }
+.hab.fuera   { color: #5c6b62; text-decoration: line-through; }
+
 .leyenda { display: flex; gap: 15px; margin-top: 16px; font-size: .75rem; color: var(--texto-suave); flex-wrap: wrap; }
 .leyenda i { width: 9px; height: 9px; display: inline-block; margin-right: 5px; border-radius: 2px; vertical-align: middle; }
 
@@ -323,4 +336,87 @@ p  { margin: 0 0 1rem; }
 }
 .legal select:focus, .legal textarea:focus {
   outline: 2px solid var(--turquesa); outline-offset: -1px; border-color: transparent;
+}
+
+/* ===========================================================================
+   PROFUNDIDAD 3D
+   ===========================================================================
+   Por que CSS y no three.js. La pagina la abre un hotelero desde el movil que
+   tiene, muchas veces con datos y en una plaza de provincia. Meter una libreria
+   de WebGL de ~600 KB para inclinar un tablero seria cambiar una pagina que
+   pinta rapido por una que impresiona a quien ya tiene fibra. Todo lo de aqui
+   son `transform` y `opacity`: las dos unicas propiedades que el navegador
+   resuelve en la GPU sin recalcular la maqueta, asi que el efecto es
+   practicamente gratis y no cuesta un solo KB de descarga.
+
+   Regla que se respeta en todo el bloque: si el sistema pide menos movimiento,
+   NO hay movimiento. Nada de aqui es necesario para entender la pagina.
+   =========================================================================== */
+
+/* La escena. La perspectiva va en el padre y la rotacion en el hijo: si se
+   ponen en el mismo elemento, cada hijo tendria su propio punto de fuga y el
+   conjunto se deforma. */
+.escena { perspective: 1400px; perspective-origin: 50% 30%; }
+
+@media (prefers-reduced-motion: no-preference) {
+
+  /* --- El tablero de habitaciones ------------------------------------- */
+  /* Nace inclinado hacia atras y se endereza segun el scroll lo trae al
+     centro. El angulo lo escribe el JS en --giro; el CSS solo lo aplica, asi
+     que si el JS no llega a correr el tablero se queda recto y legible. */
+  .tablero {
+    transform:
+      rotateX(calc(var(--giro, 0deg) * 1))
+      rotateY(calc(var(--giro-y, 0deg) * 1))
+      translateZ(0);
+    transform-origin: 50% 100%;
+    transition: box-shadow .4s ease;
+    will-change: transform;
+  }
+
+  /* La sombra crece con la inclinacion: es lo que hace que el tablero parezca
+     levantado de la pagina y no simplemente torcido. */
+  .tablero.alzado { box-shadow: 0 50px 90px -40px rgba(0,0,0,.9), 0 0 0 1px var(--borde); }
+
+  /* Las fichas entran escalonadas y con relieve. El retraso lo pone el JS en
+     --i (el indice de la ficha), asi que la cascada sale sola sin escribir
+     quince reglas. */
+  .rejilla .hab {
+    opacity: 0;
+    transform: translateZ(-40px) translateY(10px);
+    animation: ficha-entra .5s cubic-bezier(.2,.7,.3,1) forwards;
+    animation-delay: calc(.34s + var(--i, 0) * .035s);
+  }
+  @keyframes ficha-entra { to { opacity: 1; transform: none; } }
+
+  /* Al pasar el raton, la ficha se despega hacia el lector. */
+  .rejilla .hab { transition: transform .18s ease, box-shadow .18s ease; }
+  .tablero:hover .rejilla .hab:hover {
+    transform: translateZ(26px) scale(1.06);
+    box-shadow: 0 12px 24px -8px rgba(0,0,0,.75);
+    position: relative; z-index: 2;
+  }
+
+  /* --- Tarjetas con relieve ------------------------------------------- */
+  /* Las columnas y los planes se levantan al acercarse el raton. Poco angulo:
+     esto es una herramienta de trabajo, no una feria. */
+  .columnas > div, .planes > * {
+    transform-style: preserve-3d;
+    transition: transform .28s cubic-bezier(.2,.7,.3,1), border-color .28s ease;
+  }
+  .columnas > div:hover, .planes > *:hover {
+    transform: translateY(-6px) rotateX(3deg) scale(1.015);
+    border-color: var(--turquesa);
+  }
+
+  /* --- La firma del pie ------------------------------------------------ */
+  .firma { transition: transform .2s ease, border-color .2s; }
+  .firma:hover { transform: translateY(-2px) scale(1.02); }
+}
+
+/* Con reduced-motion no se anula solo la animacion: tambien hay que asegurar
+   que las fichas queden VISIBLES, porque su estado inicial es opacity 0. */
+@media (prefers-reduced-motion: reduce) {
+  .rejilla .hab { opacity: 1; transform: none; }
+  .tablero { transform: none; }
 }

@@ -44,7 +44,11 @@
       <p class="letra-chica aparece d3">Sin tarjeta. Sin instalación. Funciona en la computadora de recepción.</p>
     </div>
 
-    <div class="tablero aparece d3" aria-label="Tablero de habitaciones de ejemplo">
+    <!-- .escena aporta la perspectiva; el giro va en .tablero. Separar padre e
+         hijo es obligatorio: con las dos cosas en el mismo elemento, cada ficha
+         tendria su propio punto de fuga y el tablero saldria deformado. -->
+    <div class="escena aparece d3">
+    <div class="tablero" aria-label="Tablero de habitaciones de ejemplo">
       <div class="fila"><strong>Hoy</strong><span>12 de 15 ocupadas</span></div>
       <div class="rejilla">
         <div class="hab ocupada">101</div><div class="hab ocupada">102</div>
@@ -57,12 +61,15 @@
         <div class="hab ocupada">303</div><div class="hab ocupada">304</div>
         <div class="hab ocupada">305</div>
       </div>
+      <!-- Las clases son las MISMAS que las de las fichas de arriba, para que
+           el color de la leyenda no pueda separarse del que se pinta. -->
       <div class="leyenda">
-        <span><i style="background:#b84a2b"></i>Ocupada</span>
-        <span><i style="background:#e8e2d6"></i>Libre</span>
-        <span><i style="background:#c9a227"></i>Por limpiar</span>
-        <span><i style="background:#cfc6ba"></i>Fuera de servicio</span>
+        <span><i class="ocupada"></i>Ocupada</span>
+        <span><i class="libre"></i>Libre</span>
+        <span><i class="sucia"></i>Por limpiar</span>
+        <span><i class="fuera"></i>Fuera de servicio</span>
       </div>
+    </div>
     </div>
   </section>
 </div>
@@ -134,18 +141,18 @@
       <p>Sin costo de instalación ni permanencia. Cancelas cuando quieras.</p>
     </div>
     <div class="planes" id="lista-planes">
-      <p style="color:var(--tinta-suave)">Cargando planes…</p>
+      <p style="color:var(--texto-suave)">Cargando planes…</p>
     </div>
-    <p style="margin-top:28px;font-size:.9rem;color:var(--tinta-suave)">
+    <p style="margin-top:28px;font-size:.9rem;color:var(--texto-suave)">
       ¿Más de un hotel o necesitas algo a medida?
-      <a href="mailto:soporte@sisac.pe" style="color:var(--acento)">Escríbenos</a>.
+      <a href="mailto:soporte@sisac.pe" style="color:var(--turquesa)">Escríbenos</a>.
     </p>
   </section>
 </div>
 
 <div class="envoltorio">
-  <div class="pie">
-    <p><strong style="font-family:var(--serif);font-size:1.05rem">ZenStay</strong> — Sistema de gestión hotelera.</p>
+  <footer class="pie">
+    <p><strong style="font-family:var(--display);font-size:1.05rem">ZenStay</strong> — Sistema de gestión hotelera.</p>
     <p style="margin-bottom:14px"><a href="/app/login">Entrar al sistema</a> · <a href="/terminos">Términos</a> · <a href="/privacidad">Privacidad</a> · <a href="/reclamaciones">Libro de Reclamaciones</a></p>
     <p style="margin-bottom:18px">SOLUCIONES INFORMÁTICAS MDD S.A.C. — RUC 20490042068 · <a href="mailto:soporte@sisac.pe">soporte@sisac.pe</a></p>
     <a class="firma" href="https://sisac.pe" target="_blank" rel="noopener">
@@ -156,7 +163,7 @@
       </span>
       <span class="punto" aria-hidden="true"></span>
     </a>
-  </div>
+  </footer>
 </div>
 
 <script>
@@ -188,7 +195,7 @@
       return '<div class="plan' + destacado + '">' +
         '<p class="apunte">' + p.nombre + '</p>' +
         '<div class="precio">S/ ' + Number(p.precio_mensual).toFixed(0) + '<small> /mes</small></div>' +
-        '<p style="font-size:.9rem;color:var(--tinta-suave);margin:0">' + (p.descripcion || '') + '</p>' +
+        '<p style="font-size:.9rem;color:var(--texto-suave);margin:0">' + (p.descripcion || '') + '</p>' +
         '<ul>' + puntos.map(function (t) { return '<li>' + t + '</li>'; }).join('') + '</ul>' +
         '<a href="/registro?plan=' + encodeURIComponent(p.codigo) + '" class="boton ' +
         (destacado ? 'boton-lleno' : 'boton-linea') + '">Probar 14 días</a>' +
@@ -197,8 +204,76 @@
   } catch (e) {
     // Si la API no responde, la pagina sigue vendiendo: se ofrece el contacto
     // en vez de dejar un "Cargando..." colgado para siempre.
-    caja.innerHTML = '<p style="color:var(--tinta-suave)">No pudimos cargar los precios ahora. ' +
-      '<a href="mailto:soporte@sisac.pe" style="color:var(--acento)">Escríbenos</a> y te los pasamos.</p>';
+    caja.innerHTML = '<p style="color:var(--texto-suave)">No pudimos cargar los precios ahora. ' +
+      '<a href="mailto:soporte@sisac.pe" style="color:var(--turquesa)">Escríbenos</a> y te los pasamos.</p>';
+  }
+})();
+</script>
+
+
+<script>
+/* Profundidad del tablero de la portada.
+   ---------------------------------------------------------------------------
+   Tres cosas, y ninguna imprescindible: si este script no llega a ejecutarse,
+   el tablero se ve recto y completo. Es decoracion, no contenido.
+
+   1) El tablero nace inclinado hacia atras y se endereza segun el scroll lo
+      sube. Solo se escribe una variable CSS (--giro); el navegador resuelve la
+      transformacion en la GPU.
+   2) En escritorio, sigue al raton con un giro minimo. En tactil no: ahi el
+      "raton" es el dedo y el efecto solo estorbaria.
+   3) Las fichas entran en cascada. El indice lo pone aqui para no escribir
+      quince reglas iguales en el CSS.
+
+   Se sale antes de tocar nada si el sistema pide menos movimiento. */
+(function () {
+  var menosMovimiento = window.matchMedia &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var escena  = document.querySelector('.portada .escena');
+  var tablero = escena && escena.querySelector('.tablero');
+  if (!tablero) return;
+
+  // La cascada de las fichas se numera SIEMPRE: con reduced-motion el CSS las
+  // deja visibles, asi que la variable sobra pero no molesta.
+  var fichas = tablero.querySelectorAll('.rejilla .hab');
+  for (var i = 0; i < fichas.length; i++) fichas[i].style.setProperty('--i', i);
+
+  if (menosMovimiento) return;
+
+  var giroX = 11;     // grados de partida
+  var pedido = 0;
+
+  function colocar() {
+    pedido = 0;
+    var r = escena.getBoundingClientRect();
+    var alto = window.innerHeight || 1;
+    // 0 mientras esta abajo del todo, 1 cuando su centro alcanza el centro de
+    // la pantalla. Fuera de ese tramo queda plano y quieto.
+    var centro = r.top + r.height / 2;
+    var avance = 1 - (centro - alto * 0.45) / (alto * 0.55);
+    avance = avance < 0 ? 0 : (avance > 1 ? 1 : avance);
+    tablero.style.setProperty('--giro', (giroX * (1 - avance)).toFixed(2) + 'deg');
+    tablero.classList.toggle('alzado', avance > 0.15);
+  }
+
+  function alScroll() {
+    if (!pedido) pedido = requestAnimationFrame(colocar);
+  }
+
+  colocar();
+  window.addEventListener('scroll', alScroll, { passive: true });
+  window.addEventListener('resize', alScroll);
+
+  // Paralaje de raton: solo donde hay raton de verdad.
+  if (window.matchMedia && window.matchMedia('(hover: hover) and (pointer: fine)').matches) {
+    escena.addEventListener('mousemove', function (e) {
+      var r = escena.getBoundingClientRect();
+      var dx = (e.clientX - (r.left + r.width / 2)) / (r.width / 2);
+      tablero.style.setProperty('--giro-y', (dx * 4).toFixed(2) + 'deg');
+    });
+    escena.addEventListener('mouseleave', function () {
+      tablero.style.setProperty('--giro-y', '0deg');
+    });
   }
 })();
 </script>
