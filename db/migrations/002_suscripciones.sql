@@ -65,13 +65,13 @@ create table if not exists planes (
 insert into planes (codigo, nombre, descripcion, precio_mensual, max_habitaciones,
                     facturacion_sunat, reportes_avanzados, orden)
 values
-  ('prueba',  'Prueba',  'Todo el sistema durante 14 dias, sin tarjeta.',
+  ('prueba',  'Prueba',  'Todo el sistema durante 14 días, sin tarjeta.',
    0.00,   NULL, true,  true,  0),
-  ('basico',  'Basico',  'Para hospedajes y hostales pequenos.',
+  ('basico',  'Básico',  'Para hospedajes y hostales pequeños.',
    59.00,  12,   false, false, 1),
-  ('pro',     'Pro',     'Para hoteles con facturacion electronica.',
+  ('pro',     'Pro',     'Para hoteles con facturación electrónica.',
    119.00, 35,   true,  true,  2),
-  ('empresa', 'Empresa', 'Sin limite de habitaciones.',
+  ('empresa', 'Empresa', 'Sin límite de habitaciones.',
    199.00, NULL, true,  true,  3)
 on conflict (codigo) do nothing;
 
