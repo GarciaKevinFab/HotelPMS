@@ -58,7 +58,11 @@ export function AuthProvider({ children }) {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     setUser(null);
-    window.location.href = '/login';
+    // La SPA vive bajo /app (ver el basename en App.js). window.location.href
+    // se salta el router, y con el el basename: apuntar a '/login' dejaba al
+    // usuario en una ruta que el router no reconoce, con la pantalla en blanco
+    // justo despues de cerrar sesion.
+    window.location.href = '/app/login';
   }, []);
 
   const value = {

@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Libro de Reclamaciones · ZenStay</title>
+<meta name="description" content="Libro de Reclamaciones virtual de ZenStay, conforme al Código de Protección y Defensa del Consumidor del Perú.">
+<link rel="icon" href="/logo-zenstay.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=Karla:wght@400;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/landing-assets/estilo.css">
+</head>
+<body>
+
+<div class="envoltorio">
+  <header class="cabecera">
+    <a class="marca" href="/"><img src="/logo-zenstay.png" alt="ZenStay"><span>ZenStay</span></a>
+    <nav><a href="/">Inicio</a><a href="/app/login">Entrar</a></nav>
+  </header>
+</div>
+
+<div class="envoltorio legal">
+  <h1>Libro de Reclamaciones</h1>
+  <p>Conforme al <strong>Código de Protección y Defensa del Consumidor</strong> (Ley 29571)
+     y al D.S. 011-2011-PCM, ponemos a su disposición este Libro de Reclamaciones virtual.</p>
+
+  <div class="ficha">
+    <p><strong>Proveedor:</strong> SOLUCIONES INFORMÁTICAS MDD S.A.C.<br>
+       <strong>RUC:</strong> 20490042068<br>
+       <strong>Domicilio:</strong> Puerto Maldonado, Madre de Dios, Perú<br>
+       <strong>Servicio:</strong> ZenStay — sistema de gestión hotelera</p>
+  </div>
+
+  <h2>La diferencia entre reclamo y queja</h2>
+  <p><strong>Reclamo:</strong> disconformidad con el servicio contratado.
+     <strong>Queja:</strong> malestar con la atención recibida, sin relación con el servicio
+     en sí. Ambos se registran aquí.</p>
+
+  <h2>Plazo de respuesta</h2>
+  <p>Responderemos en un plazo máximo de <strong>quince (15) días hábiles</strong>, contados
+     desde la recepción. Si necesitáramos más tiempo, se lo comunicaremos justificando el
+     motivo, como permite la norma.</p>
+
+  <h2>Formulario</h2>
+  <div id="mensaje"></div>
+  <form id="hoja" class="formulario" style="margin:24px 0 0;max-width:none" novalidate>
+    <div class="campo">
+      <label for="nombre">Nombres y apellidos <span aria-hidden="true">*</span></label>
+      <input id="nombre" required autocomplete="name">
+    </div>
+    <div class="campo">
+      <label for="documento">Documento de identidad <span aria-hidden="true">*</span></label>
+      <input id="documento" required placeholder="DNI / CE / RUC">
+    </div>
+    <div class="campo">
+      <label for="correo">Correo electrónico <span aria-hidden="true">*</span></label>
+      <input id="correo" type="email" required autocomplete="email">
+      <p class="ayuda">A esta dirección le enviaremos la respuesta.</p>
+    </div>
+    <div class="campo">
+      <label for="telefono">Teléfono</label>
+      <input id="telefono" inputmode="tel" autocomplete="tel">
+    </div>
+    <div class="campo">
+      <label for="tipo">Tipo <span aria-hidden="true">*</span></label>
+      <select id="tipo" required>
+        <option value="Reclamo">Reclamo — disconformidad con el servicio</option>
+        <option value="Queja">Queja — malestar con la atención</option>
+      </select>
+    </div>
+    <div class="campo">
+      <label for="detalle">Detalle <span aria-hidden="true">*</span></label>
+      <textarea id="detalle" rows="6" required
+        placeholder="Cuéntenos qué ocurrió, con fechas si las recuerda."></textarea>
+    </div>
+    <div class="campo">
+      <label for="pedido">Qué solicita</label>
+      <textarea id="pedido" rows="3" placeholder="Qué esperaría como solución."></textarea>
+    </div>
+    <button type="submit" class="boton boton-lleno" style="width:100%">Enviar</button>
+    <p class="ayuda" style="margin-top:14px">
+      Al enviar se abrirá su programa de correo con la hoja ya redactada, dirigida a
+      soporte@sisac.pe. Si no se abriera, escríbanos directamente a esa dirección: vale
+      igual y el plazo cuenta desde la fecha de su correo.
+    </p>
+  </form>
+</div>
+
+<div class="envoltorio">
+  <div class="pie">
+    <p><a href="/">Inicio</a> · <a href="/terminos">Términos</a> · <a href="/privacidad">Privacidad</a> · <a href="mailto:soporte@sisac.pe">soporte@sisac.pe</a></p>
+    <p style="margin-top:10px">SOLUCIONES INFORMÁTICAS MDD S.A.C. — RUC 20490042068</p>
+  </div>
+</div>
+
+<script>
+// La hoja se envia por correo y NO se guarda en la base: son datos de un
+// reclamo, y almacenarlos obligaria a tratarlos como tales sin que aporte nada.
+// Lo que la norma exige es que quede constancia y que se responda en plazo, y
+// de eso ya se encarga el correo.
+document.getElementById('hoja').addEventListener('submit', function (e) {
+  e.preventDefault();
+  var v = function (id) { return (document.getElementById(id).value || '').trim(); };
+  var caja = document.getElementById('mensaje');
+
+  if (!v('nombre') || !v('documento') || !v('correo') || !v('detalle')) {
+    caja.innerHTML = '<div class="aviso error">Complete los campos marcados con asterisco.</div>';
+    return;
+  }
+
+  var cuerpo = [
+    'HOJA DE RECLAMACIÓN — ZenStay',
+    'Fecha: ' + new Date().toLocaleString('es-PE'),
+    '',
+    'Tipo: ' + v('tipo'),
+    'Nombres: ' + v('nombre'),
+    'Documento: ' + v('documento'),
+    'Correo: ' + v('correo'),
+    'Teléfono: ' + (v('telefono') || '—'),
+    '',
+    'DETALLE',
+    v('detalle'),
+    '',
+    'SOLICITA',
+    v('pedido') || '—'
+  ].join('\n');
+
+  caja.innerHTML = '<div class="aviso bien">Abriendo su programa de correo con la hoja redactada. ' +
+    'Si no se abre, envíe el texto a soporte@sisac.pe.</div>';
+
+  window.location.href = 'mailto:soporte@sisac.pe' +
+    '?subject=' + encodeURIComponent('[' + v('tipo') + '] ZenStay — ' + v('nombre')) +
+    '&body=' + encodeURIComponent(cuerpo);
+});
+</script>
+
+</body>
+</html>

@@ -10,7 +10,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="ZenStay">
     <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />
-    <link rel="apple-touch-icon" href="%PUBLIC_URL%/logo-zenstay.png" />
+    <link rel="apple-touch-icon" href="%PUBLIC_URL%/logo-zenstay.png?v=2" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -49,6 +49,46 @@
 
         #brand-badge-dot {
             animation: badge-dot-pulse 2.4s ease-in-out infinite;
+        }
+
+        /* Se declara aqui y no inline para que la media query de abajo pueda
+           anularlo: un `display` inline con !important no hay forma de
+           sobrescribirlo desde una hoja de estilos. */
+        #brand-badge .badge-texto {
+            display: flex;
+        }
+
+        /*
+          En el móvil el distintivo estorbaba: mide 176x52 y va fijo abajo a la
+          derecha, justo encima de las tarjetas del panel y de los botones que
+          quedan al final de cada pantalla. En un escritorio sobra sitio; en
+          375 px de ancho tapa lo que el recepcionista necesita tocar.
+
+          Se reduce al isotipo: la firma sigue estando, pero ocupa lo que un
+          botón y deja ver lo que hay debajo.
+        */
+        @media (max-width: 640px) {
+            #brand-badge {
+                bottom: 12px !important;
+                right: 12px !important;
+                padding: 6px !important;
+                gap: 0 !important;
+                opacity: .82;
+            }
+
+            #brand-badge .badge-texto {
+                display: none !important;
+            }
+
+            #brand-badge #brand-badge-dot {
+                position: absolute;
+                top: 3px;
+                right: 3px;
+                width: 6px !important;
+                height: 6px !important;
+                box-shadow: none !important;
+                animation: none;
+            }
         }
     </style>
 </head>
@@ -94,7 +134,7 @@
             border: 1px solid rgba(255,255,255,0.08) !important;
             flex-shrink: 0 !important;
         ">
-            <img src="%PUBLIC_URL%/logo-zenstay.png" alt="ZenStay" style="
+            <img src="%PUBLIC_URL%/logo-zenstay.png?v=2" alt="ZenStay" style="
                     width: 30px !important;
                     height: 30px !important;
                     object-fit: contain !important;
@@ -102,8 +142,7 @@
                 " />
         </span>
         <!-- Texto -->
-        <span style="
-            display: flex !important;
+        <span class="badge-texto" style="
             flex-direction: column !important;
             gap: 2px !important;
             line-height: 1 !important;

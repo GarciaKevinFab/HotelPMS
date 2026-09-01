@@ -298,3 +298,29 @@ p  { margin: 0 0 1rem; }
   .cabecera nav a:not(.boton) { padding: 10px 0; }
   .pie a, .seccion a:not(.boton) { display: inline-block; padding: 6px 0; }
 }
+
+/* --- Paginas legales --------------------------------------------------- */
+/* Columna estrecha a proposito: un texto legal que se lee de verdad es uno
+   con medida de linea corta. A 90 caracteres por renglon nadie llega al
+   final. */
+.legal { max-width: 68ch; padding-top: 46px; padding-bottom: 70px; }
+.legal h1 { margin-bottom: 26px; }
+.legal h2 { font-size: 1.28rem; margin: 38px 0 12px; color: var(--turquesa); }
+.legal p, .legal li { color: var(--texto-suave); }
+.legal strong { color: var(--texto); }
+.legal a { color: var(--turquesa); }
+.legal ul { padding-left: 20px; }
+.legal li { margin-bottom: 9px; }
+.legal .ficha {
+  background: var(--superficie); border: 1px solid var(--borde);
+  border-radius: 8px; padding: 20px 22px; margin: 22px 0;
+}
+.legal .ficha p { margin: 0; line-height: 1.9; }
+.legal select, .legal textarea {
+  width: 100%; padding: 12px 14px; font-size: 1rem; font-family: var(--sans);
+  border: 1px solid var(--borde); border-radius: var(--radio);
+  background: var(--superficie); color: var(--texto); resize: vertical;
+}
+.legal select:focus, .legal textarea:focus {
+  outline: 2px solid var(--turquesa); outline-offset: -1px; border-color: transparent;
+}

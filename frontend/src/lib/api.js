@@ -1,6 +1,24 @@
 import axios from 'axios';
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || '';
+// En produccion la SPA y la API viven en el MISMO origen -- el backend sirve
+// las dos cosas (ver servir_web en backend/server.py) --, asi que la ruta
+// relativa siempre es la correcta y no hay que nombrar ningun host.
+//
+// Por que se decide por NODE_ENV y no solo por la variable de entorno:
+// `.env.production` la declaraba vacia (REACT_APP_BACKEND_URL=), pero Create
+// React App NO sobrescribe con un valor vacio -- se quedaba con el de `.env`,
+// que apunta a http://localhost:8000 para el desarrollo. Resultado: el bundle
+// de PRODUCCION pedia el login a la maquina del propio usuario y no podia
+// entrar nadie. La API respondia 200 perfectamente; el navegador ni siquiera
+// la estaba llamando.
+//
+// En desarrollo si hace falta la variable: React corre en :3000 y el backend
+// en otro puerto.
+const BACKEND_URL =
+  process.env.NODE_ENV === 'production'
+    ? ''
+    : (process.env.REACT_APP_BACKEND_URL || '');
+
 export const API_BASE = `${BACKEND_URL}/api`;
 
 // Create axios instance
@@ -27,7 +45,11 @@ api.interceptors.response.use(
     if (error.response?.status === 401) {
       localStorage.removeItem('token');
       localStorage.removeItem('user');
-      window.location.href = '/login';
+      // La SPA vive bajo /app (ver el basename en App.js). window.location.href
+      // se salta el router, y con el el basename: apuntar a '/login' dejaba al
+      // usuario en una URL que el router no reconoce. Pasaba al caducar el
+      // token a las 24 h, justo cuando hay que volver a entrar.
+      window.location.href = '/app/login';
     }
     return Promise.reject(error);
   }
