@@ -1,13 +1,17 @@
 """
-Hotel PMS Backend - Multi-Tenant Property Management System
-Language: Spanish (Peru), Currency: PEN, Timezone: America/Lima
+ZenStay - Sistema multi-hotel de gestion hotelera (PMS)
+Idioma: espanol (Peru), moneda: PEN, zona horaria: America/Lima
+
+Base de datos: Postgres (ver db/schema.sql y backend/db_pg.py). Antes era
+MongoDB Atlas; se migro porque el cluster dejo de existir y porque los importes
+en float no sirven para un sistema que emite comprobantes y cuadra caja.
 """
 
 from fastapi import FastAPI, APIRouter, Depends, HTTPException, Header, Query, Body
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
-from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
 from pathlib import Path
@@ -18,33 +22,47 @@ from datetime import datetime, timezone, date, timedelta
 from enum import Enum
 import bcrypt
 import jwt
-from bson import ObjectId
 import base64
 import json
 import io
 import asyncio
-import certifi
+import secrets
+
+import db_pg
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
-# MongoDB connection
-mongo_url = os.environ['MONGO_URL']
-client = AsyncIOMotorClient(
-    mongo_url,
-    tls=True,
-    tlsCAFile=certifi.where(),
-    tlsAllowInvalidCertificates=True
-)
-db = client[os.environ['DB_NAME']]
-
-# JWT Configuration
-JWT_SECRET = os.environ.get('JWT_SECRET', 'hotel-pms-secret-key-change-in-production')
+# --------------------------------------------------------------------------
+# Configuracion que NO puede tener valor por defecto
+# --------------------------------------------------------------------------
+# Antes JWT_SECRET caia a un placeholder ('...-change-in-production') si la
+# variable faltaba. Eso es peor que no arrancar: el sistema levantaba y firmaba
+# tokens con un secreto que esta escrito en el repositorio, asi que cualquiera
+# podia fabricarse un token de SUPER_ADMIN. Ahora falta la variable y el
+# proceso no arranca, que es ruidoso pero honesto.
+JWT_SECRET = os.environ.get('JWT_SECRET')
+if not JWT_SECRET:
+    raise RuntimeError(
+        "JWT_SECRET no esta configurada. Es la clave con la que se firman los "
+        "tokens de sesion: sin ella el backend no puede arrancar. Generar una "
+        "con `openssl rand -hex 32` y ponerla en el .env del VPS."
+    )
 JWT_ALGORITHM = 'HS256'
 JWT_EXPIRATION_HOURS = 24
 
+# Mismo criterio para CORS. Antes caia a '*' y, combinado con
+# allow_credentials=True, era a la vez invalido para los navegadores e inseguro.
+CORS_ORIGINS = [o.strip() for o in os.environ.get('CORS_ORIGINS', '').split(',') if o.strip()]
+if not CORS_ORIGINS:
+    raise RuntimeError(
+        "CORS_ORIGINS no esta configurada. Debe listar los origenes exactos "
+        "permitidos, separados por coma (ej. https://zenstay.sisac.pe). No se "
+        "acepta '*' porque las peticiones van con credenciales."
+    )
+
 # App Configuration
-app = FastAPI(title="Hotel PMS API", version="1.0.0")
+app = FastAPI(title="ZenStay API", version="1.0.0")
 api_router = APIRouter(prefix="/api")
 
 # Configure logging
@@ -110,36 +128,25 @@ class DocType(str, Enum):
     RUC = "RUC"
 
 # ============== PYDANTIC MODELS ==============
-class PyObjectId(str):
-    @classmethod
-    def __get_validators__(cls):
-        yield cls.validate
-    
-    @classmethod
-    def validate(cls, v, handler=None):
-        if isinstance(v, ObjectId):
-            return str(v)
-        if isinstance(v, str):
-            return v
-        raise ValueError("Invalid ObjectId")
+# PyObjectId y serialize_doc existian para lidiar con los ObjectId de Mongo.
+# Con Postgres las claves ya son uuid y la columna ya se llama `id`, asi que el
+# renombrado de `_id` desaparece. La conversion de tipos para la respuesta JSON
+# (uuid -> str, timestamptz -> ISO, numeric -> float) vive ahora en
+# db_pg.to_api(). Se deja este alias porque hay endpoints que arman diccionarios
+# a mano y lo llaman.
+serialize_doc = db_pg.to_api
 
-def serialize_doc(doc: dict) -> dict:
-    """Convert MongoDB document to JSON-serializable dict"""
-    if doc is None:
-        return None
-    if "_id" in doc:
-        doc["id"] = str(doc["_id"])
-        del doc["_id"]
-    for key, value in doc.items():
-        if isinstance(value, ObjectId):
-            doc[key] = str(value)
-        elif isinstance(value, datetime):
-            doc[key] = value.isoformat()
-        elif isinstance(value, dict):
-            doc[key] = serialize_doc(value)
-        elif isinstance(value, list):
-            doc[key] = [serialize_doc(item) if isinstance(item, dict) else (str(item) if isinstance(item, ObjectId) else item) for item in value]
-    return doc
+
+def id_valido(valor, campo="id"):
+    """Valida un identificador que llega del cliente y devuelve 400 si no lo es.
+
+    Ocupa el lugar de ObjectId(id): antes, un id con formato invalido reventaba
+    dentro del driver. Aca se traduce a una respuesta clara.
+    """
+    try:
+        return db_pg.a_uuid(valor, campo)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 # Auth Models
 class UserLogin(BaseModel):
@@ -173,14 +180,25 @@ class TenantCreate(BaseModel):
     admin_name: Optional[str] = None
 
 class TenantInvoicingConfig(BaseModel):
+    """Configuracion de facturacion. TODOS los campos son opcionales.
+
+    Antes tenian valores por defecto (B001, correlativo 1, IGV 18). El frontend
+    manda solo la ruta y el token de NubeFact, asi que Pydantic rellenaba el
+    resto con esos defaults y el UPDATE devolvia el correlativo de boletas a 1:
+    guardar el token de facturacion reiniciaba la numeracion, y SUNAT no admite
+    que una serie repita numeros.
+
+    Ahora lo que no viene se queda como esta (ver el coalesce del endpoint).
+    Los valores iniciales los pone la tabla en db/schema.sql, no este modelo.
+    """
     nubefact_ruta: Optional[str] = None
     nubefact_token: Optional[str] = None
-    invoicing_mode: Literal["MOCK", "LIVE"] = "MOCK"
-    boleta_series: str = "B001"
-    boleta_correlative: int = 1
-    factura_series: str = "F001"
-    factura_correlative: int = 1
-    igv_rate: float = 18.0
+    invoicing_mode: Optional[Literal["MOCK", "LIVE"]] = None
+    boleta_series: Optional[str] = None
+    boleta_correlative: Optional[int] = None
+    factura_series: Optional[str] = None
+    factura_correlative: Optional[int] = None
+    igv_rate: Optional[float] = None
 
 # Room Models
 class RoomTypeCreate(BaseModel):
@@ -360,41 +378,54 @@ def require_roles(*roles: Role):
         return user
     return role_checker
 
-def get_tenant_filter(user: dict) -> dict:
-    """Get tenant filter for queries based on user role"""
+def tenant_de(user: dict):
+    """El hotel del usuario, o None si es SUPER_ADMIN (ve todos).
+
+    Reemplaza a get_tenant_filter(), que devolvia un diccionario de filtro de
+    Mongo. Ahora devuelve un valor suelto que se pasa como parametro a la
+    consulta, siempre con la misma forma:
+
+        where ($1::uuid is null or tenant_id = $1)
+
+    Con un usuario normal, $1 es su hotel y filtra. Con un SUPER_ADMIN, $1 es
+    NULL y la condicion se cumple para todas las filas -- exactamente lo que
+    hacia el `return {}` de antes. Ademas RLS respalda esto por debajo: si a una
+    consulta se le olvida la condicion, la politica devuelve cero filas en vez
+    de datos de otro cliente.
+    """
     if user["role"] == Role.SUPER_ADMIN.value:
-        return {}  # Super admin can see all
+        return None
     if not user.get("tenant_id"):
         raise HTTPException(status_code=400, detail="Usuario sin tenant asignado")
-    return {"tenant_id": user["tenant_id"]}
+    return db_pg.a_uuid(user["tenant_id"], "tenant_id")
+
 
 # ============== AUDIT HELPER ==============
-async def create_audit_log(tenant_id: str, user_id: str, entity: str, action: str, before: dict = None, after: dict = None):
-    await db.audit_logs.insert_one({
-        "tenant_id": tenant_id,
-        "user_id": user_id,
-        "entity": entity,
-        "action": action,
-        "before_json": before,
-        "after_json": after,
-        "created_at": datetime.now(timezone.utc).isoformat()
-    })
+async def create_audit_log(conn, tenant_id, user_id, entity: str, action: str, before: dict = None, after: dict = None):
+    """Registra un cambio en la bitacora de auditoria.
+
+    Recibe la conexion en vez de abrir una propia: asi la auditoria entra en la
+    MISMA transaccion que el cambio que describe. Antes eran dos escrituras
+    sueltas, y si la segunda fallaba quedaba un cambio sin rastro (o al reves,
+    un rastro de algo que no llego a pasar).
+    """
+    await conn.execute(
+        """insert into audit_logs (tenant_id, user_id, entity, action, before_json, after_json)
+           values ($1, $2, $3, $4, $5, $6)""",
+        db_pg.a_uuid(tenant_id), db_pg.a_uuid(user_id), entity, action,
+        json.dumps(before) if before is not None else None,
+        json.dumps(after) if after is not None else None,
+    )
 
 # ============== ALERT HELPER ==============
-async def create_alert(tenant_id: str, alert_type: str, severity: AlertSeverity, title: str, message: str, entity_ref: dict = None):
-    await db.alerts.insert_one({
-        "tenant_id": tenant_id,
-        "type": alert_type,
-        "severity": severity.value,
-        "title": title,
-        "message": message,
-        "entity_ref": entity_ref or {},
-        "status": "OPEN",
-        "created_at": datetime.now(timezone.utc).isoformat(),
-        "resolved_by": None,
-        "resolved_at": None,
-        "notes": None
-    })
+async def create_alert(conn, tenant_id, alert_type: str, severity: AlertSeverity, title: str, message: str, entity_ref: dict = None):
+    """Crea una alerta operativa. Tambien participa de la transaccion que la origina."""
+    await conn.execute(
+        """insert into alerts (tenant_id, type, severity, title, message, entity_ref, status)
+           values ($1, $2, $3::alert_severity, $4, $5, $6, 'OPEN')""",
+        db_pg.a_uuid(tenant_id), alert_type, severity.value, title, message,
+        json.dumps(entity_ref or {}),
+    )
 
 # ============== NUBEFACT MOCK SERVICE ==============
 class NubeFactService:
@@ -459,20 +490,24 @@ class NubeFactService:
 # ============== AUTH ENDPOINTS ==============
 @api_router.post("/auth/login", response_model=TokenResponse)
 async def login(credentials: UserLogin):
-    user = await db.users.find_one({"email": credentials.email}, {"_id": 1, "email": 1, "password_hash": 1, "full_name": 1, "role": 1, "tenant_id": 1, "is_active": 1})
+    # db_pg.autenticar() es la unica lectura que ocurre sin saber el hotel:
+    # averiguarlo es justamente lo que esta haciendo. Por debajo llama a la
+    # funcion app_autenticar() de Postgres, acotada a una fila y a las columnas
+    # del login (ver db/rls.sql).
+    user = await db_pg.autenticar(credentials.email)
     if not user:
         raise HTTPException(status_code=401, detail="Credenciales inválidas")
     if not user.get("is_active", True):
         raise HTTPException(status_code=401, detail="Usuario desactivado")
     if not verify_password(credentials.password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Credenciales inválidas")
-    
-    token = create_token(str(user["_id"]), user["email"], user["role"], user.get("tenant_id"))
-    
+
+    token = create_token(user["id"], user["email"], user["role"], user.get("tenant_id"))
+
     return TokenResponse(
         access_token=token,
         user={
-            "id": str(user["_id"]),
+            "id": user["id"],
             "email": user["email"],
             "full_name": user["full_name"],
             "role": user["role"],
@@ -482,102 +517,128 @@ async def login(credentials: UserLogin):
 
 @api_router.get("/auth/me")
 async def get_me(user: dict = Depends(get_current_user)):
-    db_user = await db.users.find_one({"_id": ObjectId(user["user_id"])}, {"_id": 0, "password_hash": 0})
-    if not db_user:
-        raise HTTPException(status_code=404, detail="Usuario no encontrado")
-    
-    result = serialize_doc(db_user)
-    result["id"] = user["user_id"]
-    
-    # Get tenant info if exists
-    if user.get("tenant_id"):
-        tenant = await db.tenants.find_one({"_id": ObjectId(user["tenant_id"])}, {"_id": 0, "name": 1, "nombre_comercial": 1})
-        result["tenant"] = serialize_doc(tenant) if tenant else None
-    
-    return result
+    async with db_pg.tx(user) as conn:
+        db_user = await db_pg.uno(
+            conn,
+            """select id, tenant_id, email, full_name, role, is_active, created_at
+               from users where id = $1""",
+            id_valido(user["user_id"], "user_id"),
+        )
+        if not db_user:
+            raise HTTPException(status_code=404, detail="Usuario no encontrado")
+
+        # El nombre del hotel, para la cabecera de la UI. Un SUPER_ADMIN no
+        # tiene hotel propio, asi que no se consulta.
+        if user.get("tenant_id"):
+            db_user["tenant"] = await db_pg.uno(
+                conn,
+                "select name, nombre_comercial from tenants where id = $1",
+                id_valido(user["tenant_id"], "tenant_id"),
+            )
+
+    return db_user
 
 # ============== TENANT ENDPOINTS ==============
 @api_router.post("/tenants")
 async def create_tenant(data: TenantCreate, user: dict = Depends(require_roles(Role.SUPER_ADMIN))):
-    # Check RUC unique
-    existing = await db.tenants.find_one({"ruc": data.ruc})
-    if existing:
-        raise HTTPException(status_code=400, detail="Ya existe un hotel con este RUC")
-    
-    tenant = {
-        "name": data.name,
-        "ruc": data.ruc,
-        "razon_social": data.razon_social or data.name,
-        "nombre_comercial": data.nombre_comercial or data.name,
-        "address": data.address,
-        "phone": data.phone,
-        "email": data.email,
-        "is_active": True,
-        "invoicing_config": TenantInvoicingConfig().model_dump(),
-        "settings": {
-            "checkin_time": "14:00",
-            "checkout_time": "12:00",
-            "timezone": "America/Lima",
-            "currency": "PEN"
-        },
-        "created_at": datetime.now(timezone.utc).isoformat()
-    }
-    result = await db.tenants.insert_one(tenant)
-    tenant_id = str(result.inserted_id)
-    
-    # Create admin user if provided
-    admin_id = None
-    if data.admin_email and data.admin_password:
-        # Check email unique
-        existing_user = await db.users.find_one({"email": data.admin_email})
-        if existing_user:
+    # Crear un hotel y su administrador es UNA operacion: si el email del admin
+    # ya estaba en uso, antes quedaba el hotel creado y sin administrador, y
+    # habia que limpiarlo a mano. Ahora las dos escrituras van en la misma
+    # transaccion y o entran las dos o no entra ninguna.
+    async with db_pg.tx_global("crear un hotel nuevo: aun no existe su tenant_id") as conn:
+        if await conn.fetchval("select 1 from tenants where ruc = $1", data.ruc):
+            raise HTTPException(status_code=400, detail="Ya existe un hotel con este RUC")
+
+        if data.admin_email and await conn.fetchval(
+            "select 1 from users where email = $1", data.admin_email
+        ):
             raise HTTPException(status_code=400, detail="El email del administrador ya está en uso")
-        
-        admin_user = {
-            "email": data.admin_email,
-            "password_hash": hash_password(data.admin_password),
-            "full_name": data.admin_name or "Administrador",
-            "role": Role.ADMIN.value,
-            "tenant_id": tenant_id,
-            "is_active": True,
-            "created_at": datetime.now(timezone.utc).isoformat()
-        }
-        admin_result = await db.users.insert_one(admin_user)
-        admin_id = str(admin_result.inserted_id)
-    
-    await create_audit_log(None, user["user_id"], "tenant", "CREATE", None, {"tenant_id": tenant_id, "name": data.name})
-    
+
+        # La config de facturacion ya no va anidada en un campo `invoicing_config`
+        # ademas de plana en la raiz: en el esquema nuevo existe una sola vez,
+        # con los valores por defecto que declara la tabla (B001/F001, IGV 18%).
+        tenant_id = await conn.fetchval(
+            """insert into tenants (name, ruc, razon_social, nombre_comercial,
+                                    address, phone, email)
+               values ($1, $2, $3, $4, $5, $6, $7)
+               returning id""",
+            data.name, data.ruc,
+            data.razon_social or data.name,
+            data.nombre_comercial or data.name,
+            data.address, data.phone, data.email,
+        )
+
+        admin_id = None
+        if data.admin_email and data.admin_password:
+            admin_id = await conn.fetchval(
+                """insert into users (tenant_id, email, password_hash, full_name, role)
+                   values ($1, $2, $3, $4, 'ADMIN')
+                   returning id""",
+                tenant_id, data.admin_email,
+                hash_password(data.admin_password),
+                data.admin_name or "Administrador",
+            )
+
+        await create_audit_log(conn, tenant_id, user["user_id"], "tenant", "CREATE",
+                               None, {"tenant_id": str(tenant_id), "name": data.name})
+
     return {
-        "id": tenant_id, 
-        "admin_id": admin_id,
+        "id": str(tenant_id),
+        "admin_id": str(admin_id) if admin_id else None,
         "message": "Hotel creado exitosamente"
     }
 
 @api_router.get("/tenants")
 async def list_tenants(user: dict = Depends(require_roles(Role.SUPER_ADMIN))):
-    tenants = await db.tenants.find({}).to_list(1000)
-    return [serialize_doc(t) for t in tenants]
+    async with db_pg.tx(user) as conn:
+        return await db_pg.varias(conn, "select * from tenants order by name")
 
 @api_router.get("/tenants/{tenant_id}")
 async def get_tenant(tenant_id: str, user: dict = Depends(get_current_user)):
     if user["role"] != Role.SUPER_ADMIN.value and user.get("tenant_id") != tenant_id:
         raise HTTPException(status_code=403, detail="Acceso denegado")
-    
-    tenant = await db.tenants.find_one({"_id": ObjectId(tenant_id)})
+
+    async with db_pg.tx(user) as conn:
+        tenant = await db_pg.uno(conn, "select * from tenants where id = $1",
+                                 id_valido(tenant_id, "tenant_id"))
     if not tenant:
         raise HTTPException(status_code=404, detail="Hotel no encontrado")
-    return serialize_doc(tenant)
+    return tenant
 
 @api_router.put("/tenants/{tenant_id}/invoicing")
 async def update_tenant_invoicing(tenant_id: str, config: TenantInvoicingConfig, user: dict = Depends(require_roles(Role.SUPER_ADMIN, Role.ADMIN))):
     if user["role"] != Role.SUPER_ADMIN.value and user.get("tenant_id") != tenant_id:
         raise HTTPException(status_code=403, detail="Acceso denegado")
-    
-    await db.tenants.update_one(
-        {"_id": ObjectId(tenant_id)},
-        {"$set": {"invoicing_config": config.model_dump()}}
-    )
-    await create_audit_log(tenant_id, user["user_id"], "tenant", "UPDATE_INVOICING", None, config.model_dump())
+
+    tid = id_valido(tenant_id, "tenant_id")
+    async with db_pg.tx(user) as conn:
+        # Los campos van a columnas propias, no a un blob JSON: el correlativo
+        # de un comprobante SUNAT tiene que poder incrementarse de forma atomica
+        # y participar del unique (tenant_id, type, series, number).
+        # coalesce en cada campo: lo que el cliente no manda se queda como
+        # estaba. Es lo que impide que guardar el token de NubeFact reinicie
+        # los correlativos -- ver la nota en TenantInvoicingConfig.
+        actualizado = await conn.fetchval(
+            """update tenants set
+                   nubefact_ruta       = coalesce($2, nubefact_ruta),
+                   nubefact_token      = coalesce($3, nubefact_token),
+                   invoicing_mode      = coalesce($4, invoicing_mode),
+                   boleta_series       = coalesce($5, boleta_series),
+                   boleta_correlative  = coalesce($6, boleta_correlative),
+                   factura_series      = coalesce($7, factura_series),
+                   factura_correlative = coalesce($8, factura_correlative),
+                   igv_rate            = coalesce($9, igv_rate)
+               where id = $1
+               returning id""",
+            tid, config.nubefact_ruta, config.nubefact_token, config.invoicing_mode,
+            config.boleta_series, config.boleta_correlative,
+            config.factura_series, config.factura_correlative, config.igv_rate,
+        )
+        if not actualizado:
+            raise HTTPException(status_code=404, detail="Hotel no encontrado")
+
+        await create_audit_log(conn, tid, user["user_id"], "tenant",
+                               "UPDATE_INVOICING", None, config.model_dump())
     return {"message": "Configuración de facturación actualizada"}
 
 # ============== USER ENDPOINTS ==============
@@ -588,71 +649,91 @@ async def create_user(data: UserCreate, user: dict = Depends(require_roles(Role.
         if data.role == Role.SUPER_ADMIN:
             raise HTTPException(status_code=403, detail="No puede crear Super Admins")
     
-    existing = await db.users.find_one({"email": data.email})
-    if existing:
-        raise HTTPException(status_code=400, detail="Email ya registrado")
-    
-    new_user = {
-        "email": data.email,
-        "password_hash": hash_password(data.password),
-        "full_name": data.full_name,
-        "role": data.role.value,
-        "tenant_id": data.tenant_id,
-        "is_active": True,
-        "created_at": datetime.now(timezone.utc).isoformat()
-    }
-    result = await db.users.insert_one(new_user)
-    return {"id": str(result.inserted_id), "message": "Usuario creado exitosamente"}
+    async with db_pg.tx_global("alta de usuario: el email es unico entre todos los hoteles") as conn:
+        if await conn.fetchval("select 1 from users where email = $1", data.email):
+            raise HTTPException(status_code=400, detail="Email ya registrado")
+
+        nuevo_id = await conn.fetchval(
+            """insert into users (tenant_id, email, password_hash, full_name, role)
+               values ($1, $2, $3, $4, $5::user_role)
+               returning id""",
+            db_pg.a_uuid(data.tenant_id, "tenant_id"), data.email,
+            hash_password(data.password), data.full_name, data.role.value,
+        )
+    return {"id": str(nuevo_id), "message": "Usuario creado exitosamente"}
 
 @api_router.get("/users")
 async def list_users(user: dict = Depends(require_roles(Role.SUPER_ADMIN, Role.ADMIN))):
-    tenant_filter = get_tenant_filter(user)
-    users = await db.users.find(tenant_filter, {"password_hash": 0}).to_list(1000)
-    return [serialize_doc(u) for u in users]
+    tid = tenant_de(user)
+    async with db_pg.tx(user) as conn:
+        # Nunca se selecciona password_hash: era la proyeccion {"password_hash": 0}
+        # de Mongo, y aca se consigue simplemente no nombrando la columna.
+        return await db_pg.varias(
+            conn,
+            """select id, tenant_id, email, full_name, role, is_active, created_at
+               from users
+               where ($1::uuid is null or tenant_id = $1)
+               order by full_name""",
+            tid,
+        )
 
 @api_router.get("/users/{user_id}", dependencies=[Depends(require_roles(Role.SUPER_ADMIN, Role.ADMIN))])
 async def get_user(user_id: str, current_user: dict = Depends(get_current_user)):
-    user = await db.users.find_one({"_id": ObjectId(user_id)})
-    if not user:
+    async with db_pg.tx(current_user) as conn:
+        encontrado = await db_pg.uno(
+            conn,
+            """select id, tenant_id, email, full_name, role, is_active, created_at
+               from users where id = $1""",
+            id_valido(user_id, "user_id"),
+        )
+    if not encontrado:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
-    if current_user['role'] != Role.SUPER_ADMIN.value and str(user.get('tenant_id')) != str(current_user.get('tenant_id')):
+    if current_user['role'] != Role.SUPER_ADMIN.value and str(encontrado.get('tenant_id')) != str(current_user.get('tenant_id')):
         raise HTTPException(status_code=403, detail="No autorizado")
-    user.pop('password_hash', None)
-    return serialize_doc(user)
+    return encontrado
 
 @api_router.put("/users/{user_id}")
 async def update_user(user_id: str, data: dict = Body(...), user: dict = Depends(require_roles(Role.SUPER_ADMIN, Role.ADMIN))):
-    target_user = await db.users.find_one({"_id": ObjectId(user_id)})
-    if not target_user:
-        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    uid = id_valido(user_id, "user_id")
 
-    # Check tenant access
-    if user["role"] != Role.SUPER_ADMIN.value and target_user.get("tenant_id") != user.get("tenant_id"):
-        raise HTTPException(status_code=403, detail="Sin permisos para modificar este usuario")
-
-    # Only allow updating certain fields
-    allowed_fields = {"is_active", "full_name", "role", "email"}
-    update_data = {k: v for k, v in data.items() if k in allowed_fields}
-
-    if not update_data:
+    # Lista blanca de columnas actualizables. Ademas de limitar que puede tocar
+    # el cliente, aca cumple una segunda funcion: como los nombres se
+    # interpolan en el SQL de abajo, solo pueden ser uno de estos cuatro
+    # literales y nunca algo que venga del cuerpo del request.
+    campos_permitidos = {"is_active", "full_name", "role", "email"}
+    cambios = {k: v for k, v in data.items() if k in campos_permitidos}
+    if not cambios:
         raise HTTPException(status_code=400, detail="No hay campos válidos para actualizar")
 
-    # ADMIN cannot set SUPER_ADMIN role
-    if "role" in update_data and update_data["role"] == Role.SUPER_ADMIN.value and user["role"] != Role.SUPER_ADMIN.value:
+    if "role" in cambios and cambios["role"] == Role.SUPER_ADMIN.value and user["role"] != Role.SUPER_ADMIN.value:
         raise HTTPException(status_code=403, detail="No autorizado para asignar rol Super Admin")
 
-    # Email uniqueness check
-    if "email" in update_data:
-        existing = await db.users.find_one({"email": update_data["email"], "_id": {"$ne": ObjectId(user_id)}})
-        if existing:
+    async with db_pg.tx_global("editar usuario: el email es unico entre todos los hoteles") as conn:
+        objetivo = await db_pg.uno(conn, "select id, tenant_id, role from users where id = $1", uid)
+        if not objetivo:
+            raise HTTPException(status_code=404, detail="Usuario no encontrado")
+
+        if user["role"] != Role.SUPER_ADMIN.value and str(objetivo.get("tenant_id")) != str(user.get("tenant_id")):
+            raise HTTPException(status_code=403, detail="Sin permisos para modificar este usuario")
+
+        if "email" in cambios and await conn.fetchval(
+            "select 1 from users where email = $1 and id <> $2", cambios["email"], uid
+        ):
             raise HTTPException(status_code=400, detail="Email ya registrado por otro usuario")
 
-    await db.users.update_one(
-        {"_id": ObjectId(user_id)},
-        {"$set": update_data}
-    )
+        # SET dinamico con parametros numerados: los nombres de columna salen de
+        # la lista blanca de arriba y los valores viajan como parametros, asi
+        # que no hay forma de inyectar SQL desde el cuerpo del request.
+        asignaciones, valores = [], []
+        for i, (col, val) in enumerate(cambios.items(), start=2):
+            asignaciones.append(f"{col} = ${i}" + ("::user_role" if col == "role" else ""))
+            valores.append(val)
 
-    await create_audit_log(user.get("tenant_id"), user["user_id"], "user", "UPDATE", None, {"user_id": user_id, **update_data})
+        await conn.execute(
+            f"update users set {', '.join(asignaciones)} where id = $1", uid, *valores
+        )
+        await create_audit_log(conn, objetivo.get("tenant_id"), user["user_id"], "user",
+                               "UPDATE", None, {"user_id": user_id, **cambios})
     return {"message": "Usuario actualizado"}
 
 @api_router.put("/users/{user_id}/password", dependencies=[Depends(require_roles(Role.SUPER_ADMIN, Role.ADMIN))])
@@ -662,188 +743,247 @@ async def reset_user_password(user_id: str, body: dict = Body(...), current_user
     if not new_password or len(new_password) < 6:
         raise HTTPException(status_code=400, detail="La contraseña debe tener al menos 6 caracteres")
 
-    user = await db.users.find_one({"_id": ObjectId(user_id)})
-    if not user:
-        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    uid = id_valido(user_id, "user_id")
+    async with db_pg.tx(current_user) as conn:
+        objetivo = await db_pg.uno(conn, "select id, tenant_id from users where id = $1", uid)
+        if not objetivo:
+            raise HTTPException(status_code=404, detail="Usuario no encontrado")
 
-    # Tenant isolation
-    if current_user['role'] != Role.SUPER_ADMIN.value and str(user.get('tenant_id')) != str(current_user.get('tenant_id')):
-        raise HTTPException(status_code=403, detail="No autorizado")
+        if current_user['role'] != Role.SUPER_ADMIN.value and str(objetivo.get('tenant_id')) != str(current_user.get('tenant_id')):
+            raise HTTPException(status_code=403, detail="No autorizado")
 
-    hashed = hash_password(new_password)
-    await db.users.update_one({"_id": ObjectId(user_id)}, {"$set": {"password_hash": hashed}})
-    await create_audit_log(current_user.get("tenant_id"), current_user["user_id"], "user", "USER_PASSWORD_RESET", None, {"user_id": user_id, "password": "***"})
+        await conn.execute("update users set password_hash = $2 where id = $1",
+                           uid, hash_password(new_password))
+        # La contrasena nueva no se registra ni ofuscada: lo unico que importa
+        # auditar es que alguien la cambio y a quien.
+        await create_audit_log(conn, objetivo.get("tenant_id"), current_user["user_id"], "user",
+                               "USER_PASSWORD_RESET", None, {"user_id": user_id})
     return {"message": "Contraseña actualizada exitosamente"}
 
 @api_router.delete("/users/{user_id}", dependencies=[Depends(require_roles(Role.SUPER_ADMIN, Role.ADMIN))])
 async def delete_user(user_id: str, current_user: dict = Depends(get_current_user)):
     """Delete a user (admin only)"""
-    user = await db.users.find_one({"_id": ObjectId(user_id)})
-    if not user:
-        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    uid = id_valido(user_id, "user_id")
+    async with db_pg.tx(current_user) as conn:
+        objetivo = await db_pg.uno(conn, "select id, tenant_id, email, role from users where id = $1", uid)
+        if not objetivo:
+            raise HTTPException(status_code=404, detail="Usuario no encontrado")
 
-    # Cannot delete yourself
-    if str(user['_id']) == current_user['user_id']:
-        raise HTTPException(status_code=400, detail="No puedes eliminar tu propia cuenta")
+        if objetivo['id'] == current_user['user_id']:
+            raise HTTPException(status_code=400, detail="No puedes eliminar tu propia cuenta")
 
-    # Tenant isolation
-    if current_user['role'] != Role.SUPER_ADMIN.value and str(user.get('tenant_id')) != str(current_user.get('tenant_id')):
-        raise HTTPException(status_code=403, detail="No autorizado")
+        if current_user['role'] != Role.SUPER_ADMIN.value and str(objetivo.get('tenant_id')) != str(current_user.get('tenant_id')):
+            raise HTTPException(status_code=403, detail="No autorizado")
 
-    # ADMIN cannot delete SUPER_ADMIN
-    if user.get('role') == Role.SUPER_ADMIN.value and current_user['role'] != Role.SUPER_ADMIN.value:
-        raise HTTPException(status_code=403, detail="No autorizado para eliminar Super Administradores")
+        if objetivo.get('role') == Role.SUPER_ADMIN.value and current_user['role'] != Role.SUPER_ADMIN.value:
+            raise HTTPException(status_code=403, detail="No autorizado para eliminar Super Administradores")
 
-    await db.users.delete_one({"_id": ObjectId(user_id)})
-    await create_audit_log(current_user.get("tenant_id"), current_user["user_id"], "user", "USER_DELETED", None, {"user_id": user_id, "email": user.get('email')})
+        # La auditoria se escribe ANTES del borrado: las tablas que referencian
+        # al usuario (created_by, opened_by...) tienen FK contra users, asi que
+        # si el usuario ya opero, el delete falla con violacion de clave
+        # foranea y se responde 409 en vez de un 500 opaco.
+        await create_audit_log(conn, objetivo.get("tenant_id"), current_user["user_id"], "user",
+                               "USER_DELETED", None, {"user_id": user_id, "email": objetivo.get('email')})
+        try:
+            await conn.execute("delete from users where id = $1", uid)
+        except db_pg.ForeignKeyViolationError:
+            raise HTTPException(
+                status_code=409,
+                detail="El usuario tiene movimientos registrados y no se puede eliminar. "
+                       "Desactívalo en su lugar."
+            )
     return {"message": "Usuario eliminado exitosamente"}
 
 # ============== ROOM TYPE ENDPOINTS ==============
 @api_router.post("/room-types")
 async def create_room_type(data: RoomTypeCreate, user: dict = Depends(require_roles(Role.ADMIN))):
-    room_type = {
-        **data.model_dump(),
-        "tenant_id": user["tenant_id"],
-        "is_active": True,
-        "created_at": datetime.now(timezone.utc).isoformat()
-    }
-    result = await db.room_types.insert_one(room_type)
-    return {"id": str(result.inserted_id), "message": "Tipo de habitación creado"}
+    async with db_pg.tx(user) as conn:
+        # amenities es text[] nativo, no JSON: es una lista homogenea de
+        # etiquetas y asi se puede consultar con operadores de array.
+        nuevo_id = await conn.fetchval(
+            """insert into room_types (tenant_id, name, capacity, amenities, base_price)
+               values ($1, $2, $3, $4, $5)
+               returning id""",
+            db_pg.a_uuid(user["tenant_id"]), data.name, data.capacity,
+            data.amenities, data.base_price,
+        )
+    return {"id": str(nuevo_id), "message": "Tipo de habitación creado"}
 
 @api_router.get("/room-types")
 async def list_room_types(user: dict = Depends(get_current_user)):
-    tenant_filter = get_tenant_filter(user)
-    room_types = await db.room_types.find({**tenant_filter, "is_active": True}).to_list(100)
-    return [serialize_doc(rt) for rt in room_types]
+    tid = tenant_de(user)
+    async with db_pg.tx(user) as conn:
+        return await db_pg.varias(
+            conn,
+            """select * from room_types
+               where ($1::uuid is null or tenant_id = $1) and is_active
+               order by name""",
+            tid,
+        )
 
 @api_router.put("/room-types/{room_type_id}")
 async def update_room_type(room_type_id: str, data: RoomTypeCreate, user: dict = Depends(require_roles(Role.ADMIN))):
-    result = await db.room_types.update_one(
-        {"_id": ObjectId(room_type_id), "tenant_id": user["tenant_id"]},
-        {"$set": data.model_dump()}
-    )
-    if result.matched_count == 0:
+    async with db_pg.tx(user) as conn:
+        actualizado = await conn.fetchval(
+            """update room_types
+               set name = $3, capacity = $4, amenities = $5, base_price = $6
+               where id = $1 and tenant_id = $2
+               returning id""",
+            id_valido(room_type_id, "room_type_id"), db_pg.a_uuid(user["tenant_id"]),
+            data.name, data.capacity, data.amenities, data.base_price,
+        )
+    if not actualizado:
         raise HTTPException(status_code=404, detail="Tipo de habitación no encontrado")
     return {"message": "Tipo de habitación actualizado"}
 
 # ============== RATE MANAGEMENT ENDPOINTS ==============
 @api_router.post("/rates")
 async def create_rate(data: RateCreate, user: dict = Depends(require_roles(Role.ADMIN))):
-    rate = {
-        **data.model_dump(),
-        "date_from": data.date_from.isoformat(),
-        "date_to": data.date_to.isoformat(),
-        "tenant_id": user["tenant_id"],
-        "is_active": True,
-        "created_at": datetime.now(timezone.utc).isoformat()
-    }
-    result = await db.rates.insert_one(rate)
-    return {"id": str(result.inserted_id), "message": "Tarifa creada"}
+    async with db_pg.tx(user) as conn:
+        # date_from/date_to van como `date` nativo. En Mongo se guardaban con
+        # .isoformat() -- como texto --, y por eso las comparaciones de rango
+        # eran comparaciones de strings que solo funcionaban de casualidad,
+        # porque ISO 8601 ordena igual alfabeticamente que cronologicamente.
+        nuevo_id = await conn.fetchval(
+            """insert into rates (tenant_id, room_type_id, name, date_from, date_to, price, min_stay)
+               values ($1, $2, $3, $4, $5, $6, $7)
+               returning id""",
+            db_pg.a_uuid(user["tenant_id"]), id_valido(data.room_type_id, "room_type_id"),
+            data.name, data.date_from, data.date_to, data.price, data.min_stay,
+        )
+    return {"id": str(nuevo_id), "message": "Tarifa creada"}
 
 @api_router.get("/rates")
 async def list_rates(room_type_id: str = None, user: dict = Depends(get_current_user)):
-    tenant_filter = get_tenant_filter(user)
-    query = {**tenant_filter, "is_active": True}
-    if room_type_id:
-        query["room_type_id"] = room_type_id
-    rates = await db.rates.find(query).sort("date_from", 1).to_list(500)
-    return [serialize_doc(r) for r in rates]
+    tid = tenant_de(user)
+    async with db_pg.tx(user) as conn:
+        return await db_pg.varias(
+            conn,
+            """select * from rates
+               where ($1::uuid is null or tenant_id = $1)
+                 and is_active
+                 and ($2::uuid is null or room_type_id = $2)
+               order by date_from""",
+            tid, db_pg.a_uuid(room_type_id, "room_type_id"),
+        )
 
 @api_router.delete("/rates/{rate_id}")
 async def delete_rate(rate_id: str, user: dict = Depends(require_roles(Role.ADMIN))):
-    result = await db.rates.update_one(
-        {"_id": ObjectId(rate_id), "tenant_id": user["tenant_id"]},
-        {"$set": {"is_active": False}}
-    )
-    if result.matched_count == 0:
+    async with db_pg.tx(user) as conn:
+        borrado = await conn.fetchval(
+            """update rates set is_active = false
+               where id = $1 and tenant_id = $2
+               returning id""",
+            id_valido(rate_id, "rate_id"), db_pg.a_uuid(user["tenant_id"]),
+        )
+    if not borrado:
         raise HTTPException(status_code=404, detail="Tarifa no encontrada")
     return {"message": "Tarifa eliminada"}
 
 @api_router.get("/rates/calculate")
 async def calculate_rate(room_type_id: str, checkin_date: date, checkout_date: date, user: dict = Depends(get_current_user)):
-    """Calculate total price for a stay based on special rates or base price"""
-    tenant_filter = get_tenant_filter(user)
-    
-    room_type = await db.room_types.find_one({"_id": ObjectId(room_type_id), **tenant_filter})
-    if not room_type:
-        raise HTTPException(status_code=404, detail="Tipo de habitación no encontrado")
-    
-    base_price = room_type.get("base_price", 0)
-    total = 0
-    nights_breakdown = []
-    
-    current = checkin_date
-    while current < checkout_date:
-        # Check for special rate on this date
-        special_rate = await db.rates.find_one({
-            "tenant_id": user["tenant_id"],
-            "room_type_id": room_type_id,
-            "is_active": True,
-            "date_from": {"$lte": current.isoformat()},
-            "date_to": {"$gte": current.isoformat()}
-        })
-        
-        if special_rate:
-            price = special_rate["price"]
-            rate_name = special_rate.get("name", "Tarifa Especial")
-        else:
-            price = base_price
-            rate_name = "Tarifa Base"
-        
-        total += price
-        nights_breakdown.append({
-            "date": current.isoformat(),
-            "price": price,
-            "rate_name": rate_name
-        })
-        current += timedelta(days=1)
-    
+    """Precio total de una estadia, noche por noche, aplicando tarifas de temporada."""
+    tid = tenant_de(user)
+    rtid = id_valido(room_type_id, "room_type_id")
+
+    if checkout_date <= checkin_date:
+        raise HTTPException(status_code=400, detail="La fecha de salida debe ser posterior a la de entrada")
+
+    async with db_pg.tx(user) as conn:
+        room_type = await db_pg.uno(
+            conn,
+            """select name, base_price from room_types
+               where id = $1 and ($2::uuid is null or tenant_id = $2)""",
+            rtid, tid,
+        )
+        if not room_type:
+            raise HTTPException(status_code=404, detail="Tipo de habitación no encontrado")
+
+        # Una sola consulta en vez de una por noche. generate_series produce las
+        # noches del rango (sin incluir la de salida, que no se cobra) y el
+        # LATERAL busca para cada una la tarifa de temporada vigente; si no hay,
+        # cae al precio base del tipo de habitacion.
+        #
+        # Antes esto era un bucle en Python con un find_one por noche: una
+        # estadia de dos semanas eran 14 viajes a la base solo para cotizar.
+        noches = await db_pg.varias(
+            conn,
+            """select
+                   n::date                                    as date,
+                   coalesce(r.price, $4)                      as price,
+                   coalesce(r.name, case when r.id is null
+                                         then 'Tarifa Base'
+                                         else 'Tarifa Especial' end) as rate_name
+               from generate_series($1::date, $2::date - 1, interval '1 day') as n
+               left join lateral (
+                   select id, price, name
+                   from rates
+                   where room_type_id = $3
+                     and is_active
+                     and n::date between date_from and date_to
+                   order by date_from desc
+                   limit 1
+               ) r on true
+               order by n""",
+            checkin_date, checkout_date, rtid, room_type["base_price"],
+        )
+
     return {
         "room_type": room_type.get("name"),
         "checkin_date": checkin_date.isoformat(),
         "checkout_date": checkout_date.isoformat(),
-        "nights": len(nights_breakdown),
-        "total": total,
-        "breakdown": nights_breakdown
+        "nights": len(noches),
+        "total": round(sum(n["price"] for n in noches), 2),
+        "breakdown": noches
     }
 
 # ============== ROOM ENDPOINTS ==============
 @api_router.post("/rooms")
 async def create_room(data: RoomCreate, user: dict = Depends(require_roles(Role.ADMIN))):
-    existing = await db.rooms.find_one({"tenant_id": user["tenant_id"], "number": data.number})
-    if existing:
-        raise HTTPException(status_code=400, detail="Número de habitación ya existe")
-    
-    room = {
-        **data.model_dump(),
-        "tenant_id": user["tenant_id"],
-        "occupancy_status": OccupancyStatus.VACANT.value,
-        "housekeeping_status": HousekeepingStatus.CLEAN.value,
-        "is_active": True,
-        "created_at": datetime.now(timezone.utc).isoformat()
-    }
-    result = await db.rooms.insert_one(room)
-    return {"id": str(result.inserted_id), "message": "Habitación creada"}
+    async with db_pg.tx(user) as conn:
+        try:
+            nuevo_id = await conn.fetchval(
+                """insert into rooms (tenant_id, room_type_id, number, floor, notes)
+                   values ($1, $2, $3, $4, $5)
+                   returning id""",
+                db_pg.a_uuid(user["tenant_id"]), id_valido(data.room_type_id, "room_type_id"),
+                data.number, data.floor, data.notes,
+            )
+        except db_pg.UniqueViolationError:
+            # Antes se consultaba primero y se insertaba despues, con lo que dos
+            # altas simultaneas de la misma habitacion pasaban ambas el chequeo.
+            # Ahora decide el constraint unique (tenant_id, number).
+            raise HTTPException(status_code=400, detail="Número de habitación ya existe")
+        except db_pg.ForeignKeyViolationError:
+            raise HTTPException(status_code=400, detail="El tipo de habitación no existe")
+    return {"id": str(nuevo_id), "message": "Habitación creada"}
 
 @api_router.post("/rooms/bulk")
 async def create_rooms_bulk(data: RoomBulkCreate, user: dict = Depends(require_roles(Role.ADMIN))):
-    rooms = []
-    for i in range(data.count):
-        number = f"{data.prefix}{data.start_number + i}"
-        rooms.append({
-            "number": number,
-            "floor": data.floor,
-            "room_type_id": data.room_type_id,
-            "tenant_id": user["tenant_id"],
-            "occupancy_status": OccupancyStatus.VACANT.value,
-            "housekeeping_status": HousekeepingStatus.CLEAN.value,
-            "notes": None,
-            "is_active": True,
-            "created_at": datetime.now(timezone.utc).isoformat()
-        })
-    
-    result = await db.rooms.insert_many(rooms)
-    return {"count": len(result.inserted_ids), "message": f"{len(result.inserted_ids)} habitaciones creadas"}
+    numeros = [f"{data.prefix}{data.start_number + i}" for i in range(data.count)]
+    async with db_pg.tx(user) as conn:
+        try:
+            # unnest inserta las N habitaciones en una sola sentencia, y al ir
+            # dentro de una transaccion son todas o ninguna: si la 7 de 10 choca
+            # con una que ya existia, no quedan 6 habitaciones sueltas creadas.
+            creadas = await conn.fetchval(
+                """with nuevas as (
+                       insert into rooms (tenant_id, room_type_id, number, floor)
+                       select $1, $2, n, $4 from unnest($3::text[]) as n
+                       returning 1
+                   )
+                   select count(*) from nuevas""",
+                db_pg.a_uuid(user["tenant_id"]), id_valido(data.room_type_id, "room_type_id"),
+                numeros, data.floor,
+            )
+        except db_pg.UniqueViolationError:
+            raise HTTPException(
+                status_code=400,
+                detail="Alguno de los números de habitación del rango ya existe"
+            )
+        except db_pg.ForeignKeyViolationError:
+            raise HTTPException(status_code=400, detail="El tipo de habitación no existe")
+    return {"count": creadas, "message": f"{creadas} habitaciones creadas"}
 
 @api_router.get("/rooms")
 async def list_rooms(
@@ -852,147 +992,229 @@ async def list_rooms(
     housekeeping_status: Optional[HousekeepingStatus] = None,
     user: dict = Depends(get_current_user)
 ):
-    tenant_filter = get_tenant_filter(user)
-    query = {**tenant_filter, "is_active": True}
-    
-    if floor is not None:
-        query["floor"] = floor
-    if occupancy_status:
-        query["occupancy_status"] = occupancy_status.value
-    if housekeeping_status:
-        query["housekeeping_status"] = housekeeping_status.value
-    
-    rooms = await db.rooms.find(query).sort("number", 1).to_list(500)
-    
-    # Enrich with room type info
-    room_type_ids = list(set(r.get("room_type_id") for r in rooms if r.get("room_type_id")))
-    room_types = {}
-    if room_type_ids:
-        rt_docs = await db.room_types.find({"_id": {"$in": [ObjectId(rtid) for rtid in room_type_ids]}}).to_list(100)
-        room_types = {str(rt["_id"]): rt for rt in rt_docs}
-    
-    result = []
-    for r in rooms:
-        room_data = serialize_doc(r)
-        rt = room_types.get(r.get("room_type_id"))
-        if rt:
-            room_data["room_type"] = {"name": rt.get("name"), "capacity": rt.get("capacity"), "base_price": rt.get("base_price")}
-        result.append(room_data)
-    
-    return result
+    tid = tenant_de(user)
+    async with db_pg.tx(user) as conn:
+        # Un JOIN en vez de dos consultas y un diccionario armado en Python. El
+        # tipo de habitacion se devuelve anidado en `room_type` con la misma
+        # forma que esperaba el frontend.
+        filas = await db_pg.varias(
+            conn,
+            """select r.*,
+                      jsonb_build_object(
+                          'name',       rt.name,
+                          'capacity',   rt.capacity,
+                          'base_price', rt.base_price
+                      ) as room_type
+               from rooms r
+               join room_types rt on rt.id = r.room_type_id
+               where ($1::uuid is null or r.tenant_id = $1)
+                 and r.is_active
+                 and ($2::int is null or r.floor = $2)
+                 and ($3::text is null or r.occupancy_status::text = $3)
+                 and ($4::text is null or r.housekeeping_status::text = $4)
+               order by r.number""",
+            tid, floor,
+            occupancy_status.value if occupancy_status else None,
+            housekeeping_status.value if housekeeping_status else None,
+        )
+    # base_price sale de jsonb como string (jsonb_build_object serializa el
+    # numeric como numero JSON, pero asyncpg lo entrega dentro del dict ya
+    # decodificado): se normaliza a float para no cambiar la forma de siempre.
+    for f in filas:
+        rt = f.get("room_type") or {}
+        if rt.get("base_price") is not None:
+            rt["base_price"] = float(rt["base_price"])
+    return filas
 
 @api_router.put("/rooms/{room_id}/status")
 async def update_room_status(room_id: str, occupancy: Optional[OccupancyStatus] = None, housekeeping: Optional[HousekeepingStatus] = None, user: dict = Depends(get_current_user)):
-    tenant_filter = get_tenant_filter(user)
-    room = await db.rooms.find_one({"_id": ObjectId(room_id), **tenant_filter})
-    if not room:
-        raise HTTPException(status_code=404, detail="Habitación no encontrada")
-    
-    updates = {}
-    if occupancy:
-        updates["occupancy_status"] = occupancy.value
-    if housekeeping:
-        updates["housekeeping_status"] = housekeeping.value
-    
-    if updates:
-        before = {"occupancy_status": room.get("occupancy_status"), "housekeeping_status": room.get("housekeeping_status")}
-        await db.rooms.update_one({"_id": ObjectId(room_id)}, {"$set": updates})
-        
-        # Log housekeeping change
-        await db.housekeeping_logs.insert_one({
-            "tenant_id": user["tenant_id"],
-            "room_id": room_id,
-            "from_occupancy": before.get("occupancy_status"),
-            "to_occupancy": updates.get("occupancy_status", before.get("occupancy_status")),
-            "from_housekeeping": before.get("housekeeping_status"),
-            "to_housekeeping": updates.get("housekeeping_status", before.get("housekeeping_status")),
-            "by_user": user["user_id"],
-            "created_at": datetime.now(timezone.utc).isoformat()
-        })
-        
-        await create_audit_log(user["tenant_id"], user["user_id"], "room", "STATUS_CHANGE", before, updates)
-    
+    tid = tenant_de(user)
+    rid = id_valido(room_id, "room_id")
+
+    if not occupancy and not housekeeping:
+        return {"message": "Estado de habitación actualizado"}
+
+    async with db_pg.tx(user) as conn:
+        # El update devuelve los valores anteriores y los nuevos de una sola vez:
+        # antes se leia la habitacion, se escribia y se volvia a usar la lectura
+        # vieja para la bitacora, con lo que dos cambios simultaneos podian
+        # registrar una transicion que nunca ocurrio.
+        cambio = await db_pg.uno(
+            conn,
+            """update rooms r set
+                   occupancy_status    = coalesce($3::occupancy_status,   r.occupancy_status),
+                   housekeeping_status = coalesce($4::housekeeping_state, r.housekeeping_status)
+               from rooms viejo
+               where r.id = viejo.id
+                 and r.id = $1
+                 and ($2::uuid is null or r.tenant_id = $2)
+               returning viejo.occupancy_status    as from_occupancy,
+                         r.occupancy_status        as to_occupancy,
+                         viejo.housekeeping_status as from_housekeeping,
+                         r.housekeeping_status     as to_housekeeping,
+                         r.tenant_id               as tenant_id""",
+            rid, tid,
+            occupancy.value if occupancy else None,
+            housekeeping.value if housekeeping else None,
+        )
+        if not cambio:
+            raise HTTPException(status_code=404, detail="Habitación no encontrada")
+
+        await conn.execute(
+            """insert into housekeeping_logs
+                   (tenant_id, room_id, from_occupancy, to_occupancy,
+                    from_housekeeping, to_housekeeping, by_user)
+               values ($1, $2, $3::occupancy_status, $4::occupancy_status,
+                       $5::housekeeping_state, $6::housekeeping_state, $7)""",
+            db_pg.a_uuid(cambio["tenant_id"]), rid,
+            cambio["from_occupancy"], cambio["to_occupancy"],
+            cambio["from_housekeeping"], cambio["to_housekeeping"],
+            id_valido(user["user_id"], "user_id"),
+        )
+
+        await create_audit_log(
+            conn, cambio["tenant_id"], user["user_id"], "room", "STATUS_CHANGE",
+            {"occupancy_status": cambio["from_occupancy"], "housekeeping_status": cambio["from_housekeeping"]},
+            {"occupancy_status": cambio["to_occupancy"], "housekeeping_status": cambio["to_housekeeping"]},
+        )
+
     return {"message": "Estado de habitación actualizado"}
 
 # ============== GUEST ENDPOINTS ==============
 @api_router.post("/guests")
 async def create_guest(data: GuestCreate, user: dict = Depends(get_current_user)):
-    tenant_filter = get_tenant_filter(user)
-    existing = await db.guests.find_one({**tenant_filter, "doc_type": data.doc_type.value, "doc_number": data.doc_number})
-    if existing:
-        return serialize_doc(existing)
-    
-    guest = {
-        **data.model_dump(),
-        "doc_type": data.doc_type.value,
-        "tenant_id": user["tenant_id"],
-        "created_at": datetime.now(timezone.utc).isoformat()
-    }
-    result = await db.guests.insert_one(guest)
-    guest["id"] = str(result.inserted_id)
-    return serialize_doc(guest)
+    async with db_pg.tx(user) as conn:
+        # El endpoint siempre fue idempotente: si el huesped ya existe devuelve
+        # el que hay en vez de fallar (recepcion vuelve a cargar el mismo DNI en
+        # cada estadia). Ahora eso lo resuelve ON CONFLICT contra el unique
+        # (tenant_id, doc_type, doc_number), en una sola ida a la base y sin la
+        # carrera que tenia el consultar-y-luego-insertar.
+        huesped = await db_pg.uno(
+            conn,
+            """insert into guests (tenant_id, doc_type, doc_number, full_name,
+                                   phone, email, nationality, address)
+               values ($1, $2::doc_type, $3, $4, $5, $6, $7, $8)
+               on conflict (tenant_id, doc_type, doc_number) do update
+                   set full_name = excluded.full_name
+               returning *""",
+            db_pg.a_uuid(user["tenant_id"]), data.doc_type.value, data.doc_number,
+            data.full_name, data.phone, data.email, data.nationality, data.address,
+        )
+    return huesped
 
 @api_router.get("/guests")
 async def list_guests(search: Optional[str] = None, user: dict = Depends(get_current_user)):
-    tenant_filter = get_tenant_filter(user)
-    query = tenant_filter.copy()
-    
-    if search:
-        query["$or"] = [
-            {"full_name": {"$regex": search, "$options": "i"}},
-            {"doc_number": {"$regex": search, "$options": "i"}},
-            {"email": {"$regex": search, "$options": "i"}}
-        ]
-    
-    guests = await db.guests.find(query).sort("full_name", 1).to_list(500)
-    return [serialize_doc(g) for g in guests]
+    tid = tenant_de(user)
+    async with db_pg.tx(user) as conn:
+        # El texto de busqueda va como parametro y se escapa con `like` sobre
+        # columnas concretas. Antes se inyectaba crudo en un $regex de Mongo:
+        # ademas de ser lento, un patron malicioso como "(a+)+$" podia colgar la
+        # consulta contra toda la tabla.
+        return await db_pg.varias(
+            conn,
+            """select * from guests
+               where ($1::uuid is null or tenant_id = $1)
+                 and ($2::text is null
+                      or full_name  ilike '%' || $2 || '%'
+                      or doc_number ilike '%' || $2 || '%'
+                      or email      ilike '%' || $2 || '%')
+               order by full_name""",
+            tid, search,
+        )
 
 @api_router.get("/guests/{guest_id}")
 async def get_guest(guest_id: str, user: dict = Depends(get_current_user)):
-    tenant_filter = get_tenant_filter(user)
-    guest = await db.guests.find_one({"_id": ObjectId(guest_id), **tenant_filter})
-    if not guest:
+    tid = tenant_de(user)
+    async with db_pg.tx(user) as conn:
+        huesped = await db_pg.uno(
+            conn,
+            """select * from guests
+               where id = $1 and ($2::uuid is null or tenant_id = $2)""",
+            id_valido(guest_id, "guest_id"), tid,
+        )
+    if not huesped:
         raise HTTPException(status_code=404, detail="Huésped no encontrado")
-    return serialize_doc(guest)
+    return huesped
 
 # ============== RESERVATION ENDPOINTS ==============
 @api_router.post("/reservations")
 async def create_reservation(data: ReservationCreate, user: dict = Depends(get_current_user)):
-    tenant_id = user["tenant_id"]
-    
-    # Generate reservation code
-    count = await db.reservations.count_documents({"tenant_id": tenant_id})
-    code = f"RES-{count + 1:06d}"
-    
-    reservation = {
-        **data.model_dump(),
-        "checkin_date": data.checkin_date.isoformat(),
-        "checkout_date": data.checkout_date.isoformat(),
-        "code": code,
-        "tenant_id": tenant_id,
-        "status": ReservationStatus.CONFIRMED.value,
-        "deposit_status": "PENDING" if data.deposit_amount > 0 else "NA",
-        "created_by": user["user_id"],
-        "created_at": datetime.now(timezone.utc).isoformat()
-    }
-    
-    # Check for room conflicts if room is assigned
-    if data.room_id:
-        conflict = await db.reservations.find_one({
-            "tenant_id": tenant_id,
-            "room_id": data.room_id,
-            "status": {"$in": [ReservationStatus.CONFIRMED.value, ReservationStatus.CHECKED_IN.value]},
-            "$or": [
-                {"checkin_date": {"$lt": data.checkout_date.isoformat()}, "checkout_date": {"$gt": data.checkin_date.isoformat()}}
-            ]
-        })
-        if conflict:
-            raise HTTPException(status_code=400, detail="Habitación no disponible para esas fechas")
-    
-    result = await db.reservations.insert_one(reservation)
-    await create_audit_log(tenant_id, user["user_id"], "reservation", "CREATE", None, {"code": code})
-    
-    return {"id": str(result.inserted_id), "code": code, "message": "Reserva creada exitosamente"}
+    tid = db_pg.a_uuid(user["tenant_id"], "tenant_id")
+
+    if data.checkout_date <= data.checkin_date:
+        raise HTTPException(status_code=400, detail="La fecha de salida debe ser posterior a la de entrada")
+
+    async with db_pg.tx(user) as conn:
+        # Serializa la creacion de reservas DE ESTE HOTEL durante la
+        # transaccion. Cubre dos carreras que existian:
+        #
+        #  1. El codigo salia de count(*)+1. Dos recepcionistas creando reserva
+        #     a la vez obtenian el mismo "RES-000042"; y al cancelar una, el
+        #     contador retrocedia y el siguiente codigo repetia uno ya usado.
+        #  2. El solapamiento se consultaba y despues se insertaba, que es
+        #     precisamente como se produce un overbooking.
+        #
+        # El lock es por hotel, no de tabla, asi que no molesta a los otros
+        # clientes, y se libera solo al terminar la transaccion.
+        await conn.execute("select pg_advisory_xact_lock(hashtext($1))", str(tid))
+
+        # El correlativo sale del maximo real, no de contar filas: cancelar una
+        # reserva ya no hace retroceder la numeracion.
+        siguiente = await conn.fetchval(
+            """select coalesce(max(substring(code from 'RES-([0-9]+)$')::int), 0) + 1
+               from reservations where tenant_id = $1""",
+            tid,
+        )
+        code = f"RES-{siguiente:06d}"
+
+        if data.room_id:
+            # Dos rangos se solapan si cada uno empieza antes de que termine el
+            # otro. La reserva que sale el dia que entra la siguiente NO se
+            # solapa: por eso < y > y no <= y >=.
+            ocupada = await conn.fetchval(
+                """select 1 from reservations
+                   where tenant_id = $1
+                     and room_id = $2
+                     and status in ('CONFIRMED', 'CHECKED_IN')
+                     and checkin_date < $4
+                     and checkout_date > $3
+                   limit 1""",
+                tid, id_valido(data.room_id, "room_id"),
+                data.checkin_date, data.checkout_date,
+            )
+            if ocupada:
+                raise HTTPException(status_code=400, detail="Habitación no disponible para esas fechas")
+
+        try:
+            nuevo_id = await conn.fetchval(
+                """insert into reservations
+                       (tenant_id, code, guest_id, room_type_id, room_id,
+                        checkin_date, checkout_date, adults, children,
+                        total_estimated, deposit_amount, deposit_status,
+                        status, source, notes, created_by)
+                   values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
+                           'CONFIRMED', $13, $14, $15)
+                   returning id""",
+                tid, code,
+                id_valido(data.guest_id, "guest_id"),
+                id_valido(data.room_type_id, "room_type_id"),
+                id_valido(data.room_id, "room_id"),
+                data.checkin_date, data.checkout_date,
+                data.adults, data.children,
+                data.total_estimated, data.deposit_amount,
+                "PENDING" if data.deposit_amount > 0 else "NA",
+                data.source, data.notes,
+                id_valido(user["user_id"], "user_id"),
+            )
+        except db_pg.ForeignKeyViolationError:
+            raise HTTPException(
+                status_code=400,
+                detail="El huésped, el tipo de habitación o la habitación indicada no existe"
+            )
+
+        await create_audit_log(conn, tid, user["user_id"], "reservation", "CREATE", None, {"code": code})
+
+    return {"id": str(nuevo_id), "code": code, "message": "Reserva creada exitosamente"}
 
 @api_router.get("/reservations")
 async def list_reservations(
@@ -1002,38 +1224,31 @@ async def list_reservations(
     search: Optional[str] = None,
     user: dict = Depends(get_current_user)
 ):
-    tenant_filter = get_tenant_filter(user)
-    query = tenant_filter.copy()
-    
-    if status:
-        query["status"] = status.value
-    if from_date:
-        query["checkin_date"] = {"$gte": from_date.isoformat()}
-    if to_date:
-        query["checkout_date"] = {"$lte": to_date.isoformat()}
-    if search:
-        query["$or"] = [
-            {"code": {"$regex": search, "$options": "i"}}
-        ]
-    
-    reservations = await db.reservations.find(query).sort("checkin_date", -1).to_list(500)
-    
-    # Enrich with guest info
-    guest_ids = [r.get("guest_id") for r in reservations if r.get("guest_id")]
-    guests = {}
-    if guest_ids:
-        guest_docs = await db.guests.find({"_id": {"$in": [ObjectId(gid) for gid in guest_ids]}}).to_list(500)
-        guests = {str(g["_id"]): g for g in guest_docs}
-    
-    result = []
-    for r in reservations:
-        res_data = serialize_doc(r)
-        guest = guests.get(r.get("guest_id"))
-        if guest:
-            res_data["guest"] = {"full_name": guest.get("full_name"), "doc_type": guest.get("doc_type"), "doc_number": guest.get("doc_number")}
-        result.append(res_data)
-    
-    return result
+    tid = tenant_de(user)
+    async with db_pg.tx(user) as conn:
+        # El huesped se trae con un JOIN, no con una segunda consulta y un
+        # diccionario en Python. La forma de la respuesta no cambia: `guest`
+        # sigue siendo un objeto anidado con los mismos tres campos.
+        return await db_pg.varias(
+            conn,
+            """select r.*,
+                      jsonb_build_object(
+                          'full_name',  g.full_name,
+                          'doc_type',   g.doc_type,
+                          'doc_number', g.doc_number
+                      ) as guest
+               from reservations r
+               join guests g on g.id = r.guest_id
+               where ($1::uuid is null or r.tenant_id = $1)
+                 and ($2::text is null or r.status::text = $2)
+                 and ($3::date is null or r.checkin_date  >= $3)
+                 and ($4::date is null or r.checkout_date <= $4)
+                 and ($5::text is null or r.code ilike '%' || $5 || '%')
+               order by r.checkin_date desc""",
+            tid,
+            status.value if status else None,
+            from_date, to_date, search,
+        )
 
 # ============== GROUP RESERVATIONS (must be before {reservation_id} routes) ==============
 @api_router.post("/reservations/group")
@@ -1041,98 +1256,116 @@ async def create_group_reservation(
     data: GroupReservationCreate,
     user: dict = Depends(get_current_user)
 ):
-    """Create a group reservation for multiple rooms"""
-    tenant_id = user["tenant_id"]
-    
-    # Validate dates
+    """Crea una reserva de grupo: N habitaciones bloqueadas a nombre del grupo."""
+    tid = db_pg.a_uuid(user["tenant_id"], "tenant_id")
+
     if data.checkin_date >= data.checkout_date:
         raise HTTPException(status_code=400, detail="Fecha de checkout debe ser posterior a checkin")
-    
+
     nights = (data.checkout_date - data.checkin_date).days
-    
-    # Generate group code
-    count = await db.group_reservations.count_documents({"tenant_id": tenant_id})
-    group_code = f"GRP-{count + 1:06d}"
-    
-    now = datetime.now(timezone.utc).isoformat()
-    
-    # Create group reservation header
-    group = {
-        "code": group_code,
-        "tenant_id": tenant_id,
-        "group_name": data.group_name,
-        "contact_name": data.contact_name,
-        "contact_phone": data.contact_phone,
-        "contact_email": data.contact_email,
-        "checkin_date": data.checkin_date.isoformat(),
-        "checkout_date": data.checkout_date.isoformat(),
-        "nights": nights,
-        "total_rooms": sum(r.get("quantity", 1) for r in data.rooms),
-        "adults": data.adults,
-        "children": data.children,
-        "deposit_amount": data.deposit_amount,
-        "total_estimated": 0,
-        "status": "CONFIRMED",
-        "notes": data.notes,
-        "reservations": [],
-        "created_by": user["user_id"],
-        "created_at": now
-    }
-    
-    total_estimated = 0
-    reservation_ids = []
-    
-    # Create individual reservations for each room request
-    for room_req in data.rooms:
-        room_type_id = room_req.get("room_type_id")
-        quantity = room_req.get("quantity", 1)
-        
-        room_type = await db.room_types.find_one({"_id": ObjectId(room_type_id), "tenant_id": tenant_id})
-        if not room_type:
-            raise HTTPException(status_code=400, detail=f"Tipo de habitación no encontrado: {room_type_id}")
-        
-        base_price = room_type.get("base_price", 0)
-        room_total = nights * base_price
-        
-        for i in range(quantity):
-            res_count = await db.reservations.count_documents({"tenant_id": tenant_id})
-            res_code = f"RES-{res_count + 1:06d}"
-            
-            reservation = {
-                "code": res_code,
-                "tenant_id": tenant_id,
-                "group_code": group_code,
-                "guest_id": None,
-                "room_type_id": room_type_id,
-                "room_id": None,
-                "checkin_date": data.checkin_date.isoformat(),
-                "checkout_date": data.checkout_date.isoformat(),
-                "adults": max(1, data.adults // quantity),
-                "children": 0,
-                "total_estimated": room_total,
-                "deposit_amount": 0,
-                "source": "GRUPO",
-                "status": ReservationStatus.CONFIRMED.value,
-                "notes": f"Grupo: {data.group_name}",
-                "created_by": user["user_id"],
-                "created_at": now
-            }
-            res_result = await db.reservations.insert_one(reservation)
-            reservation_ids.append(str(res_result.inserted_id))
-            total_estimated += room_total
-    
-    group["reservations"] = reservation_ids
-    group["total_estimated"] = total_estimated
-    
-    result = await db.group_reservations.insert_one(group)
-    
-    await create_audit_log(tenant_id, user["user_id"], "group_reservation", "CREATE", None, {"code": group_code, "rooms": len(reservation_ids)})
-    
+    creador = id_valido(user["user_id"], "user_id")
+
+    async with db_pg.tx(user) as conn:
+        # Mismo lock por hotel que en el alta individual: los correlativos GRP-
+        # y RES- se generan aca y no pueden repetirse. Antes ambos salian de
+        # count(*)+1, y el de las reservas se recalculaba DENTRO del bucle: una
+        # consulta por habitacion, y con dos grupos creandose a la vez los
+        # codigos se pisaban.
+        await conn.execute("select pg_advisory_xact_lock(hashtext($1))", str(tid))
+
+        n_grupo = await conn.fetchval(
+            """select coalesce(max(substring(code from 'GRP-([0-9]+)$')::int), 0) + 1
+               from group_reservations where tenant_id = $1""",
+            tid,
+        )
+        group_code = f"GRP-{n_grupo:06d}"
+
+        # Los tipos de habitacion pedidos, resueltos de una vez. Antes era un
+        # find_one por linea del pedido.
+        pedidos = [(id_valido(r.get("room_type_id"), "room_type_id"), int(r.get("quantity", 1)))
+                   for r in data.rooms]
+        if not pedidos:
+            raise HTTPException(status_code=400, detail="La reserva grupal no incluye habitaciones")
+
+        precios = {
+            f["id"]: f["base_price"]
+            for f in await db_pg.varias(
+                conn,
+                "select id, base_price from room_types where tenant_id = $1 and id = any($2::uuid[])",
+                tid, [p[0] for p in pedidos],
+            )
+        }
+        for rtid, _ in pedidos:
+            if str(rtid) not in precios:
+                raise HTTPException(status_code=400, detail=f"Tipo de habitación no encontrado: {rtid}")
+
+        total_rooms = sum(q for _, q in pedidos)
+        total_estimated = sum(nights * precios[str(rtid)] * q for rtid, q in pedidos)
+
+        group_id = await conn.fetchval(
+            """insert into group_reservations
+                   (tenant_id, code, group_name, contact_name, contact_phone,
+                    contact_email, checkin_date, checkout_date, nights, adults,
+                    children, total_rooms, total_estimated, deposit_amount,
+                    status, notes, created_by)
+               values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'CONFIRMED',$15,$16)
+               returning id""",
+            tid, group_code, data.group_name, data.contact_name, data.contact_phone,
+            data.contact_email, data.checkin_date, data.checkout_date, nights,
+            data.adults, data.children, total_rooms, total_estimated,
+            data.deposit_amount, data.notes, creador,
+        )
+
+        n_reserva = await conn.fetchval(
+            """select coalesce(max(substring(code from 'RES-([0-9]+)$')::int), 0)
+               from reservations where tenant_id = $1""",
+            tid,
+        )
+
+        # Las N reservas del grupo en una sola sentencia. generate_series expande
+        # la cantidad pedida de cada tipo, y el correlativo sale de row_number()
+        # sumado al ultimo usado -- sin volver a consultar por cada habitacion.
+        # Van sin guest_id (se asigna en el check-in) y sin room_id (recepcion
+        # ubica al grupo al llegar), que es justo lo que permite el CHECK
+        # reservations_huesped_o_grupo.
+        ids = await conn.fetch(
+            """with pedido as (
+                   select unnest($1::uuid[]) as room_type_id,
+                          unnest($2::int[])  as cantidad,
+                          unnest($3::numeric[]) as precio
+               ),
+               expandido as (
+                   select p.room_type_id,
+                          p.precio * $4 as total_linea,
+                          p.cantidad,
+                          row_number() over () as n
+                   from pedido p, generate_series(1, p.cantidad)
+               )
+               insert into reservations
+                   (tenant_id, code, group_id, room_type_id, checkin_date,
+                    checkout_date, adults, children, total_estimated,
+                    source, status, notes, created_by)
+               select $5,
+                      'RES-' || lpad(($6 + e.n)::text, 6, '0'),
+                      $7, e.room_type_id, $8, $9,
+                      greatest(1, $10 / e.cantidad), 0, e.total_linea,
+                      'GRUPO', 'CONFIRMED', $11, $12
+               from expandido e
+               returning id""",
+            [p[0] for p in pedidos], [p[1] for p in pedidos],
+            [precios[str(p[0])] for p in pedidos], nights,
+            tid, n_reserva, group_id, data.checkin_date, data.checkout_date,
+            data.adults, f"Grupo: {data.group_name}", creador,
+        )
+
+        await create_audit_log(conn, tid, user["user_id"], "group_reservation", "CREATE",
+                               None, {"code": group_code, "rooms": len(ids)})
+
     return {
-        "id": str(result.inserted_id),
+        "id": str(group_id),
         "code": group_code,
-        "reservations_created": len(reservation_ids),
-        "total_estimated": total_estimated,
+        "reservations_created": len(ids),
+        "total_estimated": float(total_estimated),
         "message": "Reserva grupal creada exitosamente"
     }
 
@@ -1141,455 +1374,594 @@ async def list_group_reservations(
     status: Optional[str] = None,
     user: dict = Depends(get_current_user)
 ):
-    """List all group reservations"""
-    tenant_filter = get_tenant_filter(user)
-    query = tenant_filter.copy()
-    if status:
-        query["status"] = status
-    
-    groups = await db.group_reservations.find(query).sort("created_at", -1).to_list(500)
-    return [serialize_doc(g) for g in groups]
+    """Lista las reservas de grupo."""
+    tid = tenant_de(user)
+    async with db_pg.tx(user) as conn:
+        return await db_pg.varias(
+            conn,
+            """select * from group_reservations
+               where ($1::uuid is null or tenant_id = $1)
+                 and ($2::text is null or status = $2)
+               order by created_at desc""",
+            tid, status,
+        )
 
 @api_router.get("/reservations/groups/{group_id}")
 async def get_group_reservation(group_id: str, user: dict = Depends(get_current_user)):
-    """Get group reservation with all individual reservations"""
-    tenant_filter = get_tenant_filter(user)
-    group = await db.group_reservations.find_one({"_id": ObjectId(group_id), **tenant_filter})
-    if not group:
-        raise HTTPException(status_code=404, detail="Reserva grupal no encontrada")
-    
-    # Get individual reservations
-    reservations = await db.reservations.find({"group_code": group["code"]}).to_list(100)
-    
-    result = serialize_doc(group)
-    result["reservation_details"] = [serialize_doc(r) for r in reservations]
-    return result
+    """Una reserva de grupo con el detalle de sus habitaciones."""
+    tid = tenant_de(user)
+    gid = id_valido(group_id, "group_id")
+    async with db_pg.tx(user) as conn:
+        grupo = await db_pg.uno(
+            conn,
+            """select * from group_reservations
+               where id = $1 and ($2::uuid is null or tenant_id = $2)""",
+            gid, tid,
+        )
+        if not grupo:
+            raise HTTPException(status_code=404, detail="Reserva grupal no encontrada")
+
+        # Las reservas del grupo salen por la FK group_id, no por comparar el
+        # texto del codigo como antes: si alguien renombrara un codigo, el
+        # vinculo se perdia en silencio.
+        grupo["reservation_details"] = await db_pg.varias(
+            conn, "select * from reservations where group_id = $1 order by code", gid
+        )
+    return grupo
 
 @api_router.get("/reservations/{reservation_id}")
 async def get_reservation(reservation_id: str, user: dict = Depends(get_current_user)):
-    tenant_filter = get_tenant_filter(user)
-    reservation = await db.reservations.find_one({"_id": ObjectId(reservation_id), **tenant_filter})
-    if not reservation:
+    tid = tenant_de(user)
+    async with db_pg.tx(user) as conn:
+        # Tres consultas se vuelven una. Los LEFT JOIN son necesarios y no
+        # simples JOIN: una reserva de grupo puede no tener huesped todavia, y
+        # una reserva sin ubicar no tiene habitacion. to_jsonb(...) devuelve
+        # NULL en esos casos, que es exactamente lo que devolvia antes.
+        reserva = await db_pg.uno(
+            conn,
+            """select r.*,
+                      to_jsonb(g.*) as guest,
+                      to_jsonb(h.*) as room
+               from reservations r
+               left join guests g on g.id = r.guest_id
+               left join rooms  h on h.id = r.room_id
+               where r.id = $1 and ($2::uuid is null or r.tenant_id = $2)""",
+            id_valido(reservation_id, "reservation_id"), tid,
+        )
+    if not reserva:
         raise HTTPException(status_code=404, detail="Reserva no encontrada")
-    
-    # Get guest
-    guest = None
-    if reservation.get("guest_id"):
-        guest = await db.guests.find_one({"_id": ObjectId(reservation["guest_id"])})
-    
-    # Get room
-    room = None
-    if reservation.get("room_id"):
-        room = await db.rooms.find_one({"_id": ObjectId(reservation["room_id"])})
-    
-    result = serialize_doc(reservation)
-    result["guest"] = serialize_doc(guest) if guest else None
-    result["room"] = serialize_doc(room) if room else None
-    
-    return result
+    return reserva
 
 @api_router.put("/reservations/{reservation_id}")
 async def update_reservation(reservation_id: str, data: ReservationUpdate, user: dict = Depends(get_current_user)):
-    tenant_filter = get_tenant_filter(user)
-    reservation = await db.reservations.find_one({"_id": ObjectId(reservation_id), **tenant_filter})
-    if not reservation:
-        raise HTTPException(status_code=404, detail="Reserva no encontrada")
-    
-    before = serialize_doc(reservation.copy())
-    updates = {}
-    
-    if data.checkin_date:
-        updates["checkin_date"] = data.checkin_date.isoformat()
-    if data.checkout_date:
-        updates["checkout_date"] = data.checkout_date.isoformat()
-    if data.room_id:
-        updates["room_id"] = data.room_id
-    if data.notes:
-        updates["notes"] = data.notes
-    if data.status:
-        if data.status in [ReservationStatus.CANCELLED, ReservationStatus.NO_SHOW] and not data.cancel_reason:
-            raise HTTPException(status_code=400, detail="Se requiere motivo para cancelar/no-show")
-        updates["status"] = data.status.value
-        if data.cancel_reason:
-            updates["cancel_reason"] = data.cancel_reason
-    
-    if updates:
-        await db.reservations.update_one({"_id": ObjectId(reservation_id)}, {"$set": updates})
-        await create_audit_log(user["tenant_id"], user["user_id"], "reservation", "UPDATE", before, updates)
-    
+    tid = tenant_de(user)
+    rid = id_valido(reservation_id, "reservation_id")
+
+    if data.status in (ReservationStatus.CANCELLED, ReservationStatus.NO_SHOW) and not data.cancel_reason:
+        raise HTTPException(status_code=400, detail="Se requiere motivo para cancelar/no-show")
+
+    async with db_pg.tx(user) as conn:
+        antes = await db_pg.uno(
+            conn,
+            """select * from reservations
+               where id = $1 and ($2::uuid is null or tenant_id = $2)
+               for update""",
+            rid, tid,
+        )
+        if not antes:
+            raise HTTPException(status_code=404, detail="Reserva no encontrada")
+
+        try:
+            # coalesce deja pasar solo los campos que vinieron: es el
+            # equivalente del $set parcial, en una sola sentencia.
+            despues = await db_pg.uno(
+                conn,
+                """update reservations set
+                       checkin_date  = coalesce($3::date, checkin_date),
+                       checkout_date = coalesce($4::date, checkout_date),
+                       room_id       = coalesce($5::uuid, room_id),
+                       notes         = coalesce($6::text, notes),
+                       status        = coalesce($7::reservation_status, status),
+                       cancel_reason = coalesce($8::text, cancel_reason)
+                   where id = $1 and ($2::uuid is null or tenant_id = $2)
+                   returning *""",
+                rid, tid, data.checkin_date, data.checkout_date,
+                id_valido(data.room_id, "room_id"), data.notes,
+                data.status.value if data.status else None,
+                data.cancel_reason,
+            )
+        except db_pg.ExclusionViolationError:
+            # Cambiar fechas o habitacion puede chocar con otra reserva. Lo
+            # detecta el constraint de db/migrations/001, no la aplicacion.
+            raise HTTPException(
+                status_code=409,
+                detail="La habitación ya está reservada para esas fechas"
+            )
+        except db_pg.CheckViolationError:
+            raise HTTPException(
+                status_code=400,
+                detail="La fecha de salida debe ser posterior a la de entrada"
+            )
+
+        await create_audit_log(conn, antes["tenant_id"], user["user_id"],
+                               "reservation", "UPDATE", antes, despues)
+
     return {"message": "Reserva actualizada"}
 
 @api_router.post("/reservations/{reservation_id}/assign-room")
 async def assign_room(reservation_id: str, room_id: str = Body(..., embed=True), user: dict = Depends(get_current_user)):
-    tenant_filter = get_tenant_filter(user)
-    
-    reservation = await db.reservations.find_one({"_id": ObjectId(reservation_id), **tenant_filter})
-    if not reservation:
-        raise HTTPException(status_code=404, detail="Reserva no encontrada")
-    
-    room = await db.rooms.find_one({"_id": ObjectId(room_id), **tenant_filter})
-    if not room:
-        raise HTTPException(status_code=404, detail="Habitación no encontrada")
-    
-    # Check room availability
-    if room.get("housekeeping_status") == HousekeepingStatus.OUT_OF_ORDER.value:
-        raise HTTPException(status_code=400, detail="Habitación fuera de servicio")
-    
-    if room.get("occupancy_status") != OccupancyStatus.VACANT.value:
-        raise HTTPException(status_code=400, detail="Habitación ocupada")
-    
-    await db.reservations.update_one({"_id": ObjectId(reservation_id)}, {"$set": {"room_id": room_id}})
+    tid = tenant_de(user)
+    rid = id_valido(reservation_id, "reservation_id")
+    hid = id_valido(room_id, "room_id")
+
+    async with db_pg.tx(user) as conn:
+        habitacion = await db_pg.uno(
+            conn,
+            """select occupancy_status, housekeeping_status from rooms
+               where id = $1 and ($2::uuid is null or tenant_id = $2)""",
+            hid, tid,
+        )
+        if not habitacion:
+            raise HTTPException(status_code=404, detail="Habitación no encontrada")
+        if habitacion["housekeeping_status"] == HousekeepingStatus.OUT_OF_ORDER.value:
+            raise HTTPException(status_code=400, detail="Habitación fuera de servicio")
+        if habitacion["occupancy_status"] != OccupancyStatus.VACANT.value:
+            raise HTTPException(status_code=400, detail="Habitación ocupada")
+
+        try:
+            asignada = await conn.fetchval(
+                """update reservations set room_id = $3
+                   where id = $1 and ($2::uuid is null or tenant_id = $2)
+                   returning id""",
+                rid, tid, hid,
+            )
+        except db_pg.ExclusionViolationError:
+            # La habitacion esta libre AHORA, pero ya tiene otra reserva que
+            # pisa estas fechas. Sin el constraint, esto se descubria el dia del
+            # check-in con los dos huespedes en el mostrador.
+            raise HTTPException(
+                status_code=409,
+                detail="La habitación ya tiene otra reserva en esas fechas"
+            )
+        if not asignada:
+            raise HTTPException(status_code=404, detail="Reserva no encontrada")
+
     return {"message": "Habitación asignada"}
 
 # ============== CHECK-IN / CHECK-OUT ENDPOINTS ==============
 @api_router.post("/reservations/{reservation_id}/checkin")
 async def perform_checkin(reservation_id: str, user: dict = Depends(get_current_user)):
-    tenant_filter = get_tenant_filter(user)
-    reservation = await db.reservations.find_one({"_id": ObjectId(reservation_id), **tenant_filter})
-    
-    if not reservation:
-        raise HTTPException(status_code=404, detail="Reserva no encontrada")
-    if reservation.get("status") != ReservationStatus.CONFIRMED.value:
-        raise HTTPException(status_code=400, detail="Reserva no está confirmada")
-    if not reservation.get("room_id"):
-        raise HTTPException(status_code=400, detail="No hay habitación asignada")
-    
-    room = await db.rooms.find_one({"_id": ObjectId(reservation["room_id"])})
-    if not room:
-        raise HTTPException(status_code=404, detail="Habitación no encontrada")
-    
-    if room.get("housekeeping_status") == HousekeepingStatus.OUT_OF_ORDER.value:
-        raise HTTPException(status_code=400, detail="Habitación fuera de servicio")
-    
-    # Create stay
-    stay = {
-        "tenant_id": user["tenant_id"],
-        "reservation_id": reservation_id,
-        "room_id": reservation["room_id"],
-        "guest_id": reservation.get("guest_id"),
-        "checkin_at": datetime.now(timezone.utc).isoformat(),
-        "checkout_at": None,
-        "status": "ACTIVE",
-        "created_by": user["user_id"]
-    }
-    stay_result = await db.stays.insert_one(stay)
-    stay_id = str(stay_result.inserted_id)
-    
-    # Create folio
-    folio = {
-        "tenant_id": user["tenant_id"],
-        "stay_id": stay_id,
-        "reservation_id": reservation_id,
-        "status": "OPEN",
-        "total_charges": 0,
-        "total_payments": 0,
-        "balance": 0,
-        "created_at": datetime.now(timezone.utc).isoformat()
-    }
-    folio_result = await db.folios.insert_one(folio)
-    folio_id = str(folio_result.inserted_id)
-    
-    # Update reservation
-    await db.reservations.update_one(
-        {"_id": ObjectId(reservation_id)},
-        {"$set": {"status": ReservationStatus.CHECKED_IN.value, "stay_id": stay_id, "folio_id": folio_id}}
-    )
-    
-    # Update room status
-    await db.rooms.update_one(
-        {"_id": ObjectId(reservation["room_id"])},
-        {"$set": {"occupancy_status": OccupancyStatus.OCCUPIED.value}}
-    )
-    
-    await create_audit_log(user["tenant_id"], user["user_id"], "reservation", "CHECKIN", None, {"reservation_id": reservation_id, "stay_id": stay_id})
-    
-    return {"stay_id": stay_id, "folio_id": folio_id, "message": "Check-in realizado exitosamente"}
+    tid = tenant_de(user)
+    rid = id_valido(reservation_id, "reservation_id")
+
+    # Las cinco escrituras del check-in van en UNA transaccion. Antes eran
+    # sueltas: si fallaba a mitad quedaba una reserva marcada como ingresada sin
+    # folio, o un folio huerfano, y habia que arreglarlo a mano en la base.
+    async with db_pg.tx(user) as conn:
+        reserva = await db_pg.uno(
+            conn,
+            """select r.*, h.housekeeping_status
+               from reservations r
+               left join rooms h on h.id = r.room_id
+               where r.id = $1 and ($2::uuid is null or r.tenant_id = $2)
+               for update of r""",
+            rid, tid,
+        )
+        if not reserva:
+            raise HTTPException(status_code=404, detail="Reserva no encontrada")
+        if reserva["status"] != ReservationStatus.CONFIRMED.value:
+            raise HTTPException(status_code=400, detail="Reserva no está confirmada")
+        if not reserva.get("room_id"):
+            raise HTTPException(status_code=400, detail="No hay habitación asignada")
+        if reserva["housekeeping_status"] == HousekeepingStatus.OUT_OF_ORDER.value:
+            raise HTTPException(status_code=400, detail="Habitación fuera de servicio")
+
+        hotel = db_pg.a_uuid(reserva["tenant_id"])
+        habitacion = db_pg.a_uuid(reserva["room_id"])
+
+        # El unique (reservation_id) de stays impide hacer dos check-in de la
+        # misma reserva aunque lleguen a la vez.
+        stay_id = await conn.fetchval(
+            """insert into stays (tenant_id, reservation_id, guest_id, room_id,
+                                  checkin_at, status, created_by)
+               values ($1, $2, $3, $4, now(), 'OPEN', $5)
+               returning id""",
+            hotel, rid, db_pg.a_uuid(reserva.get("guest_id")), habitacion,
+            id_valido(user["user_id"], "user_id"),
+        )
+
+        # Igual con folios: unique (reservation_id), un folio por reserva.
+        folio_id = await conn.fetchval(
+            """insert into folios (tenant_id, reservation_id, stay_id, status)
+               values ($1, $2, $3, 'OPEN')
+               returning id""",
+            hotel, rid, stay_id,
+        )
+
+        # stay_id y folio_id ya no se copian dentro de la reserva: la relacion
+        # vive en el lado hijo, con FK de verdad, y se consulta por
+        # reservation_id. Asi no hay dos sitios que puedan discrepar.
+        await conn.execute(
+            "update reservations set status = 'CHECKED_IN' where id = $1", rid
+        )
+        await conn.execute(
+            "update rooms set occupancy_status = 'OCCUPIED' where id = $1", habitacion
+        )
+
+        await create_audit_log(conn, hotel, user["user_id"], "reservation", "CHECKIN",
+                               None, {"reservation_id": reservation_id, "stay_id": str(stay_id)})
+
+    return {"stay_id": str(stay_id), "folio_id": str(folio_id), "message": "Check-in realizado exitosamente"}
 
 @api_router.post("/reservations/{reservation_id}/checkout")
 async def perform_checkout(reservation_id: str, user: dict = Depends(get_current_user)):
-    tenant_filter = get_tenant_filter(user)
-    reservation = await db.reservations.find_one({"_id": ObjectId(reservation_id), **tenant_filter})
-    
-    if not reservation:
-        raise HTTPException(status_code=404, detail="Reserva no encontrada")
-    if reservation.get("status") != ReservationStatus.CHECKED_IN.value:
-        raise HTTPException(status_code=400, detail="Reserva no está en check-in")
-    
-    stay_id = reservation.get("stay_id")
-    folio_id = reservation.get("folio_id")
-    room_id = reservation.get("room_id")
-    
-    # Check folio balance
-    folio = await db.folios.find_one({"_id": ObjectId(folio_id)})
-    if folio and folio.get("balance", 0) > 0:
-        raise HTTPException(status_code=400, detail=f"Folio tiene saldo pendiente: S/ {folio['balance']:.2f}")
-    
-    now = datetime.now(timezone.utc).isoformat()
-    
-    # Update stay
-    await db.stays.update_one({"_id": ObjectId(stay_id)}, {"$set": {"checkout_at": now, "status": "COMPLETED"}})
-    
-    # Update folio
-    await db.folios.update_one({"_id": ObjectId(folio_id)}, {"$set": {"status": "CLOSED"}})
-    
-    # Update reservation
-    await db.reservations.update_one({"_id": ObjectId(reservation_id)}, {"$set": {"status": ReservationStatus.CHECKED_OUT.value}})
-    
-    # Update room: VACANT + DIRTY
-    await db.rooms.update_one(
-        {"_id": ObjectId(room_id)},
-        {"$set": {"occupancy_status": OccupancyStatus.VACANT.value, "housekeeping_status": HousekeepingStatus.DIRTY.value}}
-    )
-    
-    # Create housekeeping task
-    await db.housekeeping_tasks.insert_one({
-        "tenant_id": user["tenant_id"],
-        "room_id": room_id,
-        "stay_id": stay_id,
-        "priority": "HIGH",
-        "status": "OPEN",
-        "assigned_to": None,
-        "created_at": now
-    })
-    
-    await create_audit_log(user["tenant_id"], user["user_id"], "reservation", "CHECKOUT", None, {"reservation_id": reservation_id})
-    
+    tid = tenant_de(user)
+    rid = id_valido(reservation_id, "reservation_id")
+
+    async with db_pg.tx(user) as conn:
+        # stay y folio se resuelven por FK, no leyendo campos copiados dentro de
+        # la reserva.
+        #
+        # El FOR UPDATE va SOLO sobre `reservations`: Postgres no admite
+        # bloquear el lado nullable de un LEFT JOIN ("FOR UPDATE cannot be
+        # applied to the nullable side of an outer join"), y stays/folios entran
+        # por LEFT JOIN porque una reserva podria no tenerlos.
+        estado = await db_pg.uno(
+            conn,
+            """select r.tenant_id, r.status, r.room_id,
+                      s.id as stay_id, f.id as folio_id
+               from reservations r
+               left join stays  s on s.reservation_id = r.id
+               left join folios f on f.reservation_id = r.id
+               where r.id = $1 and ($2::uuid is null or r.tenant_id = $2)
+               for update of r""",
+            rid, tid,
+        )
+        if not estado:
+            raise HTTPException(status_code=404, detail="Reserva no encontrada")
+        if estado["status"] != ReservationStatus.CHECKED_IN.value:
+            raise HTTPException(status_code=400, detail="Reserva no está en check-in")
+
+        # El folio se bloquea aparte, ya sin join. Importa hacerlo antes de leer
+        # el saldo: si no, un cobro que entrara entre la lectura y el cierre se
+        # perderia y el huesped se iria con deuda dada por saldada.
+        saldo = None
+        if estado.get("folio_id"):
+            saldo = await conn.fetchval(
+                "select balance from folios where id = $1 for update",
+                db_pg.a_uuid(estado["folio_id"]),
+            )
+        if saldo is not None and saldo > 0:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Folio tiene saldo pendiente: S/ {saldo:.2f}"
+            )
+
+        hotel = db_pg.a_uuid(estado["tenant_id"])
+        habitacion = db_pg.a_uuid(estado["room_id"])
+        stay_id = db_pg.a_uuid(estado["stay_id"])
+
+        await conn.execute(
+            "update stays set checkout_at = now(), status = 'CLOSED' where id = $1", stay_id
+        )
+        await conn.execute(
+            "update folios set status = 'CLOSED' where id = $1", db_pg.a_uuid(estado["folio_id"])
+        )
+        await conn.execute(
+            "update reservations set status = 'CHECKED_OUT' where id = $1", rid
+        )
+        # La habitacion queda libre pero sucia: nadie puede asignarla hasta que
+        # housekeeping la marque limpia.
+        await conn.execute(
+            """update rooms set occupancy_status = 'VACANT',
+                                housekeeping_status = 'DIRTY'
+               where id = $1""",
+            habitacion,
+        )
+        await conn.execute(
+            """insert into housekeeping_tasks (tenant_id, room_id, stay_id, priority, status)
+               values ($1, $2, $3, 'HIGH', 'OPEN')""",
+            hotel, habitacion, stay_id,
+        )
+
+        await create_audit_log(conn, hotel, user["user_id"], "reservation", "CHECKOUT",
+                               None, {"reservation_id": reservation_id})
+
     return {"message": "Check-out realizado exitosamente"}
 
 # ============== FOLIO ENDPOINTS ==============
 @api_router.get("/folios/{folio_id}")
 async def get_folio(folio_id: str, user: dict = Depends(get_current_user)):
-    tenant_filter = get_tenant_filter(user)
-    folio = await db.folios.find_one({"_id": ObjectId(folio_id), **tenant_filter})
+    tid = tenant_de(user)
+    fid = id_valido(folio_id, "folio_id")
+    async with db_pg.tx(user) as conn:
+        # Cinco consultas encadenadas se vuelven una. Los subselect agregados
+        # devuelven ya los arrays de cargos y pagos, y el huesped sale del stay
+        # por LEFT JOIN (puede no haberlo en una reserva de grupo sin asignar).
+        folio = await db_pg.uno(
+            conn,
+            """select f.*,
+                      coalesce((select jsonb_agg(to_jsonb(c.*) order by c.created_at)
+                                from charges c
+                                where c.folio_id = f.id and c.status = 'ACTIVE'), '[]'::jsonb) as charges,
+                      coalesce((select jsonb_agg(to_jsonb(p.*) order by p.created_at)
+                                from payments p
+                                where p.folio_id = f.id and p.status = 'ACTIVE'), '[]'::jsonb) as payments,
+                      to_jsonb(g.*) as guest
+               from folios f
+               left join stays  s on s.id = f.stay_id
+               left join guests g on g.id = s.guest_id
+               where f.id = $1 and ($2::uuid is null or f.tenant_id = $2)""",
+            fid, tid,
+        )
     if not folio:
         raise HTTPException(status_code=404, detail="Folio no encontrado")
-    
-    # Get charges
-    charges = await db.charges.find({"folio_id": folio_id, "status": "ACTIVE"}).to_list(500)
-    
-    # Get payments
-    payments = await db.payments.find({"folio_id": folio_id, "status": "ACTIVE"}).to_list(500)
-    
-    # Get stay and guest info
-    stay = await db.stays.find_one({"_id": ObjectId(folio.get("stay_id"))}) if folio.get("stay_id") else None
-    guest = None
-    if stay and stay.get("guest_id"):
-        guest = await db.guests.find_one({"_id": ObjectId(stay["guest_id"])})
-    
-    result = serialize_doc(folio)
-    result["charges"] = [serialize_doc(c) for c in charges]
-    result["payments"] = [serialize_doc(p) for p in payments]
-    result["guest"] = serialize_doc(guest) if guest else None
-    
-    return result
+    return folio
 
 @api_router.post("/folios/{folio_id}/charges")
 async def add_charge(folio_id: str, data: ChargeCreate, user: dict = Depends(get_current_user)):
-    tenant_filter = get_tenant_filter(user)
-    folio = await db.folios.find_one({"_id": ObjectId(folio_id), **tenant_filter})
-    if not folio:
-        raise HTTPException(status_code=404, detail="Folio no encontrado")
-    if folio.get("status") != "OPEN":
-        raise HTTPException(status_code=400, detail="Folio cerrado")
-    
-    # Get tenant for IGV rate
-    tenant = await db.tenants.find_one({"_id": ObjectId(user["tenant_id"])})
-    igv_rate = tenant.get("invoicing_config", {}).get("igv_rate", 18.0) / 100
-    
-    subtotal = data.quantity * data.unit_price
-    igv_amount = subtotal * igv_rate if data.tax_type == "IGV" else 0
-    total = subtotal + igv_amount
-    
-    charge = {
-        "tenant_id": user["tenant_id"],
-        "folio_id": folio_id,
-        "concept": data.concept,
-        "category": data.category,
-        "quantity": data.quantity,
-        "unit_price": data.unit_price,
-        "subtotal": subtotal,
-        "tax_type": data.tax_type,
-        "igv_amount": igv_amount,
-        "total": total,
-        "created_by": user["user_id"],
-        "status": "ACTIVE",
-        "created_at": datetime.now(timezone.utc).isoformat()
-    }
-    
-    result = await db.charges.insert_one(charge)
-    
-    # Update folio totals
-    await db.folios.update_one(
-        {"_id": ObjectId(folio_id)},
-        {"$inc": {"total_charges": total, "balance": total}}
-    )
-    
-    return {"id": str(result.inserted_id), "message": "Cargo agregado"}
+    tid = tenant_de(user)
+    fid = id_valido(folio_id, "folio_id")
+
+    async with db_pg.tx(user) as conn:
+        folio = await db_pg.uno(
+            conn,
+            """select f.id, f.tenant_id, f.status, t.igv_rate
+               from folios f
+               join tenants t on t.id = f.tenant_id
+               where f.id = $1 and ($2::uuid is null or f.tenant_id = $2)
+               for update of f""",
+            fid, tid,
+        )
+        if not folio:
+            raise HTTPException(status_code=404, detail="Folio no encontrado")
+        if folio["status"] != "OPEN":
+            raise HTTPException(status_code=400, detail="Folio cerrado")
+
+        # El IGV lo calcula Postgres en numeric, no Python en float. Con float,
+        # 3 noches a 85.50 mas IGV daban un total que difiere en centimos del
+        # que despues imprime la boleta; y la suma de esos centimos es la que
+        # hace que el arqueo del turno no cuadre.
+        #
+        # La tasa sale de la columna igv_rate del hotel, que ahora existe una
+        # sola vez (antes estaba duplicada dentro de invoicing_config y en la
+        # raiz, y este endpoint leia la anidada).
+        nuevo = await db_pg.uno(
+            conn,
+            """with calculo as (
+                   select round($4::numeric * $5::numeric, 2) as subtotal
+               ),
+               importes as (
+                   select subtotal,
+                          case when $6 = 'IGV'
+                               then round(subtotal * ($7::numeric / 100), 2)
+                               else 0 end as igv
+                   from calculo
+               ),
+               insertado as (
+                   insert into charges (tenant_id, folio_id, concept, category,
+                                        quantity, unit_price, subtotal, tax_type,
+                                        igv_amount, total, created_by)
+                   select $1, $2, $3, $8, $4, $5, subtotal, $6, igv, subtotal + igv, $9
+                   from importes
+                   returning id, total
+               ),
+               ajuste as (
+                   update folios f
+                   set total_charges = f.total_charges + i.total,
+                       balance       = f.balance + i.total
+                   from insertado i
+                   where f.id = $2
+                   returning 1
+               )
+               select id, total from insertado""",
+            db_pg.a_uuid(folio["tenant_id"]), fid, data.concept,
+            data.quantity, data.unit_price, data.tax_type, folio["igv_rate"],
+            data.category, id_valido(user["user_id"], "user_id"),
+        )
+
+    return {"id": str(nuevo["id"]), "message": "Cargo agregado"}
 
 @api_router.post("/folios/{folio_id}/charges/{charge_id}/void")
 async def void_charge(folio_id: str, charge_id: str, data: VoidRequest, user: dict = Depends(get_current_user)):
-    tenant_filter = get_tenant_filter(user)
-    charge = await db.charges.find_one({"_id": ObjectId(charge_id), "folio_id": folio_id, **tenant_filter})
-    if not charge:
-        raise HTTPException(status_code=404, detail="Cargo no encontrado")
-    if charge.get("status") != "ACTIVE":
-        raise HTTPException(status_code=400, detail="Cargo ya anulado")
-    
-    await db.charges.update_one(
-        {"_id": ObjectId(charge_id)},
-        {"$set": {"status": "VOIDED", "void_reason": data.reason, "voided_by": user["user_id"], "voided_at": datetime.now(timezone.utc).isoformat()}}
-    )
-    
-    # Update folio totals
-    await db.folios.update_one(
-        {"_id": ObjectId(folio_id)},
-        {"$inc": {"total_charges": -charge["total"], "balance": -charge["total"]}}
-    )
-    
-    await create_audit_log(user["tenant_id"], user["user_id"], "charge", "VOID", {"id": charge_id, "total": charge["total"]}, {"reason": data.reason})
-    
+    tid = tenant_de(user)
+    fid = id_valido(folio_id, "folio_id")
+    cid = id_valido(charge_id, "charge_id")
+
+    async with db_pg.tx(user) as conn:
+        # El UPDATE lleva `and status = 'ACTIVE'` en el WHERE: si el cargo ya se
+        # anulo (o dos anulaciones llegan a la vez), la segunda no toca nada y
+        # devuelve cero filas. Antes se comprobaba antes de escribir, con lo que
+        # una doble anulacion descontaba el importe dos veces del folio y
+        # dejaba la cuenta del huesped en negativo.
+        anulado = await db_pg.uno(
+            conn,
+            """update charges
+               set status = 'VOIDED', void_reason = $4,
+                   voided_by = $5, voided_at = now()
+               where id = $1 and folio_id = $2 and status = 'ACTIVE'
+                 and ($3::uuid is null or tenant_id = $3)
+               returning tenant_id, total""",
+            cid, fid, tid, data.reason, id_valido(user["user_id"], "user_id"),
+        )
+        if not anulado:
+            existe = await conn.fetchval(
+                "select status from charges where id = $1 and folio_id = $2", cid, fid
+            )
+            if existe:
+                raise HTTPException(status_code=400, detail="Cargo ya anulado")
+            raise HTTPException(status_code=404, detail="Cargo no encontrado")
+
+        await conn.execute(
+            """update folios
+               set total_charges = total_charges - $2,
+                   balance       = balance - $2
+               where id = $1""",
+            fid, anulado["total"],
+        )
+
+        await create_audit_log(conn, anulado["tenant_id"], user["user_id"], "charge", "VOID",
+                               {"id": charge_id, "total": anulado["total"]}, {"reason": data.reason})
+
     return {"message": "Cargo anulado"}
 
 @api_router.post("/folios/{folio_id}/payments")
 async def add_payment(folio_id: str, data: PaymentCreate, user: dict = Depends(get_current_user)):
-    tenant_filter = get_tenant_filter(user)
-    folio = await db.folios.find_one({"_id": ObjectId(folio_id), **tenant_filter})
-    if not folio:
-        raise HTTPException(status_code=404, detail="Folio no encontrado")
-    
-    # Check for active cash shift
-    cash_shift = await db.cash_shifts.find_one({"tenant_id": user["tenant_id"], "status": "OPEN"})
-    if not cash_shift:
-        raise HTTPException(status_code=400, detail="No hay caja abierta")
-    
-    payment = {
-        "tenant_id": user["tenant_id"],
-        "folio_id": folio_id,
-        "cash_shift_id": str(cash_shift["_id"]),
-        "method": data.method.value,
-        "amount": data.amount,
-        "reference": data.reference,
-        "created_by": user["user_id"],
-        "status": "ACTIVE",
-        "created_at": datetime.now(timezone.utc).isoformat()
-    }
-    
-    result = await db.payments.insert_one(payment)
-    
-    # Update folio totals
-    await db.folios.update_one(
-        {"_id": ObjectId(folio_id)},
-        {"$inc": {"total_payments": data.amount, "balance": -data.amount}}
-    )
-    
-    return {"id": str(result.inserted_id), "message": "Pago registrado"}
+    tid = tenant_de(user)
+    fid = id_valido(folio_id, "folio_id")
+
+    async with db_pg.tx(user) as conn:
+        folio = await db_pg.uno(
+            conn,
+            """select id, tenant_id from folios
+               where id = $1 and ($2::uuid is null or tenant_id = $2)
+               for update""",
+            fid, tid,
+        )
+        if not folio:
+            raise HTTPException(status_code=404, detail="Folio no encontrado")
+
+        hotel = db_pg.a_uuid(folio["tenant_id"])
+        turno = await conn.fetchval(
+            "select id from cash_shifts where tenant_id = $1 and status = 'OPEN'", hotel
+        )
+        if not turno:
+            raise HTTPException(status_code=400, detail="No hay caja abierta")
+
+        # El pago y el ajuste del saldo, en una sola sentencia y una sola
+        # transaccion: no puede quedar un pago cobrado que el folio no refleje.
+        nuevo = await db_pg.uno(
+            conn,
+            """with insertado as (
+                   insert into payments (tenant_id, folio_id, cash_shift_id,
+                                         method, amount, reference, created_by)
+                   values ($1, $2, $3, $4::payment_method, $5, $6, $7)
+                   returning id, amount
+               ),
+               ajuste as (
+                   update folios f
+                   set total_payments = f.total_payments + i.amount,
+                       balance        = f.balance - i.amount
+                   from insertado i
+                   where f.id = $2
+                   returning 1
+               )
+               select id from insertado""",
+            hotel, fid, turno, data.method.value, data.amount, data.reference,
+            id_valido(user["user_id"], "user_id"),
+        )
+
+    return {"id": str(nuevo["id"]), "message": "Pago registrado"}
 
 # ============== CASH SHIFT ENDPOINTS ==============
 @api_router.post("/cash-shifts/open")
 async def open_cash_shift(data: CashShiftOpen, user: dict = Depends(get_current_user)):
-    tenant_filter = get_tenant_filter(user)
-    
-    # Check if there's already an open shift
-    existing = await db.cash_shifts.find_one({**tenant_filter, "status": "OPEN"})
-    if existing:
-        raise HTTPException(status_code=400, detail="Ya hay una caja abierta")
-    
-    shift = {
-        "tenant_id": user["tenant_id"],
-        "opened_by": user["user_id"],
-        "opened_at": datetime.now(timezone.utc).isoformat(),
-        "opening_amount": data.opening_amount,
-        "status": "OPEN",
-        "totals": {},
-        "counted_cash": None,
-        "difference": None,
-        "closed_at": None,
-        "closed_by": None,
-        "notes": None
-    }
-    
-    result = await db.cash_shifts.insert_one(shift)
-    await create_audit_log(user["tenant_id"], user["user_id"], "cash_shift", "OPEN", None, {"opening_amount": data.opening_amount})
-    
-    return {"id": str(result.inserted_id), "message": "Caja abierta"}
+    tid = db_pg.a_uuid(user["tenant_id"], "tenant_id")
+    async with db_pg.tx(user) as conn:
+        try:
+            nuevo_id = await conn.fetchval(
+                """insert into cash_shifts (tenant_id, opening_amount, opened_by, status)
+                   values ($1, $2, $3, 'OPEN')
+                   returning id""",
+                tid, data.opening_amount, id_valido(user["user_id"], "user_id"),
+            )
+        except db_pg.UniqueViolationError:
+            # Lo decide el indice unico parcial de db/indexes.sql, no un chequeo
+            # previo: dos aperturas simultaneas ya no crean dos cajas.
+            raise HTTPException(status_code=400, detail="Ya hay una caja abierta")
+
+        await create_audit_log(conn, tid, user["user_id"], "cash_shift", "OPEN",
+                               None, {"opening_amount": data.opening_amount})
+
+    return {"id": str(nuevo_id), "message": "Caja abierta"}
 
 @api_router.get("/cash-shifts/current")
 async def get_current_cash_shift(user: dict = Depends(get_current_user)):
-    tenant_filter = get_tenant_filter(user)
-    shift = await db.cash_shifts.find_one({**tenant_filter, "status": "OPEN"})
-    if not shift:
-        return None
-    
-    shift_id = str(shift["_id"])
-    
-    # Calculate totals
-    pipeline = [
-        {"$match": {"cash_shift_id": shift_id, "status": "ACTIVE"}},
-        {"$group": {"_id": "$method", "total": {"$sum": "$amount"}}}
-    ]
-    totals_cursor = db.payments.aggregate(pipeline)
-    totals = {}
-    async for doc in totals_cursor:
-        totals[doc["_id"]] = doc["total"]
-    
-    result = serialize_doc(shift)
-    result["totals"] = totals
-    result["total_payments"] = sum(totals.values())
-    
-    return result
+    tid = tenant_de(user)
+    async with db_pg.tx(user) as conn:
+        # Los totales por metodo de pago salen agrupados de la propia base, en
+        # lugar del pipeline de agregacion de Mongo mas un bucle en Python.
+        turno = await db_pg.uno(
+            conn,
+            """select s.*,
+                      coalesce((select jsonb_object_agg(p.method, p.suma)
+                                from (select method, sum(amount) as suma
+                                      from payments
+                                      where cash_shift_id = s.id and status = 'ACTIVE'
+                                      group by method) p), '{}'::jsonb) as totals,
+                      coalesce((select sum(amount) from payments
+                                where cash_shift_id = s.id and status = 'ACTIVE'), 0) as total_payments
+               from cash_shifts s
+               where ($1::uuid is null or s.tenant_id = $1) and s.status = 'OPEN'""",
+            tid,
+        )
+    return turno
 
 @api_router.post("/cash-shifts/{shift_id}/close")
 async def close_cash_shift(shift_id: str, data: CashShiftClose, user: dict = Depends(get_current_user)):
-    tenant_filter = get_tenant_filter(user)
-    shift = await db.cash_shifts.find_one({"_id": ObjectId(shift_id), **tenant_filter})
-    
-    if not shift:
-        raise HTTPException(status_code=404, detail="Caja no encontrada")
-    if shift.get("status") != "OPEN":
-        raise HTTPException(status_code=400, detail="Caja no está abierta")
-    
-    # Calculate totals
-    pipeline = [
-        {"$match": {"cash_shift_id": shift_id, "status": "ACTIVE"}},
-        {"$group": {"_id": "$method", "total": {"$sum": "$amount"}}}
-    ]
-    totals = {}
-    async for doc in db.payments.aggregate(pipeline):
-        totals[doc["_id"]] = doc["total"]
-    
-    cash_total = totals.get(PaymentMethod.CASH.value, 0)
-    expected_cash = shift["opening_amount"] + cash_total
-    difference = data.counted_cash - expected_cash
-    
-    now = datetime.now(timezone.utc).isoformat()
-    
-    await db.cash_shifts.update_one(
-        {"_id": ObjectId(shift_id)},
-        {"$set": {
-            "status": "CLOSED",
-            "totals": totals,
-            "counted_cash": data.counted_cash,
-            "difference": difference,
-            "closed_at": now,
-            "closed_by": user["user_id"],
-            "notes": data.notes
-        }}
-    )
-    
-    # Create alert if significant difference
-    if abs(difference) > 10:
-        await create_alert(
-            user["tenant_id"],
-            "CASH_DIFFERENCE",
-            AlertSeverity.WARN if abs(difference) < 50 else AlertSeverity.CRITICAL,
-            "Diferencia en Caja",
-            f"Diferencia de S/ {difference:.2f} al cerrar caja",
-            {"cash_shift_id": shift_id}
+    tid = tenant_de(user)
+    sid = id_valido(shift_id, "shift_id")
+
+    async with db_pg.tx(user) as conn:
+        turno = await db_pg.uno(
+            conn,
+            """select id, tenant_id, status, opening_amount from cash_shifts
+               where id = $1 and ($2::uuid is null or tenant_id = $2)
+               for update""",
+            sid, tid,
         )
-    
-    await create_audit_log(user["tenant_id"], user["user_id"], "cash_shift", "CLOSE", None, {"difference": difference})
-    
-    return {"message": "Caja cerrada", "difference": difference}
+        if not turno:
+            raise HTTPException(status_code=404, detail="Caja no encontrada")
+        if turno["status"] != "OPEN":
+            raise HTTPException(status_code=400, detail="Caja no está abierta")
+
+        # El efectivo esperado ahora INCLUYE los movimientos de caja. Antes era
+        # solo apertura + cobros en efectivo, y los cash_movements -- las
+        # entradas y salidas por compras, cambio o deposito al banco -- se
+        # guardaban pero no entraban en el arqueo. Resultado: cada vez que
+        # recepcion sacaba plata para comprar algo, la caja "faltaba" ese
+        # importe y la diferencia se atribuia a un error de conteo.
+        arqueo = await db_pg.uno(
+            conn,
+            """select
+                   coalesce((select jsonb_object_agg(method, suma)
+                             from (select method, sum(amount) as suma
+                                   from payments
+                                   where cash_shift_id = $1 and status = 'ACTIVE'
+                                   group by method) x), '{}'::jsonb) as totales,
+                   coalesce((select sum(amount) from payments
+                             where cash_shift_id = $1 and status = 'ACTIVE'
+                               and method = 'EFECTIVO'), 0) as cobros_efectivo,
+                   coalesce((select sum(case when type = 'IN' then amount else -amount end)
+                             from cash_movements where cash_shift_id = $1), 0) as movimientos""",
+            sid,
+        )
+
+        esperado = turno["opening_amount"] + arqueo["cobros_efectivo"] + arqueo["movimientos"]
+        diferencia = round(data.counted_cash - esperado, 2)
+
+        await conn.execute(
+            """update cash_shifts set
+                   status = 'CLOSED', totals = $2, counted_cash = $3,
+                   difference = $4, closed_at = now(), closed_by = $5, notes = $6
+               where id = $1""",
+            sid, json.dumps(arqueo["totales"]), data.counted_cash,
+            diferencia, id_valido(user["user_id"], "user_id"), data.notes,
+        )
+
+        if abs(diferencia) > 10:
+            await create_alert(
+                conn, turno["tenant_id"], "CASH_DIFFERENCE",
+                AlertSeverity.WARN if abs(diferencia) < 50 else AlertSeverity.CRITICAL,
+                "Diferencia en Caja",
+                f"Diferencia de S/ {diferencia:.2f} al cerrar caja",
+                {"cash_shift_id": shift_id}
+            )
+
+        await create_audit_log(conn, turno["tenant_id"], user["user_id"], "cash_shift",
+                               "CLOSE", None, {"difference": diferencia})
+
+    return {"message": "Caja cerrada", "difference": diferencia}
 
 @api_router.get("/cash-shifts")
 async def list_cash_shifts(
@@ -1597,91 +1969,126 @@ async def list_cash_shifts(
     to_date: Optional[date] = None,
     user: dict = Depends(get_current_user)
 ):
-    tenant_filter = get_tenant_filter(user)
-    query = tenant_filter.copy()
-    
-    if from_date:
-        query["opened_at"] = {"$gte": from_date.isoformat()}
-    if to_date:
-        if "opened_at" in query:
-            query["opened_at"]["$lte"] = to_date.isoformat() + "T23:59:59"
-        else:
-            query["opened_at"] = {"$lte": to_date.isoformat() + "T23:59:59"}
-    
-    shifts = await db.cash_shifts.find(query).sort("opened_at", -1).to_list(500)
-    return [serialize_doc(s) for s in shifts]
+    tid = tenant_de(user)
+    async with db_pg.tx(user) as conn:
+        # El rango de fechas se compara contra un timestamptz real. Antes se
+        # concatenaba "T23:59:59" al texto de la fecha para simular el fin del
+        # dia: funcionaba de casualidad porque ISO ordena alfabeticamente, y se
+        # comia los cierres ocurridos en el ultimo segundo del dia.
+        return await db_pg.varias(
+            conn,
+            """select * from cash_shifts
+               where ($1::uuid is null or tenant_id = $1)
+                 and ($2::date is null or opened_at >= $2::date)
+                 and ($3::date is null or opened_at < ($3::date + 1))
+               order by opened_at desc""",
+            tid, from_date, to_date,
+        )
 
 @api_router.post("/cash-shifts/{shift_id}/movements")
 async def add_cash_movement(shift_id: str, data: CashMovementCreate, user: dict = Depends(get_current_user)):
-    tenant_filter = get_tenant_filter(user)
-    shift = await db.cash_shifts.find_one({"_id": ObjectId(shift_id), **tenant_filter, "status": "OPEN"})
-    
-    if not shift:
-        raise HTTPException(status_code=404, detail="Caja abierta no encontrada")
-    
-    movement = {
-        "tenant_id": user["tenant_id"],
-        "cash_shift_id": shift_id,
-        "type": data.type,
-        "amount": data.amount,
-        "reason": data.reason,
-        "created_by": user["user_id"],
-        "created_at": datetime.now(timezone.utc).isoformat()
-    }
-    
-    result = await db.cash_movements.insert_one(movement)
-    return {"id": str(result.inserted_id), "message": "Movimiento registrado"}
+    tid = tenant_de(user)
+    sid = id_valido(shift_id, "shift_id")
+
+    async with db_pg.tx(user) as conn:
+        turno = await db_pg.uno(
+            conn,
+            """select id, tenant_id from cash_shifts
+               where id = $1 and ($2::uuid is null or tenant_id = $2) and status = 'OPEN'""",
+            sid, tid,
+        )
+        if not turno:
+            raise HTTPException(status_code=404, detail="Caja abierta no encontrada")
+
+        nuevo_id = await conn.fetchval(
+            """insert into cash_movements (tenant_id, cash_shift_id, type, amount, reason, created_by)
+               values ($1, $2, $3, $4, $5, $6)
+               returning id""",
+            db_pg.a_uuid(turno["tenant_id"]), sid, data.type, data.amount,
+            data.reason, id_valido(user["user_id"], "user_id"),
+        )
+    return {"id": str(nuevo_id), "message": "Movimiento registrado"}
 
 # ============== INVOICE ENDPOINTS ==============
 @api_router.post("/invoices")
 async def create_invoice(data: InvoiceCreate, user: dict = Depends(get_current_user)):
-    tenant_filter = get_tenant_filter(user)
-    tenant = await db.tenants.find_one({"_id": ObjectId(user["tenant_id"])})
-    
-    if not tenant:
-        raise HTTPException(status_code=404, detail="Tenant no encontrado")
-    
-    folio = await db.folios.find_one({"_id": ObjectId(data.folio_id), **tenant_filter})
-    if not folio:
-        raise HTTPException(status_code=404, detail="Folio no encontrado")
-    
-    # Validate document requirements
+    tid = tenant_de(user)
+    fid = id_valido(data.folio_id, "folio_id")
+
     if data.type == InvoiceType.FACTURA:
         if data.client_doc_type != DocType.RUC:
             raise HTTPException(status_code=400, detail="Factura requiere RUC")
         if not data.client_address:
             raise HTTPException(status_code=400, detail="Factura requiere dirección")
-    
-    config = tenant.get("invoicing_config", {})
-    
-    # Get series and correlative
-    if data.type == InvoiceType.BOLETA:
-        series = config.get("boleta_series", "B001")
-        correlative_field = "invoicing_config.boleta_correlative"
-    else:
-        series = config.get("factura_series", "F001")
-        correlative_field = "invoicing_config.factura_correlative"
-    
-    # Atomic increment of correlative
-    updated_tenant = await db.tenants.find_one_and_update(
-        {"_id": ObjectId(user["tenant_id"])},
-        {"$inc": {correlative_field: 1}},
-        return_document=True
-    )
-    
-    correlative = updated_tenant["invoicing_config"].get(
-        "boleta_correlative" if data.type == InvoiceType.BOLETA else "factura_correlative",
-        1
-    )
-    
-    # Get charges for invoice
-    charges = await db.charges.find({"folio_id": data.folio_id, "status": "ACTIVE"}).to_list(500)
-    
-    subtotal = sum(c.get("subtotal", 0) for c in charges)
-    igv = sum(c.get("igv_amount", 0) for c in charges)
-    total = sum(c.get("total", 0) for c in charges)
-    
-    # Build NubeFact payload
+
+    es_boleta = data.type == InvoiceType.BOLETA
+
+    # --------------------------------------------------------------------
+    # Paso 1: reservar el correlativo y leer los importes.
+    # --------------------------------------------------------------------
+    # Va en su propia transaccion, corta, y ANTES de hablar con NubeFact. Una
+    # llamada HTTP no se puede deshacer con un rollback, asi que mantener la
+    # transaccion abierta mientras se espera al proveedor bloquearia la fila del
+    # hotel -- y con ella toda la emision -- durante segundos.
+    #
+    # El correlativo se consume aunque el comprobante termine rechazado, y eso
+    # es lo correcto: SUNAT exige numeracion sin saltos, y un numero emitido y
+    # rechazado se resuelve con una comunicacion de baja, no reutilizandolo.
+    async with db_pg.tx(user) as conn:
+        cabecera = await db_pg.uno(
+            conn,
+            """select f.id, f.tenant_id, t.igv_rate, t.boleta_series, t.factura_series,
+                      t.nubefact_ruta, t.nubefact_token, t.invoicing_mode
+               from folios f
+               join tenants t on t.id = f.tenant_id
+               where f.id = $1 and ($2::uuid is null or f.tenant_id = $2)""",
+            fid, tid,
+        )
+        if not cabecera:
+            raise HTTPException(status_code=404, detail="Folio no encontrado")
+
+        hotel = db_pg.a_uuid(cabecera["tenant_id"])
+        series = cabecera["boleta_series"] if es_boleta else cabecera["factura_series"]
+        igv_rate = cabecera["igv_rate"]
+
+        # UPDATE ... RETURNING: incrementa y devuelve en una sola operacion
+        # atomica, con la fila bloqueada. Es el equivalente exacto del
+        # find_one_and_update de Mongo, pero ahora ademas el unique
+        # (tenant_id, type, series, number) de la tabla invoices impide que dos
+        # comprobantes acaben con el mismo numero aunque algo salga mal aqui.
+        correlative = await conn.fetchval(
+            f"""update tenants
+                set {'boleta_correlative' if es_boleta else 'factura_correlative'}
+                    = {'boleta_correlative' if es_boleta else 'factura_correlative'} + 1
+                where id = $1
+                returning {'boleta_correlative' if es_boleta else 'factura_correlative'}""",
+            hotel,
+        )
+
+        charges = await db_pg.varias(
+            conn,
+            """select concept, quantity, unit_price, subtotal, igv_amount, total
+               from charges where folio_id = $1 and status = 'ACTIVE'
+               order by created_at""",
+            fid,
+        )
+        importes = await db_pg.uno(
+            conn,
+            """select coalesce(sum(subtotal), 0)   as subtotal,
+                      coalesce(sum(igv_amount), 0) as igv,
+                      coalesce(sum(total), 0)      as total
+               from charges where folio_id = $1 and status = 'ACTIVE'""",
+            fid,
+        )
+
+    if not charges:
+        raise HTTPException(status_code=400, detail="El folio no tiene cargos que facturar")
+
+    subtotal, igv, total = importes["subtotal"], importes["igv"], importes["total"]
+    tenant = {"nubefact_ruta": cabecera["nubefact_ruta"],
+              "nubefact_token": cabecera["nubefact_token"],
+              "invoicing_config": {"invoicing_mode": cabecera["invoicing_mode"]}}
+
     items = []
     for c in charges:
         items.append({
@@ -1690,14 +2097,18 @@ async def create_invoice(data: InvoiceCreate, user: dict = Depends(get_current_u
             "descripcion": c.get("concept", ""),
             "cantidad": c.get("quantity", 1),
             "valor_unitario": c.get("unit_price", 0),
-            "precio_unitario": c.get("unit_price", 0) * 1.18,
+            # Antes iba multiplicado por 1.18 fijo, ignorando el igv_rate del
+            # hotel: si alguien configuraba otra tasa, el precio unitario que
+            # viajaba a SUNAT no cuadraba con el IGV declarado del propio
+            # comprobante.
+            "precio_unitario": round(c.get("unit_price", 0) * (1 + float(igv_rate) / 100), 2),
             "descuento": 0,
             "subtotal": c.get("subtotal", 0),
             "tipo_de_igv": 1,
             "igv": c.get("igv_amount", 0),
             "total": c.get("total", 0)
         })
-    
+
     nubefact_payload = {
         "operacion": "generar_comprobante",
         "tipo_de_comprobante": 2 if data.type == InvoiceType.BOLETA else 1,
@@ -1711,7 +2122,7 @@ async def create_invoice(data: InvoiceCreate, user: dict = Depends(get_current_u
         "cliente_email": "",
         "fecha_de_emision": datetime.now(timezone.utc).strftime("%d-%m-%Y"),
         "moneda": 1,
-        "porcentaje_de_igv": config.get("igv_rate", 18.0),
+        "porcentaje_de_igv": float(igv_rate),
         "total_gravada": subtotal,
         "total_igv": igv,
         "total": total,
@@ -1720,56 +2131,55 @@ async def create_invoice(data: InvoiceCreate, user: dict = Depends(get_current_u
         "enviar_automaticamente_al_cliente": False
     }
     
-    # Send to NubeFact
+    # Paso 2: hablar con el proveedor, fuera de toda transaccion.
     nubefact_response = await NubeFactService.send_invoice(tenant, nubefact_payload)
-    
-    invoice = {
-        "tenant_id": user["tenant_id"],
-        "folio_id": data.folio_id,
-        "type": data.type.value,
-        "series": series,
-        "number": correlative,
-        "client_doc_type": data.client_doc_type.value,
-        "client_doc_number": data.client_doc_number,
-        "client_name": data.client_name,
-        "client_address": data.client_address,
-        "subtotal": subtotal,
-        "igv": igv,
-        "total": total,
-        "status": InvoiceStatus.ACCEPTED.value if nubefact_response.get("success") else InvoiceStatus.REJECTED.value,
-        "nubefact_request": nubefact_payload,
-        "nubefact_response": nubefact_response,
-        "pdf_url": nubefact_response.get("enlace_del_pdf"),
-        "xml_url": nubefact_response.get("enlace_del_xml"),
-        "cdr_url": nubefact_response.get("enlace_del_cdr"),
-        "hash": nubefact_response.get("hash"),
-        "qr": nubefact_response.get("qr"),
-        "issued_by": user["user_id"],
-        "issued_at": datetime.now(timezone.utc).isoformat(),
-        "voided_at": None,
-        "void_reason": None
-    }
-    
-    result = await db.invoices.insert_one(invoice)
-    
-    await create_audit_log(user["tenant_id"], user["user_id"], "invoice", "CREATE", None, {"series": series, "number": correlative, "type": data.type.value})
-    
-    if not nubefact_response.get("success"):
-        await create_alert(
-            user["tenant_id"],
-            "INVOICE_REJECTED",
-            AlertSeverity.CRITICAL,
-            "Comprobante Rechazado",
-            f"{data.type.value} {series}-{correlative} fue rechazada: {nubefact_response.get('error', 'Error desconocido')}",
-            {"invoice_id": str(result.inserted_id)}
+    aceptado = bool(nubefact_response.get("success"))
+    estado = InvoiceStatus.ACCEPTED.value if aceptado else InvoiceStatus.REJECTED.value
+
+    # Paso 3: guardar el comprobante con lo que respondio SUNAT.
+    async with db_pg.tx(user) as conn:
+        invoice_id = await conn.fetchval(
+            """insert into invoices
+                   (tenant_id, folio_id, type, series, number,
+                    client_doc_type, client_doc_number, client_name, client_address,
+                    subtotal, igv, total, status,
+                    nubefact_request, nubefact_response,
+                    pdf_url, xml_url, cdr_url, hash, qr, issued_by)
+               values ($1, $2, $3::invoice_type, $4, $5,
+                       $6::doc_type, $7, $8, $9,
+                       $10, $11, $12, $13::invoice_status,
+                       $14, $15, $16, $17, $18, $19, $20, $21)
+               returning id""",
+            hotel, fid, data.type.value, series, correlative,
+            data.client_doc_type.value, data.client_doc_number,
+            data.client_name, data.client_address,
+            subtotal, igv, total, estado,
+            json.dumps(nubefact_payload), json.dumps(nubefact_response),
+            nubefact_response.get("enlace_del_pdf"),
+            nubefact_response.get("enlace_del_xml"),
+            nubefact_response.get("enlace_del_cdr"),
+            nubefact_response.get("hash"), nubefact_response.get("qr"),
+            id_valido(user["user_id"], "user_id"),
         )
-    
+
+        await create_audit_log(conn, hotel, user["user_id"], "invoice", "CREATE", None,
+                               {"series": series, "number": correlative, "type": data.type.value})
+
+        if not aceptado:
+            await create_alert(
+                conn, hotel, "INVOICE_REJECTED", AlertSeverity.CRITICAL,
+                "Comprobante Rechazado",
+                f"{data.type.value} {series}-{correlative} fue rechazada: "
+                f"{nubefact_response.get('error', 'Error desconocido')}",
+                {"invoice_id": str(invoice_id)}
+            )
+
     return {
-        "id": str(result.inserted_id),
+        "id": str(invoice_id),
         "series": series,
         "number": correlative,
-        "status": invoice["status"],
-        "message": "Comprobante emitido" if nubefact_response.get("success") else "Error al emitir comprobante"
+        "status": estado,
+        "message": "Comprobante emitido" if aceptado else "Error al emitir comprobante"
     }
 
 @api_router.get("/invoices")
@@ -1781,54 +2191,68 @@ async def list_invoices(
     search: Optional[str] = None,
     user: dict = Depends(get_current_user)
 ):
-    tenant_filter = get_tenant_filter(user)
-    query = tenant_filter.copy()
-    
-    if type:
-        query["type"] = type.value
-    if status:
-        query["status"] = status.value
-    if from_date:
-        query["issued_at"] = {"$gte": from_date.isoformat()}
-    if to_date:
-        if "issued_at" in query:
-            query["issued_at"]["$lte"] = to_date.isoformat() + "T23:59:59"
-        else:
-            query["issued_at"] = {"$lte": to_date.isoformat() + "T23:59:59"}
-    if search:
-        query["$or"] = [
-            {"client_name": {"$regex": search, "$options": "i"}},
-            {"client_doc_number": {"$regex": search, "$options": "i"}}
-        ]
-    
-    invoices = await db.invoices.find(query).sort("issued_at", -1).to_list(500)
-    return [serialize_doc(inv) for inv in invoices]
+    tid = tenant_de(user)
+    async with db_pg.tx(user) as conn:
+        return await db_pg.varias(
+            conn,
+            """select * from invoices
+               where ($1::uuid is null or tenant_id = $1)
+                 and ($2::text is null or type::text = $2)
+                 and ($3::text is null or status::text = $3)
+                 and ($4::date is null or issued_at >= $4::date)
+                 and ($5::date is null or issued_at < ($5::date + 1))
+                 and ($6::text is null
+                      or client_name       ilike '%' || $6 || '%'
+                      or client_doc_number ilike '%' || $6 || '%')
+               order by issued_at desc""",
+            tid,
+            type.value if type else None,
+            status.value if status else None,
+            from_date, to_date, search,
+        )
 
 @api_router.get("/invoices/{invoice_id}")
 async def get_invoice(invoice_id: str, user: dict = Depends(get_current_user)):
-    tenant_filter = get_tenant_filter(user)
-    invoice = await db.invoices.find_one({"_id": ObjectId(invoice_id), **tenant_filter})
+    tid = tenant_de(user)
+    async with db_pg.tx(user) as conn:
+        invoice = await db_pg.uno(
+            conn,
+            "select * from invoices where id = $1 and ($2::uuid is null or tenant_id = $2)",
+            id_valido(invoice_id, "invoice_id"), tid,
+        )
     if not invoice:
         raise HTTPException(status_code=404, detail="Comprobante no encontrado")
-    return serialize_doc(invoice)
+    return invoice
 
 @api_router.post("/invoices/{invoice_id}/void")
 async def void_invoice(invoice_id: str, data: VoidRequest, user: dict = Depends(require_roles(Role.ADMIN))):
-    tenant_filter = get_tenant_filter(user)
-    invoice = await db.invoices.find_one({"_id": ObjectId(invoice_id), **tenant_filter})
-    
-    if not invoice:
-        raise HTTPException(status_code=404, detail="Comprobante no encontrado")
-    if invoice.get("status") == InvoiceStatus.VOIDED.value:
-        raise HTTPException(status_code=400, detail="Comprobante ya anulado")
-    
-    await db.invoices.update_one(
-        {"_id": ObjectId(invoice_id)},
-        {"$set": {"status": InvoiceStatus.VOIDED.value, "void_reason": data.reason, "voided_at": datetime.now(timezone.utc).isoformat()}}
-    )
-    
-    await create_audit_log(user["tenant_id"], user["user_id"], "invoice", "VOID", {"id": invoice_id}, {"reason": data.reason})
-    
+    tid = tenant_de(user)
+    iid = id_valido(invoice_id, "invoice_id")
+
+    async with db_pg.tx(user) as conn:
+        # `and status <> 'VOIDED'` dentro del WHERE: dos anulaciones simultaneas
+        # ya no pisan la fecha ni el motivo de la primera.
+        anulado = await db_pg.uno(
+            conn,
+            """update invoices
+               set status = 'VOIDED', void_reason = $3, voided_at = now()
+               where id = $1 and ($2::uuid is null or tenant_id = $2)
+                 and status <> 'VOIDED'
+               returning tenant_id""",
+            iid, tid, data.reason,
+        )
+        if not anulado:
+            existe = await conn.fetchval(
+                "select status from invoices where id = $1 and ($2::uuid is null or tenant_id = $2)",
+                iid, tid,
+            )
+            if existe:
+                raise HTTPException(status_code=400, detail="Comprobante ya anulado")
+            raise HTTPException(status_code=404, detail="Comprobante no encontrado")
+
+        await create_audit_log(conn, anulado["tenant_id"], user["user_id"], "invoice",
+                               "VOID", {"id": invoice_id}, {"reason": data.reason})
+
     return {"message": "Comprobante anulado"}
 
 # ============== HOUSEKEEPING ENDPOINTS ==============
@@ -1838,118 +2262,124 @@ async def list_housekeeping_tasks(
     priority: Optional[str] = None,
     user: dict = Depends(get_current_user)
 ):
-    tenant_filter = get_tenant_filter(user)
-    query = tenant_filter.copy()
-    
-    if status:
-        query["status"] = status
-    if priority:
-        query["priority"] = priority
-    
-    tasks = await db.housekeeping_tasks.find(query).sort("created_at", -1).to_list(500)
-    
-    # Enrich with room info
-    room_ids = [t.get("room_id") for t in tasks if t.get("room_id")]
-    rooms = {}
-    if room_ids:
-        room_docs = await db.rooms.find({"_id": {"$in": [ObjectId(rid) for rid in room_ids]}}).to_list(500)
-        rooms = {str(r["_id"]): r for r in room_docs}
-    
-    result = []
-    for t in tasks:
-        task_data = serialize_doc(t)
-        room = rooms.get(t.get("room_id"))
-        if room:
-            task_data["room"] = {"number": room.get("number"), "floor": room.get("floor")}
-        result.append(task_data)
-    
-    return result
+    tid = tenant_de(user)
+    async with db_pg.tx(user) as conn:
+        return await db_pg.varias(
+            conn,
+            """select t.*,
+                      jsonb_build_object('number', h.number, 'floor', h.floor) as room
+               from housekeeping_tasks t
+               join rooms h on h.id = t.room_id
+               where ($1::uuid is null or t.tenant_id = $1)
+                 and ($2::text is null or t.status = $2)
+                 and ($3::text is null or t.priority = $3)
+               order by t.created_at desc""",
+            tid, status, priority,
+        )
 
 @api_router.post("/housekeeping/tasks/{task_id}/complete")
 async def complete_housekeeping_task(task_id: str, user: dict = Depends(get_current_user)):
-    tenant_filter = get_tenant_filter(user)
-    task = await db.housekeeping_tasks.find_one({"_id": ObjectId(task_id), **tenant_filter})
-    
-    if not task:
-        raise HTTPException(status_code=404, detail="Tarea no encontrada")
-    
-    now = datetime.now(timezone.utc).isoformat()
-    
-    await db.housekeeping_tasks.update_one(
-        {"_id": ObjectId(task_id)},
-        {"$set": {"status": "DONE", "completed_by": user["user_id"], "completed_at": now}}
-    )
-    
-    # Update room status to CLEAN
-    if task.get("room_id"):
-        await db.rooms.update_one(
-            {"_id": ObjectId(task["room_id"])},
-            {"$set": {"housekeeping_status": HousekeepingStatus.CLEAN.value}}
+    tid = tenant_de(user)
+    tkid = id_valido(task_id, "task_id")
+    quien = id_valido(user["user_id"], "user_id")
+
+    async with db_pg.tx(user) as conn:
+        # `and status <> 'DONE'` evita que completar dos veces la misma tarea
+        # deje dos entradas en la bitacora de limpieza.
+        tarea = await db_pg.uno(
+            conn,
+            """update housekeeping_tasks
+               set status = 'DONE', completed_by = $3, completed_at = now()
+               where id = $1 and ($2::uuid is null or tenant_id = $2)
+                 and status <> 'DONE'
+               returning tenant_id, room_id""",
+            tkid, tid, quien,
         )
-        
-        # Log change
-        await db.housekeeping_logs.insert_one({
-            "tenant_id": user["tenant_id"],
-            "room_id": task["room_id"],
-            "from_housekeeping": HousekeepingStatus.DIRTY.value,
-            "to_housekeeping": HousekeepingStatus.CLEAN.value,
-            "by_user": user["user_id"],
-            "created_at": now
-        })
-    
+        if not tarea:
+            existe = await conn.fetchval(
+                "select 1 from housekeeping_tasks where id = $1 and ($2::uuid is null or tenant_id = $2)",
+                tkid, tid,
+            )
+            if existe:
+                return {"message": "Tarea completada"}
+            raise HTTPException(status_code=404, detail="Tarea no encontrada")
+
+        # El estado anterior de la habitacion se lee del propio UPDATE en vez de
+        # asumir que era DIRTY: una habitacion puede venir de INSPECT o de
+        # CLEANING, y la bitacora registraba una transicion falsa.
+        cambio = await db_pg.uno(
+            conn,
+            """update rooms r
+               set housekeeping_status = 'CLEAN'
+               from rooms viejo
+               where r.id = viejo.id and r.id = $1
+               returning viejo.housekeeping_status as antes""",
+            db_pg.a_uuid(tarea["room_id"]),
+        )
+        await conn.execute(
+            """insert into housekeeping_logs
+                   (tenant_id, room_id, from_housekeeping, to_housekeeping, by_user)
+               values ($1, $2, $3::housekeeping_state, 'CLEAN', $4)""",
+            db_pg.a_uuid(tarea["tenant_id"]), db_pg.a_uuid(tarea["room_id"]),
+            cambio["antes"], quien,
+        )
+
     return {"message": "Tarea completada"}
 
 @api_router.get("/housekeeping/board")
 async def get_housekeeping_board(user: dict = Depends(get_current_user)):
-    tenant_filter = get_tenant_filter(user)
-    
-    rooms = await db.rooms.find({**tenant_filter, "is_active": True}).sort([("floor", 1), ("number", 1)]).to_list(500)
-    
-    # Group by floor
-    floors = {}
-    for room in rooms:
-        floor = room.get("floor", 0)
-        if floor not in floors:
-            floors[floor] = []
-        floors[floor].append(serialize_doc(room))
-    
-    return {"floors": floors}
+    tid = tenant_de(user)
+    async with db_pg.tx(user) as conn:
+        # El agrupado por piso lo hace Postgres. La respuesta mantiene la forma
+        # {"floors": {piso: [habitaciones]}} que espera el tablero.
+        filas = await db_pg.varias(
+            conn,
+            """select floor::text as piso,
+                      jsonb_agg(to_jsonb(r.*) order by r.number) as habitaciones
+               from rooms r
+               where ($1::uuid is null or tenant_id = $1) and is_active
+               group by floor
+               order by floor""",
+            tid,
+        )
+    return {"floors": {f["piso"]: f["habitaciones"] for f in filas}}
 
 # ============== MAINTENANCE ENDPOINTS ==============
 @api_router.post("/maintenance/tickets")
 async def create_maintenance_ticket(data: MaintenanceTicketCreate, user: dict = Depends(get_current_user)):
-    tenant_filter = get_tenant_filter(user)
-    
-    ticket = {
-        **data.model_dump(),
-        "tenant_id": user["tenant_id"],
-        "status": "OPEN",
-        "assigned_to": None,
-        "actual_cost": None,
-        "created_by": user["user_id"],
-        "created_at": datetime.now(timezone.utc).isoformat(),
-        "resolved_at": None
-    }
-    
-    result = await db.maintenance_tickets.insert_one(ticket)
-    
-    # If critical, set room to OUT_OF_ORDER
-    if data.priority == "CRITICAL":
-        await db.rooms.update_one(
-            {"_id": ObjectId(data.room_id), **tenant_filter},
-            {"$set": {"housekeeping_status": HousekeepingStatus.OUT_OF_ORDER.value}}
-        )
-        
-        await create_alert(
-            user["tenant_id"],
-            "ROOM_OUT_OF_ORDER",
-            AlertSeverity.CRITICAL,
-            "Habitación Fuera de Servicio",
-            f"Habitación marcada como fuera de servicio por ticket de mantenimiento crítico",
-            {"ticket_id": str(result.inserted_id), "room_id": data.room_id}
-        )
-    
-    return {"id": str(result.inserted_id), "message": "Ticket creado"}
+    tid = db_pg.a_uuid(user["tenant_id"], "tenant_id")
+    hid = id_valido(data.room_id, "room_id")
+
+    async with db_pg.tx(user) as conn:
+        try:
+            nuevo_id = await conn.fetchval(
+                """insert into maintenance_tickets
+                       (tenant_id, room_id, title, description, priority, estimated_cost, created_by)
+                   values ($1, $2, $3, $4, $5, $6, $7)
+                   returning id""",
+                tid, hid, data.title, data.description, data.priority,
+                data.estimated_cost, id_valido(user["user_id"], "user_id"),
+            )
+        except db_pg.ForeignKeyViolationError:
+            raise HTTPException(status_code=404, detail="Habitación no encontrada")
+
+        # Un ticket critico saca la habitacion de servicio. Va en la misma
+        # transaccion que el alta del ticket: antes eran tres escrituras
+        # sueltas, y si fallaba la segunda quedaba un ticket critico con la
+        # habitacion todavia disponible para vender.
+        if data.priority == "CRITICAL":
+            await conn.execute(
+                "update rooms set housekeeping_status = 'OUT_OF_ORDER' where id = $1 and tenant_id = $2",
+                hid, tid,
+            )
+            await create_alert(
+                conn, tid, "ROOM_OUT_OF_ORDER", AlertSeverity.CRITICAL,
+                "Habitación Fuera de Servicio",
+                "Habitación marcada como fuera de servicio por ticket de mantenimiento crítico",
+                {"ticket_id": str(nuevo_id), "room_id": data.room_id}
+            )
+
+    return {"id": str(nuevo_id), "message": "Ticket creado"}
 
 @api_router.get("/maintenance/tickets")
 async def list_maintenance_tickets(
@@ -1957,32 +2387,20 @@ async def list_maintenance_tickets(
     priority: Optional[str] = None,
     user: dict = Depends(get_current_user)
 ):
-    tenant_filter = get_tenant_filter(user)
-    query = tenant_filter.copy()
-    
-    if status:
-        query["status"] = status
-    if priority:
-        query["priority"] = priority
-    
-    tickets = await db.maintenance_tickets.find(query).sort("created_at", -1).to_list(500)
-    
-    # Enrich with room info
-    room_ids = [t.get("room_id") for t in tickets if t.get("room_id")]
-    rooms = {}
-    if room_ids:
-        room_docs = await db.rooms.find({"_id": {"$in": [ObjectId(rid) for rid in room_ids]}}).to_list(500)
-        rooms = {str(r["_id"]): r for r in room_docs}
-    
-    result = []
-    for t in tickets:
-        ticket_data = serialize_doc(t)
-        room = rooms.get(t.get("room_id"))
-        if room:
-            ticket_data["room"] = {"number": room.get("number"), "floor": room.get("floor")}
-        result.append(ticket_data)
-    
-    return result
+    tid = tenant_de(user)
+    async with db_pg.tx(user) as conn:
+        return await db_pg.varias(
+            conn,
+            """select t.*,
+                      jsonb_build_object('number', h.number, 'floor', h.floor) as room
+               from maintenance_tickets t
+               join rooms h on h.id = t.room_id
+               where ($1::uuid is null or t.tenant_id = $1)
+                 and ($2::text is null or t.status = $2)
+                 and ($3::text is null or t.priority = $3)
+               order by t.created_at desc""",
+            tid, status, priority,
+        )
 
 @api_router.put("/maintenance/tickets/{ticket_id}")
 async def update_maintenance_ticket(
@@ -1992,33 +2410,34 @@ async def update_maintenance_ticket(
     actual_cost: Optional[float] = None,
     user: dict = Depends(get_current_user)
 ):
-    tenant_filter = get_tenant_filter(user)
-    ticket = await db.maintenance_tickets.find_one({"_id": ObjectId(ticket_id), **tenant_filter})
-    
-    if not ticket:
-        raise HTTPException(status_code=404, detail="Ticket no encontrado")
-    
-    updates = {}
-    if status:
-        updates["status"] = status
-        if status == "RESOLVED":
-            updates["resolved_at"] = datetime.now(timezone.utc).isoformat()
-            
-            # If was critical, restore room status
-            if ticket.get("priority") == "CRITICAL" and ticket.get("room_id"):
-                await db.rooms.update_one(
-                    {"_id": ObjectId(ticket["room_id"])},
-                    {"$set": {"housekeeping_status": HousekeepingStatus.DIRTY.value}}
-                )
-    
-    if assigned_to:
-        updates["assigned_to"] = assigned_to
-    if actual_cost is not None:
-        updates["actual_cost"] = actual_cost
-    
-    if updates:
-        await db.maintenance_tickets.update_one({"_id": ObjectId(ticket_id)}, {"$set": updates})
-    
+    tid = tenant_de(user)
+    tkid = id_valido(ticket_id, "ticket_id")
+
+    async with db_pg.tx(user) as conn:
+        ticket = await db_pg.uno(
+            conn,
+            """update maintenance_tickets set
+                   status      = coalesce($3::text, status),
+                   assigned_to = coalesce($4::uuid, assigned_to),
+                   actual_cost = coalesce($5::numeric, actual_cost),
+                   resolved_at = case when $3 = 'RESOLVED' then now() else resolved_at end
+               where id = $1 and ($2::uuid is null or tenant_id = $2)
+               returning priority, room_id, tenant_id""",
+            tkid, tid, status, id_valido(assigned_to, "assigned_to"), actual_cost,
+        )
+        if not ticket:
+            raise HTTPException(status_code=404, detail="Ticket no encontrado")
+
+        # Al resolver un ticket critico la habitacion vuelve del limbo, pero
+        # queda SUCIA y no limpia: nadie la ha aseado todavia, y darla por
+        # limpia la haria asignable a un huesped que la encontraria como estaba.
+        if status == "RESOLVED" and ticket["priority"] == "CRITICAL" and ticket.get("room_id"):
+            await conn.execute(
+                """update rooms set housekeeping_status = 'DIRTY'
+                   where id = $1 and housekeeping_status = 'OUT_OF_ORDER'""",
+                db_pg.a_uuid(ticket["room_id"]),
+            )
+
     return {"message": "Ticket actualizado"}
 
 # ============== ALERT ENDPOINTS ==============
@@ -2028,141 +2447,144 @@ async def list_alerts(
     severity: Optional[AlertSeverity] = None,
     user: dict = Depends(get_current_user)
 ):
-    tenant_filter = get_tenant_filter(user)
-    query = tenant_filter.copy()
-    
-    if status:
-        query["status"] = status
-    if severity:
-        query["severity"] = severity.value
-    
-    # Filter by role
-    if user["role"] == Role.HOUSEKEEPING.value:
-        query["type"] = {"$in": ["DIRTY_ROOM", "ROOM_OUT_OF_ORDER"]}
-    
-    alerts = await db.alerts.find(query).sort("created_at", -1).to_list(500)
-    return [serialize_doc(a) for a in alerts]
+    tid = tenant_de(user)
+    # El personal de limpieza solo ve las alertas de su area.
+    tipos_limpieza = ["DIRTY_ROOM", "ROOM_OUT_OF_ORDER"] \
+        if user["role"] == Role.HOUSEKEEPING.value else None
+
+    async with db_pg.tx(user) as conn:
+        return await db_pg.varias(
+            conn,
+            """select * from alerts
+               where ($1::uuid is null or tenant_id = $1)
+                 and ($2::text is null or status = $2)
+                 and ($3::text is null or severity::text = $3)
+                 and ($4::text[] is null or type = any($4))
+               order by created_at desc""",
+            tid, status, severity.value if severity else None, tipos_limpieza,
+        )
 
 @api_router.post("/alerts/{alert_id}/resolve")
 async def resolve_alert(alert_id: str, data: AlertResolve, user: dict = Depends(get_current_user)):
-    tenant_filter = get_tenant_filter(user)
-    
-    await db.alerts.update_one(
-        {"_id": ObjectId(alert_id), **tenant_filter},
-        {"$set": {
-            "status": "RESOLVED",
-            "resolved_by": user["user_id"],
-            "resolved_at": datetime.now(timezone.utc).isoformat(),
-            "notes": data.notes
-        }}
-    )
-    
+    tid = tenant_de(user)
+    async with db_pg.tx(user) as conn:
+        # Antes el update no comprobaba si habia acertado: resolver una alerta
+        # inexistente o de otro hotel devolvia "Alerta resuelta" igual.
+        resuelta = await conn.fetchval(
+            """update alerts
+               set status = 'RESOLVED', resolved_by = $3, resolved_at = now(), notes = $4
+               where id = $1 and ($2::uuid is null or tenant_id = $2)
+               returning id""",
+            id_valido(alert_id, "alert_id"), tid,
+            id_valido(user["user_id"], "user_id"), data.notes,
+        )
+    if not resuelta:
+        raise HTTPException(status_code=404, detail="Alerta no encontrada")
     return {"message": "Alerta resuelta"}
 
 # ============== PRODUCTS/SERVICES ENDPOINTS ==============
 @api_router.post("/products")
 async def create_product(name: str = Body(...), category: str = Body(...), unit_price: float = Body(...), tax_type: str = Body("IGV"), user: dict = Depends(require_roles(Role.ADMIN))):
-    product = {
-        "tenant_id": user["tenant_id"],
-        "name": name,
-        "category": category,
-        "unit_price": unit_price,
-        "tax_type": tax_type,
-        "is_active": True,
-        "created_at": datetime.now(timezone.utc).isoformat()
-    }
-    result = await db.products.insert_one(product)
-    return {"id": str(result.inserted_id), "message": "Producto creado"}
+    async with db_pg.tx(user) as conn:
+        nuevo_id = await conn.fetchval(
+            """insert into products (tenant_id, name, category, unit_price, tax_type)
+               values ($1, $2, $3, $4, $5)
+               returning id""",
+            db_pg.a_uuid(user["tenant_id"]), name, category, unit_price, tax_type,
+        )
+    return {"id": str(nuevo_id), "message": "Producto creado"}
 
 @api_router.get("/products")
 async def list_products(category: Optional[str] = None, user: dict = Depends(get_current_user)):
-    tenant_filter = get_tenant_filter(user)
-    query = {**tenant_filter, "is_active": True}
-    if category:
-        query["category"] = category
-    products = await db.products.find(query).sort("name", 1).to_list(500)
-    return [serialize_doc(p) for p in products]
+    tid = tenant_de(user)
+    async with db_pg.tx(user) as conn:
+        return await db_pg.varias(
+            conn,
+            """select * from products
+               where ($1::uuid is null or tenant_id = $1) and is_active
+                 and ($2::text is null or category = $2)
+               order by name""",
+            tid, category,
+        )
 
 # ============== DASHBOARD ENDPOINTS ==============
 @api_router.get("/dashboard/kpis")
 async def get_dashboard_kpis(user: dict = Depends(get_current_user)):
-    tenant_filter = get_tenant_filter(user)
+    tid = tenant_de(user)
     today = datetime.now(timezone.utc).date()
-    today_str = today.isoformat()
-    month_start = today.replace(day=1).isoformat()
-    
-    # Today's stats
-    rooms_total = await db.rooms.count_documents({**tenant_filter, "is_active": True})
-    rooms_occupied = await db.rooms.count_documents({**tenant_filter, "occupancy_status": OccupancyStatus.OCCUPIED.value})
-    rooms_dirty = await db.rooms.count_documents({**tenant_filter, "housekeeping_status": HousekeepingStatus.DIRTY.value})
-    rooms_ooo = await db.rooms.count_documents({**tenant_filter, "housekeeping_status": HousekeepingStatus.OUT_OF_ORDER.value})
-    
-    # Arrivals/Departures today
-    arrivals_today = await db.reservations.count_documents({
-        **tenant_filter,
-        "checkin_date": today_str,
-        "status": {"$in": [ReservationStatus.CONFIRMED.value]}
-    })
-    departures_today = await db.reservations.count_documents({
-        **tenant_filter,
-        "checkout_date": today_str,
-        "status": ReservationStatus.CHECKED_IN.value
-    })
-    
-    # Revenue today
-    pipeline_today = [
-        {"$match": {"tenant_id": user["tenant_id"], "created_at": {"$gte": today_str}, "status": "ACTIVE"}},
-        {"$group": {"_id": None, "total": {"$sum": "$amount"}}}
-    ]
-    revenue_today = 0
-    async for doc in db.payments.aggregate(pipeline_today):
-        revenue_today = doc.get("total", 0)
-    
-    # Outstanding balance
-    pipeline_balance = [
-        {"$match": {"tenant_id": user["tenant_id"], "status": "OPEN", "balance": {"$gt": 0}}},
-        {"$group": {"_id": None, "total": {"$sum": "$balance"}}}
-    ]
-    outstanding = 0
-    async for doc in db.folios.aggregate(pipeline_balance):
-        outstanding = doc.get("total", 0)
-    
-    # Monthly stats
-    pipeline_month = [
-        {"$match": {"tenant_id": user["tenant_id"], "created_at": {"$gte": month_start}, "status": "ACTIVE"}},
-        {"$group": {"_id": None, "total": {"$sum": "$amount"}}}
-    ]
-    revenue_month = 0
-    async for doc in db.payments.aggregate(pipeline_month):
-        revenue_month = doc.get("total", 0)
-    
-    # Cancellations and no-shows this month
-    cancellations = await db.reservations.count_documents({
-        **tenant_filter,
-        "created_at": {"$gte": month_start},
-        "status": ReservationStatus.CANCELLED.value
-    })
-    no_shows = await db.reservations.count_documents({
-        **tenant_filter,
-        "created_at": {"$gte": month_start},
-        "status": ReservationStatus.NO_SHOW.value
-    })
-    
-    # ADR calculation
-    pipeline_adr = [
-        {"$match": {"tenant_id": user["tenant_id"], "created_at": {"$gte": month_start}, "category": "HABITACION", "status": "ACTIVE"}},
-        {"$group": {"_id": None, "total": {"$sum": "$total"}, "count": {"$sum": "$quantity"}}}
-    ]
-    adr = 0
-    room_nights_sold = 0
-    async for doc in db.charges.aggregate(pipeline_adr):
-        if doc.get("count", 0) > 0:
-            adr = doc.get("total", 0) / doc.get("count", 1)
-            room_nights_sold = doc.get("count", 0)
-    
+    month_start = today.replace(day=1)
+
+    async with db_pg.tx(user) as conn:
+        # Los ocho count_documents y los cuatro pipelines de agregacion se
+        # resuelven en UNA consulta: cada subselect es independiente y Postgres
+        # los ejecuta en el mismo viaje. El dashboard es lo primero que se abre
+        # cada manana y antes disparaba doce consultas seguidas.
+        #
+        # Las fechas se comparan como fechas, no como prefijos de texto: antes
+        # "created_at >= '2026-08-01'" funcionaba solo porque ISO ordena
+        # alfabeticamente igual que cronologicamente.
+        k = await db_pg.uno(
+            conn,
+            """select
+                 (select count(*) from rooms
+                   where ($1::uuid is null or tenant_id = $1) and is_active) as rooms_total,
+                 (select count(*) from rooms
+                   where ($1::uuid is null or tenant_id = $1) and occupancy_status = 'OCCUPIED') as rooms_occupied,
+                 (select count(*) from rooms
+                   where ($1::uuid is null or tenant_id = $1) and housekeeping_status = 'DIRTY') as rooms_dirty,
+                 (select count(*) from rooms
+                   where ($1::uuid is null or tenant_id = $1) and housekeeping_status = 'OUT_OF_ORDER') as rooms_ooo,
+                 (select count(*) from reservations
+                   where ($1::uuid is null or tenant_id = $1)
+                     and checkin_date = $2 and status = 'CONFIRMED') as arrivals,
+                 (select count(*) from reservations
+                   where ($1::uuid is null or tenant_id = $1)
+                     and checkout_date = $2 and status = 'CHECKED_IN') as departures,
+                 (select coalesce(sum(amount), 0) from payments
+                   where ($1::uuid is null or tenant_id = $1)
+                     and status = 'ACTIVE' and created_at >= $2::date) as revenue_today,
+                 (select coalesce(sum(balance), 0) from folios
+                   where ($1::uuid is null or tenant_id = $1)
+                     and status = 'OPEN' and balance > 0) as outstanding,
+                 (select coalesce(sum(amount), 0) from payments
+                   where ($1::uuid is null or tenant_id = $1)
+                     and status = 'ACTIVE' and created_at >= $3::date) as revenue_month,
+                 (select count(*) from reservations
+                   where ($1::uuid is null or tenant_id = $1)
+                     and created_at >= $3::date and status = 'CANCELLED') as cancellations,
+                 (select count(*) from reservations
+                   where ($1::uuid is null or tenant_id = $1)
+                     and created_at >= $3::date and status = 'NO_SHOW') as no_shows,
+                 (select coalesce(sum(total), 0) from charges
+                   where ($1::uuid is null or tenant_id = $1)
+                     and created_at >= $3::date and category = 'HABITACION'
+                     and status = 'ACTIVE') as ingresos_habitacion,
+                 (select coalesce(sum(quantity), 0) from charges
+                   where ($1::uuid is null or tenant_id = $1)
+                     and created_at >= $3::date and category = 'HABITACION'
+                     and status = 'ACTIVE') as noches_vendidas""",
+            tid, today, month_start,
+        )
+
+    rooms_total = k["rooms_total"]
+    rooms_occupied = k["rooms_occupied"]
+    rooms_dirty = k["rooms_dirty"]
+    rooms_ooo = k["rooms_ooo"]
+    arrivals_today = k["arrivals"]
+    departures_today = k["departures"]
+    revenue_today = k["revenue_today"]
+    outstanding = k["outstanding"]
+    revenue_month = k["revenue_month"]
+    cancellations = k["cancellations"]
+    no_shows = k["no_shows"]
+
+    # ADR = ingreso medio por noche de habitacion vendida.
+    room_nights_sold = k["noches_vendidas"]
+    adr = (k["ingresos_habitacion"] / room_nights_sold) if room_nights_sold else 0
+
     occupancy_rate = (rooms_occupied / rooms_total * 100) if rooms_total > 0 else 0
     revpar = (revenue_month / (rooms_total * today.day)) if rooms_total > 0 else 0
-    
+
     return {
         "today": {
             "occupancy_rate": round(occupancy_rate, 1),
@@ -2187,127 +2609,135 @@ async def get_dashboard_kpis(user: dict = Depends(get_current_user)):
 
 @api_router.get("/dashboard/charts/revenue")
 async def get_revenue_chart(days: int = 30, user: dict = Depends(get_current_user)):
-    tenant_filter = get_tenant_filter(user)
-    start_date = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
-    
-    pipeline = [
-        {"$match": {"tenant_id": user["tenant_id"], "created_at": {"$gte": start_date}, "status": "ACTIVE"}},
-        {"$addFields": {"date": {"$substr": ["$created_at", 0, 10]}}},
-        {"$group": {"_id": "$date", "total": {"$sum": "$total"}, "rooms": {"$sum": {"$cond": [{"$eq": ["$category", "HABITACION"]}, "$total", 0]}}, "extras": {"$sum": {"$cond": [{"$ne": ["$category", "HABITACION"]}, "$total", 0]}}}}
-    ]
-    
-    data = []
-    async for doc in db.charges.aggregate(pipeline):
-        data.append({
-            "date": doc["_id"],
-            "total": doc.get("total", 0),
-            "rooms": doc.get("rooms", 0),
-            "extras": doc.get("extras", 0)
-        })
-    
-    return sorted(data, key=lambda x: x["date"])
+    tid = tenant_de(user)
+    async with db_pg.tx(user) as conn:
+        # El agrupado por dia sale de date_trunc sobre un timestamptz real, en
+        # vez de recortar los 10 primeros caracteres del texto de la fecha.
+        return await db_pg.varias(
+            conn,
+            """select to_char(created_at::date, 'YYYY-MM-DD') as date,
+                      sum(total) as total,
+                      sum(total) filter (where category  = 'HABITACION') as rooms,
+                      sum(total) filter (where category <> 'HABITACION') as extras
+               from charges
+               where ($1::uuid is null or tenant_id = $1)
+                 and status = 'ACTIVE'
+                 and created_at >= now() - ($2 || ' days')::interval
+               group by created_at::date
+               order by created_at::date""",
+            tid, str(days),
+        )
 
 @api_router.get("/dashboard/charts/occupancy")
 async def get_occupancy_chart(days: int = 30, user: dict = Depends(get_current_user)):
-    # This would need actual historical data - simplified version
-    tenant_filter = get_tenant_filter(user)
-    rooms_total = await db.rooms.count_documents({**tenant_filter, "is_active": True})
-    
-    data = []
-    for i in range(days):
-        day = datetime.now(timezone.utc).date() - timedelta(days=days - i - 1)
-        # In production, this would query actual historical occupancy
-        occupied = await db.reservations.count_documents({
-            **tenant_filter,
-            "checkin_date": {"$lte": day.isoformat()},
-            "checkout_date": {"$gt": day.isoformat()},
-            "status": {"$in": [ReservationStatus.CHECKED_IN.value, ReservationStatus.CHECKED_OUT.value]}
-        })
-        rate = (occupied / rooms_total * 100) if rooms_total > 0 else 0
-        data.append({"date": day.isoformat(), "rate": round(rate, 1), "occupied": occupied})
-    
-    return data
+    tid = tenant_de(user)
+    async with db_pg.tx(user) as conn:
+        # generate_series produce los dias del periodo y un LATERAL cuenta las
+        # habitaciones ocupadas en cada uno. Antes era un bucle en Python con
+        # una consulta por dia: 31 viajes a la base para pintar un grafico de
+        # un mes, y 91 si alguien pedia el trimestre.
+        return await db_pg.varias(
+            conn,
+            """with total as (
+                   select count(*)::numeric as n from rooms
+                   where ($1::uuid is null or tenant_id = $1) and is_active
+               )
+               select to_char(d::date, 'YYYY-MM-DD') as date,
+                      o.ocupadas as occupied,
+                      case when t.n > 0
+                           then round(o.ocupadas / t.n * 100, 1)
+                           else 0 end as rate
+               from generate_series(
+                        current_date - ($2::int - 1),
+                        current_date,
+                        interval '1 day') as d
+               cross join total t
+               left join lateral (
+                   select count(*)::numeric as ocupadas
+                   from reservations r
+                   where ($1::uuid is null or r.tenant_id = $1)
+                     and r.status in ('CHECKED_IN', 'CHECKED_OUT')
+                     and r.checkin_date  <= d::date
+                     and r.checkout_date >  d::date
+               ) o on true
+               order by d""",
+            tid, days,
+        )
 
 @api_router.get("/dashboard/charts/payment-methods")
 async def get_payment_methods_chart(user: dict = Depends(get_current_user)):
-    month_start = datetime.now(timezone.utc).date().replace(day=1).isoformat()
-    
-    pipeline = [
-        {"$match": {"tenant_id": user["tenant_id"], "created_at": {"$gte": month_start}, "status": "ACTIVE"}},
-        {"$group": {"_id": "$method", "total": {"$sum": "$amount"}}}
-    ]
-    
-    data = []
-    async for doc in db.payments.aggregate(pipeline):
-        data.append({"method": doc["_id"], "total": doc.get("total", 0)})
-    
-    return data
+    tid = tenant_de(user)
+    async with db_pg.tx(user) as conn:
+        return await db_pg.varias(
+            conn,
+            """select method::text as method, sum(amount) as total
+               from payments
+               where ($1::uuid is null or tenant_id = $1)
+                 and status = 'ACTIVE'
+                 and created_at >= date_trunc('month', current_date)
+               group by method
+               order by total desc""",
+            tid,
+        )
 
 @api_router.get("/dashboard/charts/room-status")
 async def get_room_status_chart(user: dict = Depends(get_current_user)):
-    tenant_filter = get_tenant_filter(user)
-    
-    pipeline = [
-        {"$match": {**tenant_filter, "is_active": True}},
-        {"$group": {
-            "_id": {"occupancy": "$occupancy_status", "housekeeping": "$housekeeping_status"},
-            "count": {"$sum": 1}
-        }}
-    ]
-    
-    data = {"occupied": 0, "vacant_clean": 0, "vacant_dirty": 0, "out_of_order": 0}
-    async for doc in db.rooms.aggregate(pipeline):
-        occ = doc["_id"].get("occupancy")
-        hk = doc["_id"].get("housekeeping")
-        count = doc.get("count", 0)
-        
-        if hk == HousekeepingStatus.OUT_OF_ORDER.value:
-            data["out_of_order"] += count
-        elif occ == OccupancyStatus.OCCUPIED.value:
-            data["occupied"] += count
-        elif hk == HousekeepingStatus.CLEAN.value:
-            data["vacant_clean"] += count
-        else:
-            data["vacant_dirty"] += count
-    
-    return data
+    tid = tenant_de(user)
+    async with db_pg.tx(user) as conn:
+        # La clasificacion en las cuatro categorias del grafico la hace la
+        # consulta, en lugar de traer los grupos crudos y re-agregarlos con
+        # ifs en Python. El orden de los CASE importa: fuera de servicio manda
+        # sobre todo lo demas, y ocupada sobre el estado de limpieza.
+        return await db_pg.uno(
+            conn,
+            """select
+                   count(*) filter (where housekeeping_status = 'OUT_OF_ORDER') as out_of_order,
+                   count(*) filter (where housekeeping_status <> 'OUT_OF_ORDER'
+                                      and occupancy_status = 'OCCUPIED')        as occupied,
+                   count(*) filter (where housekeeping_status = 'CLEAN'
+                                      and occupancy_status <> 'OCCUPIED')       as vacant_clean,
+                   count(*) filter (where housekeeping_status not in ('OUT_OF_ORDER', 'CLEAN')
+                                      and occupancy_status <> 'OCCUPIED')       as vacant_dirty
+               from rooms
+               where ($1::uuid is null or tenant_id = $1) and is_active""",
+            tid,
+        )
 
 @api_router.get("/dashboard/charts/invoicing-status")
 async def get_invoicing_status_chart(user: dict = Depends(get_current_user)):
-    month_start = datetime.now(timezone.utc).date().replace(day=1).isoformat()
-    
-    pipeline = [
-        {"$match": {"tenant_id": user["tenant_id"], "issued_at": {"$gte": month_start}}},
-        {"$group": {"_id": "$status", "count": {"$sum": 1}, "total": {"$sum": "$total"}}}
-    ]
-    
-    data = []
-    async for doc in db.invoices.aggregate(pipeline):
-        data.append({"status": doc["_id"], "count": doc.get("count", 0), "total": doc.get("total", 0)})
-    
-    return data
+    tid = tenant_de(user)
+    async with db_pg.tx(user) as conn:
+        return await db_pg.varias(
+            conn,
+            """select status::text as status, count(*) as count, sum(total) as total
+               from invoices
+               where ($1::uuid is null or tenant_id = $1)
+                 and issued_at >= date_trunc('month', current_date)
+               group by status""",
+            tid,
+        )
 
 @api_router.get("/dashboard/charts/top-products")
 async def get_top_products_chart(user: dict = Depends(get_current_user)):
-    month_start = datetime.now(timezone.utc).date().replace(day=1).isoformat()
-    
-    pipeline = [
-        {"$match": {"tenant_id": user["tenant_id"], "created_at": {"$gte": month_start}, "status": "ACTIVE", "category": {"$ne": "HABITACION"}}},
-        {"$group": {"_id": "$concept", "total": {"$sum": "$total"}, "quantity": {"$sum": "$quantity"}}},
-        {"$sort": {"total": -1}},
-        {"$limit": 10}
-    ]
-    
-    data = []
-    async for doc in db.charges.aggregate(pipeline):
-        data.append({"product": doc["_id"], "total": doc.get("total", 0), "quantity": doc.get("quantity", 0)})
-    
-    return data
+    tid = tenant_de(user)
+    async with db_pg.tx(user) as conn:
+        return await db_pg.varias(
+            conn,
+            """select concept as product, sum(total) as total, sum(quantity) as quantity
+               from charges
+               where ($1::uuid is null or tenant_id = $1)
+                 and status = 'ACTIVE'
+                 and category <> 'HABITACION'
+                 and created_at >= date_trunc('month', current_date)
+               group by concept
+               order by total desc
+               limit 10""",
+            tid,
+        )
 
 # ============== REPORTS ENDPOINTS ==============
 @api_router.get("/reports/monthly-occupancy")
 async def get_monthly_occupancy_report(month: int = None, year: int = None, user: dict = Depends(get_current_user)):
-    tenant_filter = get_tenant_filter(user)
     today = datetime.now(timezone.utc).date()
     
     if not month:
@@ -2321,56 +2751,69 @@ async def get_monthly_occupancy_report(month: int = None, year: int = None, user
     else:
         end_date = date(year, month + 1, 1)
     
-    rooms_total = await db.rooms.count_documents({**tenant_filter, "is_active": True})
+    tid = tenant_de(user)
     days_in_month = (end_date - start_date).days
+
+    async with db_pg.tx(user) as conn:
+        r = await db_pg.uno(
+            conn,
+            """select
+                 (select count(*) from rooms
+                   where ($1::uuid is null or tenant_id = $1) and is_active) as rooms_total,
+
+                 -- Noches-habitacion vendidas DE VERDAD. Antes era el numero de
+                 -- reservas del mes: una estadia de cinco noches contaba como
+                 -- una, asi que la ocupacion salia hasta cinco veces mas baja
+                 -- de lo real y el ADR y el RevPAR heredaban el error.
+                 -- Aca se suman los dias que cada reserva pasa DENTRO del mes,
+                 -- recortando la parte que se sale por cualquiera de los dos
+                 -- extremos.
+                 (select coalesce(sum(
+                            least(checkout_date, $3::date) - greatest(checkin_date, $2::date)
+                         ), 0)
+                    from reservations
+                   where ($1::uuid is null or tenant_id = $1)
+                     and status in ('CHECKED_IN', 'CHECKED_OUT')
+                     and checkin_date  <  $3::date
+                     and checkout_date >  $2::date) as room_nights_sold,
+
+                 (select count(*) from reservations
+                   where ($1::uuid is null or tenant_id = $1)
+                     and checkin_date >= $2::date and checkin_date < $3::date
+                     and status in ('CHECKED_IN', 'CHECKED_OUT')) as checkins,
+                 (select count(*) from reservations
+                   where ($1::uuid is null or tenant_id = $1)
+                     and checkout_date >= $2::date and checkout_date < $3::date
+                     and status = 'CHECKED_OUT') as checkouts,
+                 (select count(*) from reservations
+                   where ($1::uuid is null or tenant_id = $1)
+                     and created_at >= $2::date and created_at < $3::date
+                     and status = 'CANCELLED') as cancellations,
+                 (select count(*) from reservations
+                   where ($1::uuid is null or tenant_id = $1)
+                     and checkin_date >= $2::date and checkin_date < $3::date
+                     and status = 'NO_SHOW') as no_shows,
+                 (select coalesce(sum(total), 0) from charges
+                   where ($1::uuid is null or tenant_id = $1)
+                     and created_at >= $2::date and created_at < $3::date
+                     and category = 'HABITACION' and status = 'ACTIVE') as room_revenue,
+                 (select coalesce(sum(quantity), 0) from charges
+                   where ($1::uuid is null or tenant_id = $1)
+                     and created_at >= $2::date and created_at < $3::date
+                     and category = 'HABITACION' and status = 'ACTIVE') as actual_nights""",
+            tid, start_date, end_date,
+        )
+
+    rooms_total = r["rooms_total"]
     room_nights_available = rooms_total * days_in_month
-    
-    # Get reservations for the month
-    reservations = await db.reservations.find({
-        **tenant_filter,
-        "checkin_date": {"$lt": end_date.isoformat()},
-        "checkout_date": {"$gt": start_date.isoformat()},
-        "status": {"$in": [ReservationStatus.CHECKED_IN.value, ReservationStatus.CHECKED_OUT.value]}
-    }).to_list(1000)
-    
-    room_nights_sold = len(reservations)  # Simplified
-    
-    checkins = await db.reservations.count_documents({
-        **tenant_filter,
-        "checkin_date": {"$gte": start_date.isoformat(), "$lt": end_date.isoformat()},
-        "status": {"$in": [ReservationStatus.CHECKED_IN.value, ReservationStatus.CHECKED_OUT.value]}
-    })
-    
-    checkouts = await db.reservations.count_documents({
-        **tenant_filter,
-        "checkout_date": {"$gte": start_date.isoformat(), "$lt": end_date.isoformat()},
-        "status": ReservationStatus.CHECKED_OUT.value
-    })
-    
-    cancellations = await db.reservations.count_documents({
-        **tenant_filter,
-        "created_at": {"$gte": start_date.isoformat(), "$lt": end_date.isoformat()},
-        "status": ReservationStatus.CANCELLED.value
-    })
-    
-    no_shows = await db.reservations.count_documents({
-        **tenant_filter,
-        "checkin_date": {"$gte": start_date.isoformat(), "$lt": end_date.isoformat()},
-        "status": ReservationStatus.NO_SHOW.value
-    })
-    
-    # Revenue
-    pipeline = [
-        {"$match": {"tenant_id": user["tenant_id"], "created_at": {"$gte": start_date.isoformat(), "$lt": end_date.isoformat()}, "category": "HABITACION", "status": "ACTIVE"}},
-        {"$group": {"_id": None, "total": {"$sum": "$total"}, "nights": {"$sum": "$quantity"}}}
-    ]
-    
-    room_revenue = 0
-    actual_nights = 0
-    async for doc in db.charges.aggregate(pipeline):
-        room_revenue = doc.get("total", 0)
-        actual_nights = doc.get("nights", 0)
-    
+    room_nights_sold = r["room_nights_sold"]
+    checkins = r["checkins"]
+    checkouts = r["checkouts"]
+    cancellations = r["cancellations"]
+    no_shows = r["no_shows"]
+    room_revenue = r["room_revenue"]
+    actual_nights = r["actual_nights"]
+
     occupancy_avg = (room_nights_sold / room_nights_available * 100) if room_nights_available > 0 else 0
     adr = (room_revenue / actual_nights) if actual_nights > 0 else 0
     revpar = (room_revenue / room_nights_available) if room_nights_available > 0 else 0
@@ -2406,26 +2849,32 @@ async def get_monthly_revenue_report(month: int = None, year: int = None, user: 
     else:
         end_date = date(year, month + 1, 1)
     
-    # Revenue by category
-    pipeline_category = [
-        {"$match": {"tenant_id": user["tenant_id"], "created_at": {"$gte": start_date.isoformat(), "$lt": end_date.isoformat()}, "status": "ACTIVE"}},
-        {"$group": {"_id": "$category", "total": {"$sum": "$total"}}}
-    ]
-    
-    by_category = {}
-    async for doc in db.charges.aggregate(pipeline_category):
-        by_category[doc["_id"]] = doc.get("total", 0)
-    
-    # Revenue by payment method
-    pipeline_method = [
-        {"$match": {"tenant_id": user["tenant_id"], "created_at": {"$gte": start_date.isoformat(), "$lt": end_date.isoformat()}, "status": "ACTIVE"}},
-        {"$group": {"_id": "$method", "total": {"$sum": "$amount"}}}
-    ]
-    
-    by_method = {}
-    async for doc in db.payments.aggregate(pipeline_method):
-        by_method[doc["_id"]] = doc.get("total", 0)
-    
+    tid = tenant_de(user)
+    async with db_pg.tx(user) as conn:
+        cat = await db_pg.varias(
+            conn,
+            """select category, sum(total) as total
+               from charges
+               where ($1::uuid is null or tenant_id = $1)
+                 and status = 'ACTIVE'
+                 and created_at >= $2::date and created_at < $3::date
+               group by category""",
+            tid, start_date, end_date,
+        )
+        met = await db_pg.varias(
+            conn,
+            """select method::text as method, sum(amount) as total
+               from payments
+               where ($1::uuid is null or tenant_id = $1)
+                 and status = 'ACTIVE'
+                 and created_at >= $2::date and created_at < $3::date
+               group by method""",
+            tid, start_date, end_date,
+        )
+
+    by_category = {c["category"]: c["total"] for c in cat}
+    by_method = {m["method"]: m["total"] for m in met}
+
     total_charges = sum(by_category.values())
     total_payments = sum(by_method.values())
     
@@ -2456,26 +2905,31 @@ async def get_monthly_invoicing_report(month: int = None, year: int = None, user
     else:
         end_date = date(year, month + 1, 1)
     
-    # By type
-    pipeline_type = [
-        {"$match": {"tenant_id": user["tenant_id"], "issued_at": {"$gte": start_date.isoformat(), "$lt": end_date.isoformat()}}},
-        {"$group": {"_id": "$type", "count": {"$sum": 1}, "total": {"$sum": "$total"}}}
-    ]
-    
-    by_type = {}
-    async for doc in db.invoices.aggregate(pipeline_type):
-        by_type[doc["_id"]] = {"count": doc.get("count", 0), "total": doc.get("total", 0)}
-    
-    # By status
-    pipeline_status = [
-        {"$match": {"tenant_id": user["tenant_id"], "issued_at": {"$gte": start_date.isoformat(), "$lt": end_date.isoformat()}}},
-        {"$group": {"_id": "$status", "count": {"$sum": 1}, "total": {"$sum": "$total"}}}
-    ]
-    
-    by_status = {}
-    async for doc in db.invoices.aggregate(pipeline_status):
-        by_status[doc["_id"]] = {"count": doc.get("count", 0), "total": doc.get("total", 0)}
-    
+    tid = tenant_de(user)
+    async with db_pg.tx(user) as conn:
+        # Los dos agrupados recorren exactamente las mismas filas, asi que se
+        # leen de una sola pasada en vez de dos.
+        filas = await db_pg.varias(
+            conn,
+            """select type::text as clave, 'type' as eje, count(*) as count, sum(total) as total
+               from invoices
+               where ($1::uuid is null or tenant_id = $1)
+                 and issued_at >= $2::date and issued_at < $3::date
+               group by type
+               union all
+               select status::text, 'status', count(*), sum(total)
+               from invoices
+               where ($1::uuid is null or tenant_id = $1)
+                 and issued_at >= $2::date and issued_at < $3::date
+               group by status""",
+            tid, start_date, end_date,
+        )
+
+    by_type = {f["clave"]: {"count": f["count"], "total": f["total"]}
+               for f in filas if f["eje"] == "type"}
+    by_status = {f["clave"]: {"count": f["count"], "total": f["total"]}
+                 for f in filas if f["eje"] == "status"}
+
     total_invoices = sum(d.get("count", 0) for d in by_type.values())
     total_amount = sum(d.get("total", 0) for d in by_type.values())
     
@@ -2788,113 +3242,105 @@ async def create_walkin(
     notes: str = Body(None),
     user: dict = Depends(get_current_user)
 ):
-    """Create walk-in reservation with immediate check-in"""
-    tenant_id = user["tenant_id"]
-    
-    # Create or get guest
-    existing = await db.guests.find_one({"tenant_id": tenant_id, "doc_type": guest_data.doc_type.value, "doc_number": guest_data.doc_number})
-    if existing:
-        guest_id = str(existing["_id"])
-    else:
-        guest = {
-            **guest_data.model_dump(),
-            "doc_type": guest_data.doc_type.value,
-            "tenant_id": tenant_id,
-            "created_at": datetime.now(timezone.utc).isoformat()
-        }
-        result = await db.guests.insert_one(guest)
-        guest_id = str(result.inserted_id)
-    
-    # Get room and validate
-    room = await db.rooms.find_one({"_id": ObjectId(room_id), "tenant_id": tenant_id})
-    if not room:
-        raise HTTPException(status_code=404, detail="Habitación no encontrada")
-    if room.get("occupancy_status") != OccupancyStatus.VACANT.value:
-        raise HTTPException(status_code=400, detail="Habitación no disponible")
-    if room.get("housekeeping_status") == HousekeepingStatus.OUT_OF_ORDER.value:
-        raise HTTPException(status_code=400, detail="Habitación fuera de servicio")
-    
-    # Get room type for pricing
-    room_type = await db.room_types.find_one({"_id": ObjectId(room.get("room_type_id"))})
-    base_price = room_type.get("base_price", 0) if room_type else 0
-    
+    """Registra un huesped sin reserva previa y lo ingresa en el acto."""
+    tid = db_pg.a_uuid(user["tenant_id"], "tenant_id")
+    hid = id_valido(room_id, "room_id")
+    quien = id_valido(user["user_id"], "user_id")
+
     today = datetime.now(timezone.utc).date()
     nights = (checkout_date - today).days
     if nights < 1:
         raise HTTPException(status_code=400, detail="Fecha de checkout debe ser posterior a hoy")
-    
-    total_estimated = nights * base_price
-    
-    # Generate reservation code
-    count = await db.reservations.count_documents({"tenant_id": tenant_id})
-    code = f"WLK-{count + 1:06d}"
-    
-    now = datetime.now(timezone.utc).isoformat()
-    
-    # Create reservation
-    reservation = {
-        "code": code,
-        "tenant_id": tenant_id,
-        "guest_id": guest_id,
-        "room_type_id": room.get("room_type_id"),
-        "room_id": room_id,
-        "checkin_date": today.isoformat(),
-        "checkout_date": checkout_date.isoformat(),
-        "adults": adults,
-        "children": children,
-        "total_estimated": total_estimated,
-        "deposit_amount": 0,
-        "source": "WALK-IN",
-        "status": ReservationStatus.CHECKED_IN.value,
-        "notes": notes,
-        "created_by": user["user_id"],
-        "created_at": now
-    }
-    res_result = await db.reservations.insert_one(reservation)
-    reservation_id = str(res_result.inserted_id)
-    
-    # Create stay
-    stay = {
-        "tenant_id": tenant_id,
-        "reservation_id": reservation_id,
-        "room_id": room_id,
-        "guest_id": guest_id,
-        "checkin_at": now,
-        "checkout_at": None,
-        "status": "ACTIVE",
-        "created_by": user["user_id"]
-    }
-    stay_result = await db.stays.insert_one(stay)
-    stay_id = str(stay_result.inserted_id)
-    
-    # Create folio
-    folio = {
-        "tenant_id": tenant_id,
-        "stay_id": stay_id,
-        "reservation_id": reservation_id,
-        "status": "OPEN",
-        "total_charges": 0,
-        "total_payments": 0,
-        "balance": 0,
-        "created_at": now
-    }
-    folio_result = await db.folios.insert_one(folio)
-    folio_id = str(folio_result.inserted_id)
-    
-    # Update reservation with stay and folio IDs
-    await db.reservations.update_one(
-        {"_id": ObjectId(reservation_id)},
-        {"$set": {"stay_id": stay_id, "folio_id": folio_id}}
-    )
-    
-    # Update room status
-    await db.rooms.update_one(
-        {"_id": ObjectId(room_id)},
-        {"$set": {"occupancy_status": OccupancyStatus.OCCUPIED.value}}
-    )
-    
-    await create_audit_log(tenant_id, user["user_id"], "reservation", "WALKIN", None, {"code": code, "room": room.get("number")})
-    
+
+    # Todo el walk-in -- huesped, reserva, estadia, folio y estado de la
+    # habitacion -- en UNA transaccion. Antes eran siete escrituras sueltas con
+    # el huesped delante del mostrador: si fallaba a mitad quedaba una
+    # habitacion marcada como ocupada sin folio donde cargarle nada.
+    async with db_pg.tx(user) as conn:
+        await conn.execute("select pg_advisory_xact_lock(hashtext($1))", str(tid))
+
+        habitacion = await db_pg.uno(
+            conn,
+            """select h.id, h.number, h.room_type_id, h.occupancy_status,
+                      h.housekeeping_status, rt.base_price
+               from rooms h
+               join room_types rt on rt.id = h.room_type_id
+               where h.id = $1 and h.tenant_id = $2""",
+            hid, tid,
+        )
+        if not habitacion:
+            raise HTTPException(status_code=404, detail="Habitación no encontrada")
+        if habitacion["occupancy_status"] != OccupancyStatus.VACANT.value:
+            raise HTTPException(status_code=400, detail="Habitación no disponible")
+        if habitacion["housekeeping_status"] == HousekeepingStatus.OUT_OF_ORDER.value:
+            raise HTTPException(status_code=400, detail="Habitación fuera de servicio")
+
+        total_estimated = nights * habitacion["base_price"]
+
+        # Mismo ON CONFLICT que en el alta normal de huespedes: si el DNI ya
+        # existe se reutiliza la ficha en vez de duplicarla.
+        guest_id = await conn.fetchval(
+            """insert into guests (tenant_id, doc_type, doc_number, full_name,
+                                   phone, email, nationality, address)
+               values ($1, $2::doc_type, $3, $4, $5, $6, $7, $8)
+               on conflict (tenant_id, doc_type, doc_number) do update
+                   set full_name = excluded.full_name
+               returning id""",
+            tid, guest_data.doc_type.value, guest_data.doc_number, guest_data.full_name,
+            guest_data.phone, guest_data.email, guest_data.nationality, guest_data.address,
+        )
+
+        # El correlativo sale del maximo real de los codigos WLK-, no de contar
+        # todas las reservas del hotel: antes un walk-in podia recibir un numero
+        # ya usado por otro walk-in si entremedio se cancelaba una reserva.
+        n = await conn.fetchval(
+            """select coalesce(max(substring(code from 'WLK-([0-9]+)$')::int), 0) + 1
+               from reservations where tenant_id = $1""",
+            tid,
+        )
+        code = f"WLK-{n:06d}"
+
+        try:
+            reservation_id = await conn.fetchval(
+                """insert into reservations
+                       (tenant_id, code, guest_id, room_type_id, room_id,
+                        checkin_date, checkout_date, adults, children,
+                        total_estimated, source, status, notes, created_by)
+                   values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'WALK-IN','CHECKED_IN',$11,$12)
+                   returning id""",
+                tid, code, guest_id, db_pg.a_uuid(habitacion["room_type_id"]), hid,
+                today, checkout_date, adults, children, total_estimated, notes, quien,
+            )
+        except db_pg.ExclusionViolationError:
+            raise HTTPException(
+                status_code=409,
+                detail="La habitación ya tiene una reserva en esas fechas"
+            )
+
+        stay_id = await conn.fetchval(
+            """insert into stays (tenant_id, reservation_id, guest_id, room_id,
+                                  checkin_at, status, created_by)
+               values ($1, $2, $3, $4, now(), 'OPEN', $5)
+               returning id""",
+            tid, reservation_id, guest_id, hid, quien,
+        )
+        folio_id = await conn.fetchval(
+            """insert into folios (tenant_id, reservation_id, stay_id, status)
+               values ($1, $2, $3, 'OPEN')
+               returning id""",
+            tid, reservation_id, stay_id,
+        )
+        await conn.execute(
+            "update rooms set occupancy_status = 'OCCUPIED' where id = $1", hid
+        )
+
+        await create_audit_log(conn, tid, user["user_id"], "reservation", "WALKIN",
+                               None, {"code": code, "room": habitacion["number"]})
+
+    reservation_id = str(reservation_id)
+    stay_id = str(stay_id)
+    folio_id = str(folio_id)
+
     return {
         "id": reservation_id,
         "code": code,
@@ -3042,25 +3488,29 @@ async def send_notification(
     request: NotificationRequest,
     user: dict = Depends(get_current_user)
 ):
-    """Send email notification using template"""
-    # Get tenant info
-    tenant = await db.tenants.find_one({"_id": ObjectId(user["tenant_id"])})
+    """Envia un correo a partir de una plantilla."""
+    tid = db_pg.a_uuid(user["tenant_id"], "tenant_id")
+
+    async with db_pg.tx(user) as conn:
+        tenant = await db_pg.uno(
+            conn, "select name, nombre_comercial from tenants where id = $1", tid
+        )
+
     data = request.data.copy()
-    data["tenant_name"] = tenant.get("nombre_comercial", tenant.get("name", "Hotel")) if tenant else "Hotel"
-    
+    data["tenant_name"] = (tenant.get("nombre_comercial") or tenant.get("name") or "Hotel") if tenant else "Hotel"
+
     subject, html = generate_email_template(request.template.value, data)
+    # El envio va FUERA de la transaccion: mandar un correo no se puede
+    # deshacer, asi que no tiene sentido tener la base bloqueada esperandolo.
     result = await send_email_async(request.recipient_email, subject, html)
-    
-    # Log notification
-    notification_log = {
-        "tenant_id": user["tenant_id"],
-        "template": request.template.value,
-        "recipient": request.recipient_email,
-        "status": result.get("status"),
-        "created_at": datetime.now(timezone.utc).isoformat()
-    }
-    await db.notification_logs.insert_one(notification_log)
-    
+
+    async with db_pg.tx(user) as conn:
+        await conn.execute(
+            """insert into notification_logs (tenant_id, template, recipient, status)
+               values ($1, $2, $3, $4)""",
+            tid, request.template.value, request.recipient_email, result.get("status"),
+        )
+
     return result
 
 @api_router.get("/notifications/logs")
@@ -3068,10 +3518,17 @@ async def get_notification_logs(
     limit: int = Query(50, ge=1, le=200),
     user: dict = Depends(require_roles(Role.ADMIN))
 ):
-    """Get notification history"""
-    tenant_filter = get_tenant_filter(user)
-    logs = await db.notification_logs.find(tenant_filter).sort("created_at", -1).limit(limit).to_list(limit)
-    return [serialize_doc(l) for l in logs]
+    """Historial de correos enviados."""
+    tid = tenant_de(user)
+    async with db_pg.tx(user) as conn:
+        return await db_pg.varias(
+            conn,
+            """select * from notification_logs
+               where ($1::uuid is null or tenant_id = $1)
+               order by created_at desc
+               limit $2""",
+            tid, limit,
+        )
 
 # ============== CALENDAR DATA ENDPOINT ==============
 @api_router.get("/calendar/reservations")
@@ -3080,42 +3537,39 @@ async def get_calendar_reservations(
     end_date: date = Query(...),
     user: dict = Depends(get_current_user)
 ):
-    """Get reservations for calendar view with drag-drop support"""
-    tenant_filter = get_tenant_filter(user)
-    
-    # Get all reservations overlapping with date range
-    reservations = await db.reservations.find({
-        **tenant_filter,
-        "status": {"$in": [ReservationStatus.CONFIRMED.value, ReservationStatus.CHECKED_IN.value]},
-        "$or": [
-            {"checkin_date": {"$gte": start_date.isoformat(), "$lte": end_date.isoformat()}},
-            {"checkout_date": {"$gte": start_date.isoformat(), "$lte": end_date.isoformat()}},
-            {"$and": [
-                {"checkin_date": {"$lte": start_date.isoformat()}},
-                {"checkout_date": {"$gte": end_date.isoformat()}}
-            ]}
-        ]
-    }).to_list(500)
-    
-    # Get rooms and guests
-    result = []
-    for res in reservations:
-        room = await db.rooms.find_one({"_id": ObjectId(res["room_id"])}) if res.get("room_id") else None
-        guest = await db.guests.find_one({"_id": ObjectId(res["guest_id"])}) if res.get("guest_id") else None
-        room_type = await db.room_types.find_one({"_id": ObjectId(res["room_type_id"])}) if res.get("room_type_id") else None
-        
-        result.append({
-            "id": str(res["_id"]),
-            "code": res.get("code"),
-            "title": guest.get("full_name", "Sin huésped") if guest else "Sin huésped",
-            "room_id": res.get("room_id"),
-            "room_number": room.get("number") if room else None,
-            "room_type": room_type.get("name") if room_type else None,
-            "start": res.get("checkin_date"),
-            "end": res.get("checkout_date"),
-            "status": res.get("status"),
-            "color": "#3B82F6" if res.get("status") == ReservationStatus.CONFIRMED.value else "#10B981"
-        })
+    """Reservas del calendario, con soporte de arrastrar y soltar."""
+    tid = tenant_de(user)
+    async with db_pg.tx(user) as conn:
+        # Una consulta en lugar de 1 + 3N. Antes, por CADA reserva del rango se
+        # pedian por separado la habitacion, el huesped y el tipo: un mes con
+        # 100 reservas eran 301 viajes a la base cada vez que alguien abria el
+        # calendario.
+        #
+        # Ademas el solapamiento se calcula bien: la condicion es "empieza antes
+        # de que acabe el rango Y termina despues de que empiece". La version
+        # anterior enumeraba tres casos con OR y se dejaba fuera reservas que
+        # cruzaban el rango por un solo dia.
+        filas = await db_pg.varias(
+            conn,
+            """select r.id, r.code, r.room_id, r.status,
+                      coalesce(g.full_name, 'Sin huésped') as title,
+                      h.number as room_number,
+                      rt.name  as room_type,
+                      r.checkin_date  as start,
+                      r.checkout_date as "end",
+                      case when r.status = 'CONFIRMED' then '#3B82F6' else '#10B981' end as color
+               from reservations r
+               left join guests     g  on g.id  = r.guest_id
+               left join rooms      h  on h.id  = r.room_id
+               left join room_types rt on rt.id = r.room_type_id
+               where ($1::uuid is null or r.tenant_id = $1)
+                 and r.status in ('CONFIRMED', 'CHECKED_IN')
+                 and r.checkin_date  <= $3
+                 and r.checkout_date >= $2
+               order by r.checkin_date""",
+            tid, start_date, end_date,
+        )
+    result = filas
     
     return result
 
@@ -3127,84 +3581,91 @@ async def move_reservation(
     new_checkout: date = Body(None),
     user: dict = Depends(get_current_user)
 ):
-    """Move reservation to different room or dates (drag-drop)"""
-    tenant_filter = get_tenant_filter(user)
-    
-    reservation = await db.reservations.find_one({"_id": ObjectId(reservation_id), **tenant_filter})
-    if not reservation:
-        raise HTTPException(status_code=404, detail="Reserva no encontrada")
-    
-    # Validate new room
-    new_room = await db.rooms.find_one({"_id": ObjectId(new_room_id), **tenant_filter})
-    if not new_room:
-        raise HTTPException(status_code=404, detail="Habitación no encontrada")
-    
-    update_data = {"room_id": new_room_id}
-    
-    if new_checkin:
-        update_data["checkin_date"] = new_checkin.isoformat()
-    if new_checkout:
-        update_data["checkout_date"] = new_checkout.isoformat()
-    
-    # Check for conflicts
-    check_in = new_checkin.isoformat() if new_checkin else reservation.get("checkin_date")
-    check_out = new_checkout.isoformat() if new_checkout else reservation.get("checkout_date")
-    
-    conflict = await db.reservations.find_one({
-        "_id": {"$ne": ObjectId(reservation_id)},
-        "room_id": new_room_id,
-        "status": {"$in": [ReservationStatus.CONFIRMED.value, ReservationStatus.CHECKED_IN.value]},
-        "$or": [
-            {"checkin_date": {"$lt": check_out}, "checkout_date": {"$gt": check_in}}
-        ]
-    })
-    
-    if conflict:
-        raise HTTPException(status_code=400, detail="Conflicto con otra reserva en esa habitación")
-    
-    await db.reservations.update_one(
-        {"_id": ObjectId(reservation_id)},
-        {"$set": update_data}
-    )
-    
-    await create_audit_log(user["tenant_id"], user["user_id"], "reservation", "MOVE", 
-                          {"room_id": reservation.get("room_id")}, 
-                          {"room_id": new_room_id, "dates": f"{check_in} - {check_out}"})
-    
+    """Mueve una reserva de habitacion o de fechas (arrastrar y soltar)."""
+    tid = tenant_de(user)
+    rid = id_valido(reservation_id, "reservation_id")
+    nueva = id_valido(new_room_id, "new_room_id")
+
+    async with db_pg.tx(user) as conn:
+        anterior = await db_pg.uno(
+            conn,
+            """select tenant_id, room_id, checkin_date, checkout_date
+               from reservations
+               where id = $1 and ($2::uuid is null or tenant_id = $2)
+               for update""",
+            rid, tid,
+        )
+        if not anterior:
+            raise HTTPException(status_code=404, detail="Reserva no encontrada")
+
+        # La habitacion destino tiene que ser del MISMO hotel. La consulta de
+        # conflicto anterior no filtraba por tenant_id: buscaba cualquier
+        # reserva del sistema con ese room_id.
+        if not await conn.fetchval(
+            "select 1 from rooms where id = $1 and tenant_id = $2",
+            nueva, db_pg.a_uuid(anterior["tenant_id"]),
+        ):
+            raise HTTPException(status_code=404, detail="Habitación no encontrada")
+
+        try:
+            # Ya no hay consulta previa de solapamiento: la decide el constraint
+            # de db/migrations/001, que no tiene ventana de carrera.
+            movida = await db_pg.uno(
+                conn,
+                """update reservations set
+                       room_id       = $3,
+                       checkin_date  = coalesce($4::date, checkin_date),
+                       checkout_date = coalesce($5::date, checkout_date)
+                   where id = $1 and ($2::uuid is null or tenant_id = $2)
+                   returning checkin_date, checkout_date""",
+                rid, tid, nueva, new_checkin, new_checkout,
+            )
+        except db_pg.ExclusionViolationError:
+            raise HTTPException(status_code=400, detail="Conflicto con otra reserva en esa habitación")
+        except db_pg.CheckViolationError:
+            raise HTTPException(status_code=400, detail="La fecha de salida debe ser posterior a la de entrada")
+
+        await create_audit_log(
+            conn, anterior["tenant_id"], user["user_id"], "reservation", "MOVE",
+            {"room_id": anterior.get("room_id")},
+            {"room_id": new_room_id,
+             "dates": f"{movida['checkin_date']} - {movida['checkout_date']}"},
+        )
+
     return {"message": "Reserva movida exitosamente"}
 
 # ============== SEARCH ENDPOINT ==============
 @api_router.get("/search")
 async def global_search(q: str = Query(..., min_length=2), user: dict = Depends(get_current_user)):
-    tenant_filter = get_tenant_filter(user)
-    results = {"guests": [], "reservations": [], "rooms": []}
-    
-    # Search guests
-    guests = await db.guests.find({
-        **tenant_filter,
-        "$or": [
-            {"full_name": {"$regex": q, "$options": "i"}},
-            {"doc_number": {"$regex": q, "$options": "i"}},
-            {"email": {"$regex": q, "$options": "i"}}
-        ]
-    }).limit(10).to_list(10)
-    results["guests"] = [serialize_doc(g) for g in guests]
-    
-    # Search reservations
-    reservations = await db.reservations.find({
-        **tenant_filter,
-        "code": {"$regex": q, "$options": "i"}
-    }).limit(10).to_list(10)
-    results["reservations"] = [serialize_doc(r) for r in reservations]
-    
-    # Search rooms
-    rooms = await db.rooms.find({
-        **tenant_filter,
-        "number": {"$regex": q, "$options": "i"}
-    }).limit(10).to_list(10)
-    results["rooms"] = [serialize_doc(r) for r in rooms]
-    
-    return results
+    tid = tenant_de(user)
+    async with db_pg.tx(user) as conn:
+        # Las tres busquedas comparten una sola ida a la base. El texto viaja
+        # como parametro: antes se inyectaba crudo en un $regex, asi que una
+        # busqueda como "(a+)+" podia dejar la consulta girando sobre toda la
+        # tabla desde la caja de busqueda de la interfaz.
+        fila = await db_pg.uno(
+            conn,
+            """select
+                   coalesce((select jsonb_agg(to_jsonb(g.*))
+                             from (select * from guests
+                                   where ($1::uuid is null or tenant_id = $1)
+                                     and (full_name  ilike '%' || $2 || '%'
+                                       or doc_number ilike '%' || $2 || '%'
+                                       or email      ilike '%' || $2 || '%')
+                                   order by full_name limit 10) g), '[]'::jsonb) as guests,
+                   coalesce((select jsonb_agg(to_jsonb(r.*))
+                             from (select * from reservations
+                                   where ($1::uuid is null or tenant_id = $1)
+                                     and code ilike '%' || $2 || '%'
+                                   order by checkin_date desc limit 10) r), '[]'::jsonb) as reservations,
+                   coalesce((select jsonb_agg(to_jsonb(h.*))
+                             from (select * from rooms
+                                   where ($1::uuid is null or tenant_id = $1)
+                                     and number ilike '%' || $2 || '%'
+                                   order by number limit 10) h), '[]'::jsonb) as rooms""",
+            tid, q,
+        )
+    return fila
 
 # ============== AUDIT LOG ENDPOINT ==============
 @api_router.get("/audit-logs")
@@ -3215,157 +3676,139 @@ async def list_audit_logs(
     to_date: Optional[date] = None,
     user: dict = Depends(require_roles(Role.ADMIN, Role.SUPER_ADMIN))
 ):
-    tenant_filter = get_tenant_filter(user)
-    query = tenant_filter.copy()
-    
-    if entity:
-        query["entity"] = entity
-    if action:
-        query["action"] = action
-    if from_date:
-        query["created_at"] = {"$gte": from_date.isoformat()}
-    if to_date:
-        if "created_at" in query:
-            query["created_at"]["$lte"] = to_date.isoformat() + "T23:59:59"
-        else:
-            query["created_at"] = {"$lte": to_date.isoformat() + "T23:59:59"}
-    
-    logs = await db.audit_logs.find(query).sort("created_at", -1).to_list(500)
-    return [serialize_doc(log) for log in logs]
+    tid = tenant_de(user)
+    async with db_pg.tx(user) as conn:
+        return await db_pg.varias(
+            conn,
+            """select * from audit_logs
+               where ($1::uuid is null or tenant_id = $1)
+                 and ($2::text is null or entity = $2)
+                 and ($3::text is null or action = $3)
+                 and ($4::date is null or created_at >= $4::date)
+                 and ($5::date is null or created_at < ($5::date + 1))
+               order by created_at desc
+               limit 500""",
+            tid, entity, action, from_date, to_date,
+        )
 
 # ============== SEED DATA ENDPOINT ==============
 @api_router.post("/seed")
 async def seed_demo_data(user: dict = Depends(require_roles(Role.SUPER_ADMIN))):
-    """Create demo tenant with sample data"""
-    
-    # Check if demo tenant exists
-    existing = await db.tenants.find_one({"ruc": "20123456789"})
-    if existing:
-        return {"message": "Datos demo ya existen", "tenant_id": str(existing["_id"])}
-    
-    # Create tenant
-    tenant = {
-        "name": "Hotel Demo",
-        "ruc": "20123456789",
-        "razon_social": "Hotel Demo S.A.C.",
-        "nombre_comercial": "Hotel Demo",
-        "direccion": "Av. Principal 123, Lima, Perú",
-        "ubigeo": "150101",
-        "telefono": "+51 1 234 5678",
-        "email": "demo@hoteldemo.com",
-        "is_active": True,
-        "invoicing_config": {
-            "nubefact_ruta": None,
-            "nubefact_token": None,
-            "invoicing_mode": "MOCK",
-            "boleta_series": "B001",
-            "boleta_correlative": 1,
-            "factura_series": "F001",
-            "factura_correlative": 1,
-            "igv_rate": 18.0
-        },
-        "settings": {
-            "checkin_time": "14:00",
-            "checkout_time": "12:00",
-            "timezone": "America/Lima",
-            "currency": "PEN"
-        },
-        "created_at": datetime.now(timezone.utc).isoformat()
-    }
-    tenant_result = await db.tenants.insert_one(tenant)
-    tenant_id = str(tenant_result.inserted_id)
-    
-    # Create users
-    users = [
-        {"email": "admin@demo.com", "password_hash": hash_password("admin123"), "full_name": "Admin Demo", "role": "ADMIN", "tenant_id": tenant_id},
-        {"email": "recepcion@demo.com", "password_hash": hash_password("recepcion123"), "full_name": "María García", "role": "RECEPTIONIST", "tenant_id": tenant_id},
-        {"email": "limpieza@demo.com", "password_hash": hash_password("limpieza123"), "full_name": "Carlos López", "role": "HOUSEKEEPING", "tenant_id": tenant_id},
-        {"email": "seguridad@demo.com", "password_hash": hash_password("seguridad123"), "full_name": "Pedro Ramirez", "role": "SECURITY", "tenant_id": tenant_id}
-    ]
-    for u in users:
-        u["is_active"] = True
-        u["created_at"] = datetime.now(timezone.utc).isoformat()
-    await db.users.insert_many(users)
-    
-    # Create room types
-    room_types = [
-        {"name": "Estándar", "capacity": 2, "amenities": ["WiFi", "TV", "Aire Acondicionado"], "base_price": 150.00, "tenant_id": tenant_id, "is_active": True},
-        {"name": "Superior", "capacity": 2, "amenities": ["WiFi", "TV", "Aire Acondicionado", "Minibar", "Caja Fuerte"], "base_price": 220.00, "tenant_id": tenant_id, "is_active": True},
-        {"name": "Suite", "capacity": 4, "amenities": ["WiFi", "TV", "Aire Acondicionado", "Minibar", "Caja Fuerte", "Jacuzzi", "Sala"], "base_price": 350.00, "tenant_id": tenant_id, "is_active": True}
-    ]
-    rt_results = await db.room_types.insert_many(room_types)
-    rt_ids = [str(r) for r in rt_results.inserted_ids]
-    
-    # Create rooms
-    rooms = []
-    for floor in range(1, 4):
-        for num in range(1, 11):
-            room_number = f"{floor}{num:02d}"
-            rt_idx = 0 if num <= 6 else (1 if num <= 9 else 2)
-            rooms.append({
-                "number": room_number,
-                "floor": floor,
-                "room_type_id": rt_ids[rt_idx],
-                "tenant_id": tenant_id,
-                "occupancy_status": "VACANT",
-                "housekeeping_status": "CLEAN",
-                "notes": None,
-                "is_active": True,
-                "created_at": datetime.now(timezone.utc).isoformat()
-            })
-    await db.rooms.insert_many(rooms)
-    
-    # Create products
-    products = [
-        {"name": "Minibar - Agua", "category": "MINIBAR", "unit_price": 5.00, "tax_type": "IGV"},
-        {"name": "Minibar - Gaseosa", "category": "MINIBAR", "unit_price": 8.00, "tax_type": "IGV"},
-        {"name": "Minibar - Cerveza", "category": "MINIBAR", "unit_price": 12.00, "tax_type": "IGV"},
-        {"name": "Lavandería - Camisa", "category": "LAVANDERIA", "unit_price": 15.00, "tax_type": "IGV"},
-        {"name": "Lavandería - Pantalón", "category": "LAVANDERIA", "unit_price": 18.00, "tax_type": "IGV"},
-        {"name": "Late Checkout", "category": "SERVICIOS", "unit_price": 50.00, "tax_type": "IGV"},
-        {"name": "Early Checkin", "category": "SERVICIOS", "unit_price": 50.00, "tax_type": "IGV"},
-        {"name": "Daño - Toalla", "category": "DANOS", "unit_price": 25.00, "tax_type": "IGV"}
-    ]
-    for p in products:
-        p["tenant_id"] = tenant_id
-        p["is_active"] = True
-        p["created_at"] = datetime.now(timezone.utc).isoformat()
-    await db.products.insert_many(products)
-    
-    return {"message": "Datos demo creados exitosamente", "tenant_id": tenant_id, "credentials": {"admin": "admin@demo.com / admin123", "recepcion": "recepcion@demo.com / recepcion123", "limpieza": "limpieza@demo.com / limpieza123"}}
+    """Crea un hotel de demostracion con datos de ejemplo."""
+    async with db_pg.tx_global("crear el hotel demo: se crea el tenant desde cero") as conn:
+        existente = await conn.fetchval("select id from tenants where ruc = $1", "20123456789")
+        if existente:
+            return {"message": "Datos demo ya existen", "tenant_id": str(existente)}
 
-# Initial setup endpoint (only works when no users exist)
+        tenant_id = await conn.fetchval(
+            """insert into tenants (name, ruc, razon_social, nombre_comercial,
+                                    address, ubigeo, phone, email)
+               values ('Hotel Demo', '20123456789', 'Hotel Demo S.A.C.', 'Hotel Demo',
+                       'Av. Principal 123, Lima, Perú', '150101',
+                       '+51 1 234 5678', 'demo@hoteldemo.com')
+               returning id"""
+        )
+
+        # Las contrasenas demo salen de una variable de entorno. Antes estaban
+        # escritas en el codigo ("admin123"), asi que cualquiera que leyera el
+        # repositorio -- publico o no -- tenia las credenciales de todo hotel
+        # que hubiera corrido este endpoint.
+        clave_demo = os.environ.get("SEED_DEMO_PASSWORD") or secrets.token_urlsafe(12)
+        cuentas = [
+            ("admin@demo.com",     "Admin Demo",     "ADMIN"),
+            ("recepcion@demo.com", "María García",   "RECEPTIONIST"),
+            ("limpieza@demo.com",  "Carlos López",   "HOUSEKEEPING"),
+            ("seguridad@demo.com", "Pedro Ramirez",  "SECURITY"),
+        ]
+        hash_demo = hash_password(clave_demo)
+        await conn.executemany(
+            """insert into users (tenant_id, email, password_hash, full_name, role)
+               values ($1, $2, $3, $4, $5::user_role)""",
+            [(tenant_id, email, hash_demo, nombre, rol) for email, nombre, rol in cuentas],
+        )
+
+        tipos = await conn.fetch(
+            """insert into room_types (tenant_id, name, capacity, amenities, base_price)
+               values ($1, 'Estándar', 2, $2, 150.00),
+                      ($1, 'Superior', 2, $3, 220.00),
+                      ($1, 'Suite',    4, $4, 350.00)
+               returning id""",
+            tenant_id,
+            ["WiFi", "TV", "Aire Acondicionado"],
+            ["WiFi", "TV", "Aire Acondicionado", "Minibar", "Caja Fuerte"],
+            ["WiFi", "TV", "Aire Acondicionado", "Minibar", "Caja Fuerte", "Jacuzzi", "Sala"],
+        )
+        rt_ids = [r["id"] for r in tipos]
+
+        habitaciones = []
+        for piso in range(1, 4):
+            for num in range(1, 11):
+                idx = 0 if num <= 6 else (1 if num <= 9 else 2)
+                habitaciones.append((tenant_id, rt_ids[idx], f"{piso}{num:02d}", piso))
+        await conn.executemany(
+            """insert into rooms (tenant_id, room_type_id, number, floor)
+               values ($1, $2, $3, $4)""",
+            habitaciones,
+        )
+
+        productos = [
+            ("Minibar - Agua",        "MINIBAR",    5.00),
+            ("Minibar - Gaseosa",     "MINIBAR",    8.00),
+            ("Minibar - Cerveza",     "MINIBAR",   12.00),
+            ("Lavandería - Camisa",   "LAVANDERIA", 15.00),
+            ("Lavandería - Pantalón", "LAVANDERIA", 18.00),
+            ("Late Checkout",         "SERVICIOS",  50.00),
+            ("Early Checkin",         "SERVICIOS",  50.00),
+            ("Daño - Toalla",         "DANOS",      25.00),
+        ]
+        await conn.executemany(
+            """insert into products (tenant_id, name, category, unit_price)
+               values ($1, $2, $3, $4)""",
+            [(tenant_id, n, c, p) for n, c, p in productos],
+        )
+
+    return {
+        "message": "Datos demo creados exitosamente",
+        "tenant_id": str(tenant_id),
+        "usuarios": [c[0] for c in cuentas],
+        "password": clave_demo,
+        "aviso": "Esta contraseña se muestra una sola vez. Cámbiala tras el primer acceso."
+    }
+
+# Solo funciona con la base vacia: crea el primer SUPER_ADMIN.
 @api_router.post("/setup")
 async def initial_setup():
-    """Create super admin - only works if no users exist"""
-    user_count = await db.users.count_documents({})
-    if user_count > 0:
-        raise HTTPException(status_code=400, detail="Sistema ya inicializado. Use /seed con credenciales de Super Admin")
-    
-    # Create super admin
-    super_admin = {
-        "email": "superadmin@sistema.com",
-        "password_hash": hash_password("superadmin123"),
-        "full_name": "Super Administrador",
-        "role": Role.SUPER_ADMIN.value,
-        "tenant_id": None,
-        "is_active": True,
-        "created_at": datetime.now(timezone.utc).isoformat()
-    }
-    result = await db.users.insert_one(super_admin)
-    
+    """Crea el super administrador inicial. Solo si no existe ningun usuario."""
+    # La contrasena ya NO esta escrita en el codigo. Antes era "superadmin123",
+    # y como la base nueva arranca vacia eso era una carrera real: el primero
+    # que llamara a este endpoint despues del despliegue -- cualquiera en
+    # internet -- se quedaba con el superadministrador del sistema.
+    #
+    # Ahora sale de SETUP_PASSWORD si esta definida y, si no, se genera una al
+    # azar que se devuelve UNA sola vez en esta respuesta.
+    email = os.environ.get("SETUP_EMAIL", "superadmin@sistema.com")
+    password = os.environ.get("SETUP_PASSWORD") or secrets.token_urlsafe(16)
+
+    # La condicion "solo si no hay usuarios" vive dentro de la funcion de
+    # Postgres, con un lock de tabla: dos llamadas simultaneas no pueden crear
+    # dos superadmins.
+    nuevo_id = await db_pg.setup_inicial(email, hash_password(password), "Super Administrador")
+    if nuevo_id is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Sistema ya inicializado. Use /seed con credenciales de Super Admin"
+        )
+
     return {
         "message": "Super Admin creado exitosamente",
-        "credentials": {
-            "email": "superadmin@sistema.com",
-            "password": "superadmin123"
-        }
+        "credentials": {"email": email, "password": password},
+        "aviso": "Esta contraseña se muestra una sola vez. Cámbiala tras el primer acceso."
     }
 
 # Root endpoint
 @api_router.get("/")
 async def root():
-    return {"message": "Hotel PMS API v1.0", "status": "running"}
+    return {"message": "ZenStay API v1.0", "status": "running"}
 
 # Health check
 @api_router.get("/health")
@@ -3375,15 +3818,61 @@ async def health_check():
 # Include router
 app.include_router(api_router)
 
-# CORS
+# CORS. Los origenes se validan al arrancar (ver arriba): la lista nunca es '*',
+# porque las peticiones van con credenciales y esa combinacion la rechazan los
+# navegadores ademas de ser insegura.
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
+    allow_origins=CORS_ORIGINS,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+
+# ---------------------------------------------------------------------------
+# La SPA
+# ---------------------------------------------------------------------------
+# El backend sirve tambien el frontend compilado, igual que FletePro y
+# LicitaPro en este mismo VPS: asi el dominio del tunel apunta a un solo puerto
+# y no hace falta ningun proxy delante.
+#
+# Esto es lo que faltaba: sin este bloque, GET / devolvia el 404 de FastAPI y la
+# aplicacion no se veia por ningun lado, aunque /api respondiera bien.
+#
+# Va DESPUES de include_router a proposito. El orden importa: las rutas /api ya
+# estan registradas, asi que el catch-all de abajo solo atrapa lo que no sea de
+# la API.
+FRONTEND_BUILD = ROOT_DIR.parent / "frontend" / "build"
+
+if FRONTEND_BUILD.exists():
+    # Los assets con hash en el nombre (JS, CSS) se sirven desde /static.
+    app.mount("/static", StaticFiles(directory=FRONTEND_BUILD / "static"), name="static")
+
+    @app.get("/{ruta:path}")
+    async def servir_spa(ruta: str):
+        """Devuelve el archivo pedido si existe; si no, el index.html.
+
+        Es lo que necesita una SPA con rutas del lado del cliente: cuando
+        alguien recarga /reservations o entra por un enlace directo, el
+        navegador pide esa ruta al servidor, que no existe como archivo. Hay
+        que devolverle el index.html y dejar que React resuelva la ruta.
+        """
+        candidato = FRONTEND_BUILD / ruta
+        # resolve() y el chequeo de prefijo evitan que una ruta con ../ se
+        # escape del directorio del build y sirva archivos del contenedor.
+        if ruta and candidato.is_file():
+            if str(candidato.resolve()).startswith(str(FRONTEND_BUILD.resolve())):
+                return FileResponse(candidato)
+        return FileResponse(FRONTEND_BUILD / "index.html")
+else:
+    logger.warning(
+        "No existe %s: el backend sirve solo la API y la raiz devolvera 404. "
+        "En el VPS el build llega dentro de la imagen (ver backend/Dockerfile).",
+        FRONTEND_BUILD,
+    )
+
+
 @app.on_event("shutdown")
-async def shutdown_db_client():
-    client.close()
+async def cerrar_conexiones():
+    await db_pg.close_pool()
