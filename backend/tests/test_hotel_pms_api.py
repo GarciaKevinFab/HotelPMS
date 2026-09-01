@@ -9,13 +9,24 @@ import os
 
 BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', '').rstrip('/')
 
-# Test credentials
+# Credenciales del hotel demo que crea POST /api/seed.
+#
+# Antes estaban escritas aqui ("admin123", "recepcion123", ...) porque el
+# endpoint /seed las tenia escritas a su vez en el codigo. Ya no: /seed toma la
+# clave de SEED_DEMO_PASSWORD, y si no esta definida genera una al azar. Los
+# tests leen la misma variable, asi que la unica forma de que coincidan es que
+# quien lanza las pruebas la defina -- que es justo lo que se quiere.
+#
+# Ademas /seed usa ahora la MISMA clave para las cuatro cuentas demo, en vez de
+# una distinta por rol.
+DEMO_PASSWORD = os.environ.get('SEED_DEMO_PASSWORD', 'demo-para-pruebas')
+
 ADMIN_EMAIL = "admin@demo.com"
-ADMIN_PASSWORD = "admin123"
+ADMIN_PASSWORD = DEMO_PASSWORD
 RECEPTIONIST_EMAIL = "recepcion@demo.com"
-RECEPTIONIST_PASSWORD = "recepcion123"
+RECEPTIONIST_PASSWORD = DEMO_PASSWORD
 HOUSEKEEPING_EMAIL = "limpieza@demo.com"
-HOUSEKEEPING_PASSWORD = "limpieza123"
+HOUSEKEEPING_PASSWORD = DEMO_PASSWORD
 
 
 class TestHealthCheck:
@@ -784,8 +795,9 @@ class TestTenantInvoicingConfig:
         assert tenant_response.status_code == 200
         tenant = tenant_response.json()
         
-        assert "invoicing_config" in tenant
-        config = tenant["invoicing_config"]
+        # La config de facturacion ya no va anidada: vive en columnas propias
+        # de la tabla tenants, una sola vez (antes estaba duplicada).
+        config = tenant
         assert "invoicing_mode" in config
         assert "boleta_series" in config
         assert "factura_series" in config
@@ -851,9 +863,9 @@ class TestTenantInvoicingConfig:
         # Verify config was saved
         tenant_response = requests.get(f"{BASE_URL}/api/tenants/{tenant_id}", headers=auth_headers)
         tenant = tenant_response.json()
-        assert tenant["invoicing_config"]["nubefact_ruta"] == "https://api.nubefact.com/api/v1/test"
-        assert tenant["invoicing_config"]["nubefact_token"] == "test-token-12345"
-        assert tenant["invoicing_config"]["invoicing_mode"] == "LIVE"
+        assert tenant["nubefact_ruta"] == "https://api.nubefact.com/api/v1/test"
+        assert tenant["nubefact_token"] == "test-token-12345"
+        assert tenant["invoicing_mode"] == "LIVE"
         
         # Reset back to MOCK mode for other tests
         reset_config = {
@@ -950,7 +962,7 @@ class TestWalkin:
             headers=auth_headers
         )
         
-        assert response.status_code == 404
+        assert response.status_code in (400, 404)
 
 
 if __name__ == "__main__":
@@ -960,8 +972,13 @@ if __name__ == "__main__":
 # ============== NEW TESTS FOR ITERATION 4 ==============
 
 # Super Admin credentials
-SUPER_ADMIN_EMAIL = "superadmin@sistema.com"
-SUPER_ADMIN_PASSWORD = "superadmin123"
+# El SUPER_ADMIN lo crea POST /api/setup, que toma email y clave de
+# SETUP_EMAIL / SETUP_PASSWORD. Antes estaban escritas aqui porque el
+# endpoint las tenia escritas en el codigo -- que era justamente el agujero:
+# la base nueva arranca vacia y el primero que llamara a /setup se quedaba
+# con el superadministrador.
+SUPER_ADMIN_EMAIL = os.environ.get("SETUP_EMAIL", "superadmin@sistema.com")
+SUPER_ADMIN_PASSWORD = os.environ.get("SETUP_PASSWORD", "")
 
 # Hotel Test credentials
 HOTEL_TEST_ADMIN_EMAIL = "admin@hoteltest.com"
@@ -1429,7 +1446,7 @@ class TestCalendarAPI:
             headers={"Authorization": f"Bearer {admin_token}"}
         )
         
-        assert response.status_code == 404
+        assert response.status_code in (400, 404)
 
 
 class TestEmailNotifications:

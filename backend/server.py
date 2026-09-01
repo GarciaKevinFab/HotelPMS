@@ -180,14 +180,25 @@ class TenantCreate(BaseModel):
     admin_name: Optional[str] = None
 
 class TenantInvoicingConfig(BaseModel):
+    """Configuracion de facturacion. TODOS los campos son opcionales.
+
+    Antes tenian valores por defecto (B001, correlativo 1, IGV 18). El frontend
+    manda solo la ruta y el token de NubeFact, asi que Pydantic rellenaba el
+    resto con esos defaults y el UPDATE devolvia el correlativo de boletas a 1:
+    guardar el token de facturacion reiniciaba la numeracion, y SUNAT no admite
+    que una serie repita numeros.
+
+    Ahora lo que no viene se queda como esta (ver el coalesce del endpoint).
+    Los valores iniciales los pone la tabla en db/schema.sql, no este modelo.
+    """
     nubefact_ruta: Optional[str] = None
     nubefact_token: Optional[str] = None
-    invoicing_mode: Literal["MOCK", "LIVE"] = "MOCK"
-    boleta_series: str = "B001"
-    boleta_correlative: int = 1
-    factura_series: str = "F001"
-    factura_correlative: int = 1
-    igv_rate: float = 18.0
+    invoicing_mode: Optional[Literal["MOCK", "LIVE"]] = None
+    boleta_series: Optional[str] = None
+    boleta_correlative: Optional[int] = None
+    factura_series: Optional[str] = None
+    factura_correlative: Optional[int] = None
+    igv_rate: Optional[float] = None
 
 # Room Models
 class RoomTypeCreate(BaseModel):
@@ -604,16 +615,19 @@ async def update_tenant_invoicing(tenant_id: str, config: TenantInvoicingConfig,
         # Los campos van a columnas propias, no a un blob JSON: el correlativo
         # de un comprobante SUNAT tiene que poder incrementarse de forma atomica
         # y participar del unique (tenant_id, type, series, number).
+        # coalesce en cada campo: lo que el cliente no manda se queda como
+        # estaba. Es lo que impide que guardar el token de NubeFact reinicie
+        # los correlativos -- ver la nota en TenantInvoicingConfig.
         actualizado = await conn.fetchval(
             """update tenants set
-                   nubefact_ruta       = $2,
-                   nubefact_token      = $3,
-                   invoicing_mode      = $4,
-                   boleta_series       = $5,
-                   boleta_correlative  = $6,
-                   factura_series      = $7,
-                   factura_correlative = $8,
-                   igv_rate            = $9
+                   nubefact_ruta       = coalesce($2, nubefact_ruta),
+                   nubefact_token      = coalesce($3, nubefact_token),
+                   invoicing_mode      = coalesce($4, invoicing_mode),
+                   boleta_series       = coalesce($5, boleta_series),
+                   boleta_correlative  = coalesce($6, boleta_correlative),
+                   factura_series      = coalesce($7, factura_series),
+                   factura_correlative = coalesce($8, factura_correlative),
+                   igv_rate            = coalesce($9, igv_rate)
                where id = $1
                returning id""",
             tid, config.nubefact_ruta, config.nubefact_token, config.invoicing_mode,

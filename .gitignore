@@ -93,3 +93,8 @@ frontend/node_modules/.cache/default-development/7.pack
 # Environment files
 *.env
 *.env.*
+
+# frontend/.env.production NO lleva secretos: solo deja REACT_APP_BACKEND_URL
+# vacia para que la SPA llame a /api con rutas relativas. Tiene que viajar con
+# el repo, o quien clone compilara apuntando a localhost:8000.
+!frontend/.env.production

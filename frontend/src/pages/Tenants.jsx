@@ -490,7 +490,7 @@ export function Tenants() {
                   <p className="text-sm">
                     <span className="text-slate-500">Modo NubeFact:</span>{' '}
                     <Badge variant="outline">
-                      {selectedTenant.invoicing_config?.nubefact_token ? 'LIVE' : 'MOCK'}
+                      {selectedTenant.invoicing_mode || 'MOCK'}
                     </Badge>
                   </p>
                 </div>

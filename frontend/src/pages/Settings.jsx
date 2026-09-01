@@ -57,11 +57,19 @@ export function Settings() {
         const tenantRes = await tenantsAPI.get(user.tenant_id);
         setTenant(tenantRes.data);
         
-        // Set invoicing config from tenant
+        // La configuracion de facturacion viene en campos planos del hotel.
+        // Antes llegaba anidada en `invoicing_config` Y duplicada en la raiz;
+        // con Postgres existe una sola vez, que es la que consulta el codigo
+        // que emite los comprobantes.
+        //
+        // El modo sale de invoicing_mode y no de "¿hay token?": un hotel puede
+        // tener el token cargado y seguir en MOCK a proposito mientras prueba,
+        // y con la regla vieja la pantalla le decia que ya estaba emitiendo de
+        // verdad a SUNAT.
         setInvoicingConfig({
-          nubefact_ruta: tenantRes.data.invoicing_config?.nubefact_ruta || '',
-          nubefact_token: tenantRes.data.invoicing_config?.nubefact_token || '',
-          mode: tenantRes.data.invoicing_config?.nubefact_token ? 'LIVE' : 'MOCK'
+          nubefact_ruta: tenantRes.data.nubefact_ruta || '',
+          nubefact_token: tenantRes.data.nubefact_token || '',
+          mode: tenantRes.data.invoicing_mode || 'MOCK'
         });
       }
       
@@ -79,9 +87,16 @@ export function Settings() {
   const handleSaveInvoicing = async () => {
     setSaving(true);
     try {
+      // Se manda tambien el modo: es lo que decide si los comprobantes van de
+      // verdad a SUNAT o se quedan en simulacion. Sin este campo, elegir LIVE
+      // en la pantalla no cambiaba nada en el servidor.
+      //
+      // Lo que NO se manda (series, correlativos, IGV) se queda intacto: el
+      // endpoint hace coalesce campo a campo.
       await tenantsAPI.updateInvoicing(user.tenant_id, {
         nubefact_ruta: invoicingConfig.nubefact_ruta || null,
-        nubefact_token: invoicingConfig.nubefact_token || null
+        nubefact_token: invoicingConfig.nubefact_token || null,
+        invoicing_mode: invoicingConfig.mode || 'MOCK'
       });
       toast.success('Configuración de facturación guardada');
     } catch (err) {

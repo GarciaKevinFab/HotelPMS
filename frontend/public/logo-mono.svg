@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="ZenStay">
+  <!--
+    Logo monocromo de ZenStay.
+
+    POR QUE EXISTE ESTA VERSION
+
+      El logo a color no sobrevive a los dos sitios donde mas se ve el logo de
+      un PMS: el favicon de 16-32 px y la impresora termica de las boletas, que
+      es monocroma de 58 u 80 mm y no imprime degradados ni medios tonos. Un
+      logo con tres colores saturados sale de ahi como un borron negro.
+
+    DECISIONES DE DIBUJO
+
+      - Un solo color, con currentColor: hereda el color del texto, asi que
+        sirve en claro, en oscuro y en negro plano para imprimir.
+      - Sin degradados, sin sombras, sin transparencias: la termica solo sabe
+        de puntos encendidos o apagados.
+      - Trazos gruesos (4 px sobre un lienzo de 64) para que a 32 px no se
+        cierren los huecos ni desaparezcan las lineas finas.
+      - La forma es una Z sobre una cama: la letra de la marca y el objeto del
+        negocio en una sola silueta, legible incluso a tamano de favicon.
+  -->
+  <g fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="square" stroke-linejoin="miter">
+    <!-- La Z: trazo superior, diagonal y trazo inferior. -->
+    <path d="M20 14 H44 L20 34 H44" />
+    <!-- La cama: cabecera y base. Cierra la composicion por abajo y aporta el
+         "stay" que la Z sola no dice. -->
+    <path d="M12 40 V52" />
+    <path d="M12 46 H52 V52" />
+  </g>
+</svg>
