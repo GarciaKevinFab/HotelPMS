@@ -1,0 +1,209 @@
+/* ===========================================================================
+   ZenStay - estilos de la landing
+   ===========================================================================
+   DIRECCION: editorial calido, no "SaaS azul".
+
+   Los PMS peruanos con los que compite esto (SysHotel, MiniHotel, OKFAC,
+   Samin) usan todos la misma plantilla corporativa: azul, degradado, foto de
+   recepcionista sonriendo. Parecerse a ellos es la forma mas segura de que
+   nadie recuerde la pagina.
+
+   Quien decide aqui es el dueno de un hospedaje de provincia, no un director
+   de tecnologia: la pagina tiene que leerse como algo hecho por alguien que
+   entiende su negocio -- papel crema, tinta calida, terracota -- y no como un
+   folleto de software.
+
+   Sin framework y sin build: son tres archivos que sirve el backend. La pagina
+   que existe para vender no puede tardar en pintar.
+   =========================================================================== */
+
+:root {
+  /* Papel, no blanco puro: el #fff a pantalla completa cansa y grita
+     "plantilla". */
+  --papel: #faf6f0;
+  --papel-hondo: #f2ebe1;
+  --tinta: #1c1714;
+  --tinta-suave: #5d534a;
+
+  /* Terracota: el acento. Un solo color fuerte, usado poco, manda mas que
+     cinco repartidos. */
+  --acento: #b84a2b;
+  --acento-claro: #d9673f;
+  --oliva: #6b6b47;
+
+  --borde: #ddd2c4;
+  --radio: 3px;   /* casi recto: lo redondeado es de donde venimos huyendo */
+
+  --serif: "Fraunces", Georgia, "Times New Roman", serif;
+  --sans: "Karla", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--papel);
+  color: var(--tinta);
+  font-family: var(--sans);
+  font-size: 17px;
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Grano sutil sobre el fondo. Da textura de papel sin cargar una imagen: es un
+   SVG de ruido en un data URI, pesa nada y no hace peticion. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  opacity: .035;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+.envoltorio { max-width: 1080px; margin: 0 auto; padding: 0 28px; position: relative; z-index: 2; }
+
+/* --- Tipografia -------------------------------------------------------- */
+h1, h2, h3 { font-family: var(--serif); font-weight: 600; line-height: 1.08; letter-spacing: -.02em; margin: 0; }
+h1 { font-size: clamp(2.6rem, 6.5vw, 4.6rem); }
+h2 { font-size: clamp(1.9rem, 3.6vw, 2.7rem); }
+h3 { font-size: 1.22rem; letter-spacing: -.01em; }
+p  { margin: 0 0 1rem; }
+
+.destacado { color: var(--acento); font-style: italic; }
+.apunte {
+  font-size: .78rem; letter-spacing: .13em; text-transform: uppercase;
+  color: var(--tinta-suave); font-weight: 600;
+}
+
+/* --- Cabecera ---------------------------------------------------------- */
+.cabecera {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 26px 0; border-bottom: 1px solid var(--borde);
+}
+.marca { display: flex; align-items: center; gap: 10px; text-decoration: none; color: var(--tinta); }
+.marca svg { width: 26px; height: 26px; }
+.marca span { font-family: var(--serif); font-size: 1.35rem; font-weight: 600; letter-spacing: -.02em; }
+.cabecera nav { display: flex; align-items: center; gap: 26px; }
+.cabecera nav a { color: var(--tinta-suave); text-decoration: none; font-size: .95rem; }
+.cabecera nav a:hover { color: var(--acento); }
+
+/* --- Botones ----------------------------------------------------------- */
+.boton {
+  display: inline-block; padding: 13px 26px; border-radius: var(--radio);
+  font-weight: 600; font-size: .97rem; text-decoration: none; cursor: pointer;
+  border: 1px solid transparent; transition: transform .12s ease, background .2s ease;
+  font-family: var(--sans);
+}
+.boton:active { transform: translateY(1px); }
+.boton-lleno { background: var(--acento); color: #fff; }
+.boton-lleno:hover { background: var(--acento-claro); }
+.boton-linea { border-color: var(--tinta); color: var(--tinta); background: transparent; }
+.boton-linea:hover { background: var(--tinta); color: var(--papel); }
+.boton[disabled] { opacity: .55; cursor: wait; }
+
+/* --- Portada ----------------------------------------------------------- */
+.portada { padding: 92px 0 76px; display: grid; grid-template-columns: 1.15fr .85fr; gap: 56px; align-items: center; }
+.portada p.entrada { font-size: 1.2rem; color: var(--tinta-suave); max-width: 46ch; margin-top: 26px; }
+.portada .acciones { margin-top: 34px; display: flex; gap: 14px; flex-wrap: wrap; }
+.portada .letra-chica { margin-top: 18px; font-size: .87rem; color: var(--tinta-suave); }
+
+/* El tablero de habitaciones: se explica solo, mejor que cualquier captura. */
+.tablero {
+  background: var(--papel-hondo); border: 1px solid var(--borde);
+  border-radius: var(--radio); padding: 22px;
+  box-shadow: 18px 18px 0 -1px rgba(28,23,20,.06);
+}
+.tablero .fila { display: flex; justify-content: space-between; font-size: .8rem;
+  color: var(--tinta-suave); margin-bottom: 14px; letter-spacing: .04em; }
+.rejilla { display: grid; grid-template-columns: repeat(5, 1fr); gap: 7px; }
+.hab {
+  aspect-ratio: 1; border-radius: 2px; display: grid; place-items: center;
+  font-size: .72rem; font-weight: 600; font-variant-numeric: tabular-nums;
+}
+.hab.libre   { background: #e8e2d6; color: var(--tinta-suave); }
+.hab.ocupada { background: var(--acento); color: #fff; }
+.hab.sucia   { background: #c9a227; color: #1c1714; }
+.hab.fuera   { background: #cfc6ba; color: #8a8078; text-decoration: line-through; }
+.leyenda { display: flex; gap: 16px; margin-top: 16px; font-size: .76rem; color: var(--tinta-suave); flex-wrap: wrap; }
+.leyenda i { width: 9px; height: 9px; display: inline-block; margin-right: 5px; border-radius: 1px; }
+
+/* --- Secciones --------------------------------------------------------- */
+.seccion { padding: 76px 0; border-top: 1px solid var(--borde); }
+.seccion-titulo { max-width: 52ch; margin-bottom: 46px; }
+.seccion-titulo p { color: var(--tinta-suave); margin-top: 14px; }
+
+.columnas { display: grid; grid-template-columns: repeat(3, 1fr); gap: 38px; }
+.columnas h3 { margin-bottom: 10px; }
+.columnas p { color: var(--tinta-suave); font-size: .96rem; margin: 0; }
+.columnas .numero {
+  font-family: var(--serif); font-size: 2.4rem; color: var(--acento);
+  line-height: 1; margin-bottom: 12px; font-variant-numeric: tabular-nums;
+}
+
+/* El antes/despues: el argumento de venta mas honesto es el contraste. */
+.contraste { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--borde); border-radius: var(--radio); overflow: hidden; }
+.contraste > div { padding: 34px; }
+.contraste .antes { background: var(--papel-hondo); border-right: 1px solid var(--borde); }
+.contraste ul { list-style: none; margin: 16px 0 0; padding: 0; }
+.contraste li { padding: 9px 0 9px 26px; position: relative; font-size: .95rem; color: var(--tinta-suave); }
+.contraste .antes li::before   { content: "×"; position: absolute; left: 0; color: #a6564a; font-size: 1.1rem; }
+.contraste .despues li::before { content: "→"; position: absolute; left: 0; color: var(--oliva); }
+
+/* --- Planes ------------------------------------------------------------ */
+.planes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px; align-items: start; }
+.plan {
+  border: 1px solid var(--borde); border-radius: var(--radio);
+  padding: 30px 26px; background: var(--papel);
+}
+.plan.destacado { border-color: var(--acento); border-width: 2px; background: var(--papel-hondo); position: relative; }
+.plan.destacado::after {
+  content: "Más elegido"; position: absolute; top: -11px; left: 26px;
+  background: var(--acento); color: #fff; font-size: .7rem; font-weight: 700;
+  letter-spacing: .09em; text-transform: uppercase; padding: 3px 11px; border-radius: 2px;
+}
+.plan .precio { font-family: var(--serif); font-size: 2.7rem; line-height: 1; margin: 14px 0 4px; font-variant-numeric: tabular-nums; }
+.plan .precio small { font-family: var(--sans); font-size: .92rem; color: var(--tinta-suave); font-weight: 400; }
+.plan ul { list-style: none; padding: 0; margin: 20px 0 26px; }
+.plan li { padding: 7px 0 7px 22px; position: relative; font-size: .93rem; color: var(--tinta-suave); }
+.plan li::before { content: "·"; position: absolute; left: 6px; color: var(--acento); font-weight: 700; font-size: 1.3rem; line-height: 1; }
+.plan .boton { width: 100%; text-align: center; }
+
+/* --- Formulario -------------------------------------------------------- */
+.formulario { max-width: 470px; margin: 62px auto 90px; }
+.campo { margin-bottom: 19px; }
+.campo label { display: block; font-size: .87rem; font-weight: 600; margin-bottom: 6px; }
+.campo input {
+  width: 100%; padding: 12px 14px; font-size: 1rem; font-family: var(--sans);
+  border: 1px solid var(--borde); border-radius: var(--radio);
+  background: #fff; color: var(--tinta);
+}
+.campo input:focus { outline: 2px solid var(--acento); outline-offset: -1px; border-color: transparent; }
+.campo .ayuda { font-size: .8rem; color: var(--tinta-suave); margin-top: 5px; }
+.aviso { padding: 13px 16px; border-radius: var(--radio); font-size: .92rem; margin-bottom: 20px; }
+.aviso.error { background: #f7e4df; color: #8c3520; border: 1px solid #e0b6aa; }
+.aviso.bien  { background: #e6ecdf; color: #3f5230; border: 1px solid #c2d0b0; }
+
+/* --- Pie --------------------------------------------------------------- */
+.pie { border-top: 1px solid var(--borde); padding: 34px 0 48px; font-size: .87rem; color: var(--tinta-suave); }
+.pie a { color: var(--tinta-suave); }
+
+/* --- Entrada escalonada ------------------------------------------------ */
+/* Una sola coreografia al cargar rinde mas que veinte microinteracciones. */
+@media (prefers-reduced-motion: no-preference) {
+  .aparece { opacity: 0; transform: translateY(14px); animation: subir .62s cubic-bezier(.2,.7,.3,1) forwards; }
+  .aparece.d1 { animation-delay: .05s; }
+  .aparece.d2 { animation-delay: .16s; }
+  .aparece.d3 { animation-delay: .27s; }
+  @keyframes subir { to { opacity: 1; transform: none; } }
+}
+
+/* --- Movil ------------------------------------------------------------- */
+@media (max-width: 860px) {
+  .portada { grid-template-columns: 1fr; gap: 44px; padding: 56px 0; }
+  .columnas, .planes { grid-template-columns: 1fr; gap: 26px; }
+  .contraste { grid-template-columns: 1fr; }
+  .contraste .antes { border-right: 0; border-bottom: 1px solid var(--borde); }
+  .cabecera nav a.oculta-movil { display: none; }
+}

@@ -30,7 +30,13 @@ import '@/App.css';
 function App() {
   return (
     <AuthProvider>
-      <BrowserRouter>
+      {/*
+        La aplicacion vive bajo /app: la raiz del dominio la ocupa la landing,
+        que es HTML estatico servido por el backend (ver servir_web en
+        server.py). Sin este basename, cada enlace interno apuntaria a la raiz
+        y sacaria al usuario del sistema hacia la pagina comercial.
+      */}
+      <BrowserRouter basename="/app">
         <Routes>
           {/* Public routes */}
           <Route path="/login" element={<Login />} />
