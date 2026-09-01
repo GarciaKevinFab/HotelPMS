@@ -1,0 +1,63 @@
+services:
+  # Postgres NO publica puerto al host a proposito: solo es alcanzable desde la
+  # red interna de Docker (el backend por el hostname `postgres`) y por
+  # `docker exec`. Eso mantiene la base fuera de internet sin depender de que
+  # las reglas del firewall esten bien puestas.
+  postgres:
+    image: postgres:16-alpine
+    container_name: zenstay-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: zenstay
+      POSTGRES_USER: postgres
+      # Viene del .env que esta junto a este archivo en el VPS (nunca en git).
+      # El `:?` hace que compose falle ruidosamente si falta, en vez de levantar
+      # la base con una contrasena vacia.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?falta POSTGRES_PASSWORD en el .env junto a docker-compose.yml}
+    volumes:
+      - zenstay_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d zenstay"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - default
+
+  backend:
+    build:
+      # La raiz del repo, no backend/: la imagen tiene que poder copiar
+      # frontend/build, porque este mismo contenedor sirve la SPA ademas de la
+      # API. Ver backend/Dockerfile y .dockerignore.
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: zenstay-backend
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env.production
+    ports:
+      # Solo 127.0.0.1: quien expone esto a internet es el tunel de Cloudflare
+      # (zenstay.sisac.pe -> http://localhost:8002), no el firewall. UFW sigue
+      # permitiendo unicamente el 22.
+      - "127.0.0.1:8002:8002"
+    depends_on:
+      postgres:
+        # No basta con que el contenedor exista: hay que esperar a que Postgres
+        # acepte conexiones, o el backend arranca antes y el primer request
+        # falla.
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8002/api/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    networks:
+      - default
+
+volumes:
+  zenstay_pg_data:
+
+networks:
+  default:
+    name: zenstay_default
