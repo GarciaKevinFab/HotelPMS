@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ZenStay · Software de gestión hotelera para hospedajes del Perú</title>
+<meta name="description" content="Sistema de gestión para hoteles, hostales y hospedajes en Perú. Reservas, recepción, caja y boletas electrónicas SUNAT. Desde S/ 59 al mes.">
+<link rel="icon" href="/logo-mono.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Karla:wght@400;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/landing-assets/estilo.css">
+</head>
+<body>
+
+<div class="envoltorio">
+  <header class="cabecera">
+    <a class="marca" href="/">
+      <svg viewBox="0 0 64 64" aria-hidden="true">
+        <g fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="square">
+          <path d="M20 14 H44 L20 34 H44"/><path d="M12 40 V52"/><path d="M12 46 H52 V52"/>
+        </g>
+      </svg>
+      <span>ZenStay</span>
+    </a>
+    <nav>
+      <a href="#como-funciona" class="oculta-movil">Cómo funciona</a>
+      <a href="#planes">Precios</a>
+      <a href="/app/login">Entrar</a>
+      <a href="/registro" class="boton boton-lleno">Probar gratis</a>
+    </nav>
+  </header>
+</div>
+
+<div class="envoltorio">
+  <section class="portada">
+    <div>
+      <p class="apunte aparece d1">Para hoteles, hostales y hospedajes del Perú</p>
+      <h1 class="aparece d2">De la reserva<br>a la boleta,<br><span class="destacado">sin cuadernos.</span></h1>
+      <p class="entrada aparece d3">
+        Recepción sabe qué habitación entregar. Limpieza sabe qué toca asear.
+        Y a fin de mes la caja cuadra, porque el sistema la cuadra sola.
+      </p>
+      <div class="acciones aparece d3">
+        <a href="/registro" class="boton boton-lleno">Empezar los 14 días gratis</a>
+        <a href="#planes" class="boton boton-linea">Ver precios</a>
+      </div>
+      <p class="letra-chica aparece d3">Sin tarjeta. Sin instalación. Funciona en la computadora de recepción.</p>
+    </div>
+
+    <div class="tablero aparece d3" aria-label="Tablero de habitaciones de ejemplo">
+      <div class="fila"><strong>Hoy</strong><span>12 de 15 ocupadas</span></div>
+      <div class="rejilla">
+        <div class="hab ocupada">101</div><div class="hab ocupada">102</div>
+        <div class="hab sucia">103</div><div class="hab ocupada">104</div>
+        <div class="hab libre">105</div>
+        <div class="hab ocupada">201</div><div class="hab ocupada">202</div>
+        <div class="hab ocupada">203</div><div class="hab fuera">204</div>
+        <div class="hab ocupada">205</div>
+        <div class="hab ocupada">301</div><div class="hab libre">302</div>
+        <div class="hab ocupada">303</div><div class="hab ocupada">304</div>
+        <div class="hab ocupada">305</div>
+      </div>
+      <div class="leyenda">
+        <span><i style="background:#b84a2b"></i>Ocupada</span>
+        <span><i style="background:#e8e2d6"></i>Libre</span>
+        <span><i style="background:#c9a227"></i>Por limpiar</span>
+        <span><i style="background:#cfc6ba"></i>Fuera de servicio</span>
+      </div>
+    </div>
+  </section>
+</div>
+
+<div class="envoltorio">
+  <section class="seccion" id="como-funciona">
+    <div class="seccion-titulo">
+      <h2>Lo que cambia el primer día</h2>
+      <p>No es un software para aprender. Es dejar de hacer a mano lo que ya haces.</p>
+    </div>
+    <div class="contraste">
+      <div class="antes">
+        <p class="apunte">Como está hoy</p>
+        <ul>
+          <li>El cuaderno de reservas, que solo entiende quien lo escribió</li>
+          <li>Dos huéspedes para la misma habitación, y uno se entera al llegar</li>
+          <li>La caja del turno que nunca cuadra y nadie sabe por qué</li>
+          <li>Las boletas en un talonario, a mano, una por una</li>
+          <li>Saber cuánto se facturó el mes pasado: media tarde con la calculadora</li>
+        </ul>
+      </div>
+      <div class="despues">
+        <p class="apunte">Con ZenStay</p>
+        <ul>
+          <li>El tablero de habitaciones, igual para todos los turnos</li>
+          <li>El sistema no deja vender dos veces la misma noche</li>
+          <li>El arqueo suma los cobros y las salidas de caja solo</li>
+          <li>Boleta y factura electrónica a SUNAT desde la misma pantalla</li>
+          <li>Ocupación, ingreso por habitación y ADR, actualizados al minuto</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+</div>
+
+<div class="envoltorio">
+  <section class="seccion">
+    <div class="seccion-titulo">
+      <h2>Hecho para el Perú, no traducido</h2>
+      <p>Soles, IGV al 18%, DNI, RUC, ubigeo y la hora de Lima. Sin adaptar nada.</p>
+    </div>
+    <div class="columnas">
+      <div>
+        <div class="numero">01</div>
+        <h3>Boletas y facturas SUNAT</h3>
+        <p>Emisión electrónica vía NubeFact, con series y correlativos que la base
+           protege para que nunca se repita ni se salte un número.</p>
+      </div>
+      <div>
+        <div class="numero">02</div>
+        <h3>Caja que cuadra</h3>
+        <p>Apertura, cobros por método de pago, salidas por compras y arqueo al
+           cierre. Si falta plata, el sistema dice cuánto, no lo adivinas.</p>
+      </div>
+      <div>
+        <div class="numero">03</div>
+        <h3>Cada hotel, aislado</h3>
+        <p>Si administras varios locales, los datos de uno no se ven desde otro.
+           No por una casilla marcada: la base de datos lo impide.</p>
+      </div>
+    </div>
+  </section>
+</div>
+
+<div class="envoltorio">
+  <section class="seccion" id="planes">
+    <div class="seccion-titulo">
+      <h2>Precios claros, en soles</h2>
+      <p>Sin costo de instalación ni permanencia. Cancelas cuando quieras.</p>
+    </div>
+    <div class="planes" id="lista-planes">
+      <p style="color:var(--tinta-suave)">Cargando planes…</p>
+    </div>
+    <p style="margin-top:28px;font-size:.9rem;color:var(--tinta-suave)">
+      ¿Más de un hotel o necesitas algo a medida?
+      <a href="mailto:hola@sisac.pe" style="color:var(--acento)">Escríbenos</a>.
+    </p>
+  </section>
+</div>
+
+<div class="envoltorio">
+  <div class="pie">
+    <p><strong style="font-family:var(--serif);font-size:1.05rem">ZenStay</strong> — Sistema de gestión hotelera.</p>
+    <p>Un producto de Star Insights IT by SISAC · <a href="/app/login">Entrar al sistema</a></p>
+  </div>
+</div>
+
+<script>
+// Los planes salen de la base, no del HTML: cambiar un precio es un UPDATE en
+// la tabla `planes`, sin tocar esta pagina ni volver a desplegar.
+(async function () {
+  const caja = document.getElementById('lista-planes');
+  try {
+    const r = await fetch('/api/planes');
+    if (!r.ok) throw new Error('respuesta ' + r.status);
+    const planes = (await r.json()).filter(p => p.codigo !== 'prueba');
+    if (!planes.length) throw new Error('sin planes');
+
+    caja.innerHTML = planes.map(p => {
+      const limite = p.max_habitaciones
+        ? 'Hasta ' + p.max_habitaciones + ' habitaciones'
+        : 'Habitaciones ilimitadas';
+      const puntos = [
+        limite,
+        'Reservas, check-in y check-out',
+        'Caja y arqueo por turno',
+        'Limpieza y mantenimiento',
+        p.facturacion_sunat ? 'Boletas y facturas SUNAT' : 'Comprobantes internos',
+        p.reportes_avanzados ? 'Reportes de ocupación, ADR y RevPAR' : 'Reportes básicos'
+      ];
+      // El plan intermedio se destaca: es el que encaja con la mayoria de
+      // hospedajes y el que se quiere vender.
+      const destacado = p.codigo === 'pro' ? ' destacado' : '';
+      return '<div class="plan' + destacado + '">' +
+        '<p class="apunte">' + p.nombre + '</p>' +
+        '<div class="precio">S/ ' + Number(p.precio_mensual).toFixed(0) + '<small> /mes</small></div>' +
+        '<p style="font-size:.9rem;color:var(--tinta-suave);margin:0">' + (p.descripcion || '') + '</p>' +
+        '<ul>' + puntos.map(function (t) { return '<li>' + t + '</li>'; }).join('') + '</ul>' +
+        '<a href="/registro?plan=' + encodeURIComponent(p.codigo) + '" class="boton ' +
+        (destacado ? 'boton-lleno' : 'boton-linea') + '">Probar 14 días</a>' +
+      '</div>';
+    }).join('');
+  } catch (e) {
+    // Si la API no responde, la pagina sigue vendiendo: se ofrece el contacto
+    // en vez de dejar un "Cargando..." colgado para siempre.
+    caja.innerHTML = '<p style="color:var(--tinta-suave)">No pudimos cargar los precios ahora. ' +
+      '<a href="mailto:hola@sisac.pe" style="color:var(--acento)">Escríbenos</a> y te los pasamos.</p>';
+  }
+})();
+</script>
+
+</body>
+</html>

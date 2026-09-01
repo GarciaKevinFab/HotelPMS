@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Crear cuenta · ZenStay</title>
+<meta name="description" content="Crea tu cuenta de ZenStay y prueba el sistema 14 días gratis, sin tarjeta.">
+<meta name="robots" content="noindex">
+<link rel="icon" href="/logo-mono.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Karla:wght@400;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/landing-assets/estilo.css">
+</head>
+<body>
+
+<div class="envoltorio">
+  <header class="cabecera">
+    <a class="marca" href="/">
+      <svg viewBox="0 0 64 64" aria-hidden="true">
+        <g fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="square">
+          <path d="M20 14 H44 L20 34 H44"/><path d="M12 40 V52"/><path d="M12 46 H52 V52"/>
+        </g>
+      </svg>
+      <span>ZenStay</span>
+    </a>
+    <nav><a href="/app/login">Ya tengo cuenta</a></nav>
+  </header>
+</div>
+
+<div class="envoltorio">
+  <div class="formulario">
+    <p class="apunte">14 días gratis · sin tarjeta</p>
+    <h2 style="margin:10px 0 8px">Crea la cuenta de tu hotel</h2>
+    <p style="color:var(--tinta-suave);font-size:.96rem">
+      Toma un minuto. Después cargas tus habitaciones y ya puedes recibir huéspedes.
+    </p>
+
+    <div id="mensaje"></div>
+
+    <form id="alta" style="margin-top:26px" novalidate>
+      <div class="campo">
+        <label for="hotel_name">Nombre del hotel</label>
+        <input id="hotel_name" name="hotel_name" required autocomplete="organization"
+               placeholder="Hostal Los Girasoles">
+      </div>
+      <div class="campo">
+        <label for="ruc">RUC</label>
+        <input id="ruc" name="ruc" required inputmode="numeric" maxlength="11"
+               placeholder="20123456789">
+        <p class="ayuda">11 dígitos. Es el que aparecerá en tus comprobantes.</p>
+      </div>
+      <div class="campo">
+        <label for="admin_name">Tu nombre</label>
+        <input id="admin_name" name="admin_name" required autocomplete="name"
+               placeholder="María Gutiérrez">
+      </div>
+      <div class="campo">
+        <label for="admin_email">Correo</label>
+        <input id="admin_email" name="admin_email" type="email" required
+               autocomplete="email" placeholder="maria@mihotel.pe">
+        <p class="ayuda">Con este correo entrarás al sistema.</p>
+      </div>
+      <div class="campo">
+        <label for="admin_password">Contraseña</label>
+        <input id="admin_password" name="admin_password" type="password" required
+               minlength="8" autocomplete="new-password">
+        <p class="ayuda">Mínimo 8 caracteres.</p>
+      </div>
+      <button type="submit" class="boton boton-lleno" style="width:100%" id="enviar">
+        Crear cuenta y empezar
+      </button>
+    </form>
+
+    <p style="margin-top:22px;font-size:.85rem;color:var(--tinta-suave)">
+      Al crear la cuenta aceptas que guardemos los datos de tu hotel para prestarte
+      el servicio. Puedes cancelar cuando quieras y llevarte tu información.
+    </p>
+  </div>
+</div>
+
+<script>
+(function () {
+  var form = document.getElementById('alta');
+  var boton = document.getElementById('enviar');
+  var caja = document.getElementById('mensaje');
+
+  function avisar(texto, tipo) {
+    caja.innerHTML = '<div class="aviso ' + tipo + '">' + texto + '</div>';
+    caja.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  form.addEventListener('submit', async function (e) {
+    e.preventDefault();
+    caja.innerHTML = '';
+
+    var datos = {
+      hotel_name: form.hotel_name.value.trim(),
+      ruc: form.ruc.value.trim(),
+      admin_name: form.admin_name.value.trim(),
+      admin_email: form.admin_email.value.trim(),
+      admin_password: form.admin_password.value
+    };
+
+    // Se valida aqui lo evidente para no gastarle un viaje al servidor al
+    // usuario, pero el servidor lo valida igual: esto es comodidad, no
+    // seguridad.
+    if (!/^\d{11}$/.test(datos.ruc)) {
+      return avisar('El RUC debe tener exactamente 11 dígitos.', 'error');
+    }
+    if (datos.admin_password.length < 8) {
+      return avisar('La contraseña debe tener al menos 8 caracteres.', 'error');
+    }
+
+    boton.disabled = true;
+    boton.textContent = 'Creando tu cuenta…';
+
+    try {
+      var r = await fetch('/api/registro', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(datos)
+      });
+      var cuerpo = await r.json().catch(function () { return {}; });
+
+      if (!r.ok) {
+        // El backend manda un `detail` legible para los casos que el usuario
+        // puede arreglar (RUC repetido, correo en uso). Si viene otra cosa, se
+        // dice algo honesto en vez de mostrar un volcado tecnico.
+        var detalle = typeof cuerpo.detail === 'string'
+          ? cuerpo.detail
+          : 'No pudimos crear la cuenta. Revisa los datos e inténtalo otra vez.';
+        boton.disabled = false;
+        boton.textContent = 'Crear cuenta y empezar';
+        return avisar(detalle, 'error');
+      }
+
+      avisar('¡Listo! Tu cuenta está creada. Te llevamos a iniciar sesión…', 'bien');
+      setTimeout(function () { window.location.href = '/app/login'; }, 1400);
+    } catch (err) {
+      boton.disabled = false;
+      boton.textContent = 'Crear cuenta y empezar';
+      avisar('No hay conexión con el servidor. Inténtalo en un momento.', 'error');
+    }
+  });
+})();
+</script>
+
+</body>
+</html>

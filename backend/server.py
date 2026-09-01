@@ -8,7 +8,7 @@ en float no sirven para un sistema que emite comprobantes y cuadra caja.
 """
 
 from fastapi import FastAPI, APIRouter, Depends, HTTPException, Header, Query, Body
-from fastapi.responses import StreamingResponse, FileResponse
+from fastapi.responses import StreamingResponse, FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -378,6 +378,102 @@ def require_roles(*roles: Role):
         return user
     return role_checker
 
+# ============== SUSCRIPCIONES ==============
+# Ver db/migrations/002_suscripciones.sql para los estados y por que existe la
+# gracia. Aqui vive la parte que se consulta en caliente.
+
+DIAS_PRUEBA = 14
+DIAS_GRACIA = 7
+
+# `vencida` SIGUE teniendo acceso: es la gracia. Solo 'suspendida' y
+# 'cancelada' cortan. Un hotel con huespedes dentro no puede quedarse sin poder
+# cobrarles porque una tarjeta rebotara anoche.
+ESTADOS_CON_ACCESO = ("prueba", "activa", "vencida")
+
+
+async def estado_suscripcion(conn, tenant_id):
+    """Suscripcion del hotel + su plan + si tiene acceso, resuelto en un sitio."""
+    fila = await db_pg.uno(
+        conn,
+        """select t.subscription_status, t.trial_ends_at, t.grace_ends_at,
+                  p.codigo as plan_codigo, p.nombre as plan_nombre,
+                  p.precio_mensual, p.max_habitaciones,
+                  p.facturacion_sunat, p.reportes_avanzados,
+                  (select count(*) from rooms where tenant_id = t.id and is_active) as habitaciones_usadas
+           from tenants t
+           join planes p on p.codigo = t.plan_codigo
+           where t.id = $1""",
+        db_pg.a_uuid(tenant_id),
+    )
+    if not fila:
+        return None
+    fila["tiene_acceso"] = fila["subscription_status"] in ESTADOS_CON_ACCESO
+    return fila
+
+
+async def exigir_suscripcion(user: dict = Depends(get_current_user)):
+    """Corta el paso a los hoteles suspendidos o cancelados.
+
+    Va como dependencia en los endpoints que ESCRIBEN, no en los que leen: a un
+    hotel suspendido se le deja consultar y exportar sus datos -- son suyos --
+    pero no seguir operando. Cortar tambien la lectura convierte un impago en
+    una perdida de informacion, que no es lo que se acordo con el cliente.
+
+    El SUPER_ADMIN nunca se bloquea: es quien tiene que poder entrar a
+    arreglarlo.
+    """
+    if user.get("role") == Role.SUPER_ADMIN.value:
+        return user
+
+    async with db_pg.tx(user) as conn:
+        susc = await estado_suscripcion(conn, user["tenant_id"])
+
+    if susc and not susc["tiene_acceso"]:
+        raise HTTPException(
+            status_code=402,  # Payment Required: dice exactamente lo que pasa
+            detail="La suscripción de este hotel está suspendida. "
+                   "Renuévala para seguir operando."
+        )
+    return user
+
+
+async def exigir_cupo_habitaciones(conn, user: dict, cuantas: int = 1):
+    """Comprueba que el plan del hotel admite `cuantas` habitaciones mas.
+
+    Se llama al CREAR, no al pintar la pantalla: ocultar el boton de "nueva
+    habitacion" no impide que alguien mande el formulario igual, y el limite es
+    justamente lo que se esta vendiendo.
+
+    Cuenta solo las activas: una habitacion dada de baja no ocupa cupo, o dar de
+    baja y volver a crear seria una forma tonta de saltarse el plan... al reves,
+    seria injusto cobrar por habitaciones que el hotel ya no usa.
+    """
+    if user.get("role") == Role.SUPER_ADMIN.value:
+        return
+
+    limite = await db_pg.uno(
+        conn,
+        """select p.max_habitaciones, p.nombre,
+                  (select count(*) from rooms where tenant_id = t.id and is_active) as usadas
+           from tenants t join planes p on p.codigo = t.plan_codigo
+           where t.id = $1""",
+        db_pg.a_uuid(user["tenant_id"]),
+    )
+    # max_habitaciones NULL = sin limite (planes Prueba y Empresa).
+    if not limite or limite["max_habitaciones"] is None:
+        return
+
+    if limite["usadas"] + cuantas > limite["max_habitaciones"]:
+        raise HTTPException(
+            status_code=402,
+            detail=(
+                f"El plan {limite['nombre']} permite hasta "
+                f"{limite['max_habitaciones']} habitaciones y ya tienes "
+                f"{limite['usadas']}. Cambia de plan para agregar más."
+            ),
+        )
+
+
 def tenant_de(user: dict):
     """El hotel del usuario, o None si es SUPER_ADMIN (ve todos).
 
@@ -537,6 +633,83 @@ async def get_me(user: dict = Depends(get_current_user)):
             )
 
     return db_user
+
+# ============== PLANES Y ALTA PUBLICA ==============
+class RegistroHotel(BaseModel):
+    """Alta desde la landing. Sin SUPER_ADMIN de por medio."""
+    hotel_name: str = Field(min_length=2, max_length=120)
+    ruc: str = Field(min_length=11, max_length=11)
+    admin_name: str = Field(min_length=2, max_length=120)
+    admin_email: EmailStr
+    admin_password: str = Field(min_length=8)
+
+
+@api_router.get("/planes")
+async def listar_planes():
+    """Catalogo publico. Lo pinta la landing sin que nadie haya entrado."""
+    async with db_pg.tx_global("catalogo publico de planes, no depende de ningun hotel") as conn:
+        return await db_pg.varias(
+            conn,
+            """select codigo, nombre, descripcion, precio_mensual,
+                      max_habitaciones, facturacion_sunat, reportes_avanzados
+               from planes where activo order by orden""",
+        )
+
+
+@api_router.post("/registro")
+async def registro_publico(data: RegistroHotel):
+    """Da de alta un hotel y su administrador, y arranca la prueba gratuita.
+
+    Es el unico endpoint que crea hoteles sin ser SUPER_ADMIN, y por eso lleva
+    las validaciones que POST /tenants se puede ahorrar:
+
+    - El RUC tiene que ser once digitos. No se valida el digito verificador
+      aqui a proposito: un RUC mal tecleado se corrige, pero rechazar un alta
+      por una regla mal implementada pierde un cliente en la puerta.
+    - La contrasena, minimo 8 caracteres (lo exige el modelo).
+    - Hotel y administrador se crean en UNA transaccion: si el email ya existe,
+      no queda un hotel huerfano sin nadie que pueda entrar.
+    """
+    if not data.ruc.isdigit():
+        raise HTTPException(status_code=400, detail="El RUC debe ser numérico, de 11 dígitos")
+
+    async with db_pg.tx_global("alta publica: el hotel todavia no existe") as conn:
+        if await conn.fetchval("select 1 from tenants where ruc = $1", data.ruc):
+            raise HTTPException(status_code=400, detail="Ya existe un hotel registrado con este RUC")
+        if await conn.fetchval("select 1 from users where email = $1", data.admin_email):
+            raise HTTPException(status_code=400, detail="Ese correo ya está registrado")
+
+        tenant_id = await conn.fetchval(
+            """insert into tenants (name, ruc, razon_social, nombre_comercial, email,
+                                    plan_codigo, subscription_status, trial_ends_at)
+               values ($1, $2, $1, $1, $3, 'prueba', 'prueba', now() + ($4 || ' days')::interval)
+               returning id""",
+            data.hotel_name, data.ruc, data.admin_email, str(DIAS_PRUEBA),
+        )
+        await conn.execute(
+            """insert into users (tenant_id, email, password_hash, full_name, role)
+               values ($1, $2, $3, $4, 'ADMIN')""",
+            tenant_id, data.admin_email, hash_password(data.admin_password), data.admin_name,
+        )
+
+    return {
+        "message": "Hotel registrado. Tu prueba gratuita ya está activa.",
+        "tenant_id": str(tenant_id),
+        "dias_prueba": DIAS_PRUEBA,
+    }
+
+
+@api_router.get("/suscripcion")
+async def ver_suscripcion(user: dict = Depends(get_current_user)):
+    """Estado de la suscripcion del hotel, para la barra de aviso y Ajustes."""
+    if user.get("role") == Role.SUPER_ADMIN.value:
+        return {"subscription_status": "activa", "plan_nombre": "Super Admin", "tiene_acceso": True}
+    async with db_pg.tx(user) as conn:
+        susc = await estado_suscripcion(conn, user["tenant_id"])
+    if not susc:
+        raise HTTPException(status_code=404, detail="Hotel no encontrado")
+    return susc
+
 
 # ============== TENANT ENDPOINTS ==============
 @api_router.post("/tenants")
@@ -941,6 +1114,7 @@ async def calculate_rate(room_type_id: str, checkin_date: date, checkout_date: d
 @api_router.post("/rooms")
 async def create_room(data: RoomCreate, user: dict = Depends(require_roles(Role.ADMIN))):
     async with db_pg.tx(user) as conn:
+        await exigir_cupo_habitaciones(conn, user, 1)
         try:
             nuevo_id = await conn.fetchval(
                 """insert into rooms (tenant_id, room_type_id, number, floor, notes)
@@ -962,6 +1136,7 @@ async def create_room(data: RoomCreate, user: dict = Depends(require_roles(Role.
 async def create_rooms_bulk(data: RoomBulkCreate, user: dict = Depends(require_roles(Role.ADMIN))):
     numeros = [f"{data.prefix}{data.start_number + i}" for i in range(data.count)]
     async with db_pg.tx(user) as conn:
+        await exigir_cupo_habitaciones(conn, user, len(numeros))
         try:
             # unnest inserta las N habitaciones en una sola sentencia, y al ir
             # dentro de una transaccion son todas o ninguna: si la 7 de 10 choca
@@ -1138,7 +1313,7 @@ async def get_guest(guest_id: str, user: dict = Depends(get_current_user)):
 
 # ============== RESERVATION ENDPOINTS ==============
 @api_router.post("/reservations")
-async def create_reservation(data: ReservationCreate, user: dict = Depends(get_current_user)):
+async def create_reservation(data: ReservationCreate, user: dict = Depends(exigir_suscripcion)):
     tid = db_pg.a_uuid(user["tenant_id"], "tenant_id")
 
     if data.checkout_date <= data.checkin_date:
@@ -1530,7 +1705,7 @@ async def assign_room(reservation_id: str, room_id: str = Body(..., embed=True),
 
 # ============== CHECK-IN / CHECK-OUT ENDPOINTS ==============
 @api_router.post("/reservations/{reservation_id}/checkin")
-async def perform_checkin(reservation_id: str, user: dict = Depends(get_current_user)):
+async def perform_checkin(reservation_id: str, user: dict = Depends(exigir_suscripcion)):
     tid = tenant_de(user)
     rid = id_valido(reservation_id, "reservation_id")
 
@@ -1699,7 +1874,7 @@ async def get_folio(folio_id: str, user: dict = Depends(get_current_user)):
     return folio
 
 @api_router.post("/folios/{folio_id}/charges")
-async def add_charge(folio_id: str, data: ChargeCreate, user: dict = Depends(get_current_user)):
+async def add_charge(folio_id: str, data: ChargeCreate, user: dict = Depends(exigir_suscripcion)):
     tid = tenant_de(user)
     fid = id_valido(folio_id, "folio_id")
 
@@ -1806,7 +1981,7 @@ async def void_charge(folio_id: str, charge_id: str, data: VoidRequest, user: di
     return {"message": "Cargo anulado"}
 
 @api_router.post("/folios/{folio_id}/payments")
-async def add_payment(folio_id: str, data: PaymentCreate, user: dict = Depends(get_current_user)):
+async def add_payment(folio_id: str, data: PaymentCreate, user: dict = Depends(exigir_suscripcion)):
     tid = tenant_de(user)
     fid = id_valido(folio_id, "folio_id")
 
@@ -3844,31 +4019,67 @@ app.add_middleware(
 # estan registradas, asi que el catch-all de abajo solo atrapa lo que no sea de
 # la API.
 FRONTEND_BUILD = ROOT_DIR.parent / "frontend" / "build"
+LANDING = ROOT_DIR / "landing"
+
+# La landing es HTML estatico y no parte de la SPA a proposito. Es la pagina
+# que tiene que vender: carga al instante, la lee un buscador, y no obliga a
+# descargar el megabyte de JavaScript del sistema a alguien que todavia no sabe
+# si le interesa. El sistema vive en /app.
+if LANDING.exists():
+    app.mount("/landing-assets", StaticFiles(directory=LANDING), name="landing_assets")
 
 if FRONTEND_BUILD.exists():
     # Los assets con hash en el nombre (JS, CSS) se sirven desde /static.
     app.mount("/static", StaticFiles(directory=FRONTEND_BUILD / "static"), name="static")
 
-    @app.get("/{ruta:path}")
-    async def servir_spa(ruta: str):
-        """Devuelve el archivo pedido si existe; si no, el index.html.
 
-        Es lo que necesita una SPA con rutas del lado del cliente: cuando
-        alguien recarga /reservations o entra por un enlace directo, el
-        navegador pide esa ruta al servidor, que no existe como archivo. Hay
-        que devolverle el index.html y dejar que React resuelva la ruta.
-        """
+@app.get("/{ruta:path}")
+async def servir_web(ruta: str):
+    """Reparte entre la landing y la aplicacion.
+
+        /            -> landing (comercial)
+        /precios     -> landing
+        /registro    -> landing
+        /app/...     -> la SPA
+        /algo.ext    -> archivo del build si existe (favicon, logos, manifest)
+
+    El catch-all va DESPUES de include_router, asi que /api ya esta resuelto y
+    no pasa por aqui.
+    """
+    # 1. Paginas de la landing. Los precios NO son una pagina aparte: van en la
+    #    misma portada, porque partir "que es esto" de "cuanto cuesta" en dos
+    #    cargas pierde gente por el camino. /precios existe igual y lleva al
+    #    ancla, para que el enlace se pueda compartir.
+    if LANDING.exists():
+        paginas = {"": "index.html", "registro": "registro.html"}
+        if ruta in paginas:
+            archivo = LANDING / paginas[ruta]
+            if archivo.is_file():
+                return FileResponse(archivo)
+        if ruta == "precios":
+            return RedirectResponse("/#planes", status_code=307)
+
+    if not FRONTEND_BUILD.exists():
+        raise HTTPException(status_code=404, detail="No encontrado")
+
+    # 2. Un archivo real del build (logo.png, manifest.json, favicon...).
+    #    resolve() y el chequeo de prefijo evitan que una ruta con ../ se escape
+    #    del directorio del build y sirva archivos del contenedor.
+    if ruta:
         candidato = FRONTEND_BUILD / ruta
-        # resolve() y el chequeo de prefijo evitan que una ruta con ../ se
-        # escape del directorio del build y sirva archivos del contenedor.
-        if ruta and candidato.is_file():
-            if str(candidato.resolve()).startswith(str(FRONTEND_BUILD.resolve())):
-                return FileResponse(candidato)
-        return FileResponse(FRONTEND_BUILD / "index.html")
-else:
+        if candidato.is_file() and str(candidato.resolve()).startswith(str(FRONTEND_BUILD.resolve())):
+            return FileResponse(candidato)
+
+    # 3. Cualquier otra cosa es una ruta de la SPA. Se devuelve el index.html y
+    #    React resuelve el enrutado: es lo que hace falta para que recargar
+    #    /app/reservations o entrar por un enlace directo no de 404.
+    return FileResponse(FRONTEND_BUILD / "index.html")
+
+
+if not FRONTEND_BUILD.exists():
     logger.warning(
-        "No existe %s: el backend sirve solo la API y la raiz devolvera 404. "
-        "En el VPS el build llega dentro de la imagen (ver backend/Dockerfile).",
+        "No existe %s: el backend sirve solo la API. En el VPS el build llega "
+        "dentro de la imagen (ver backend/Dockerfile).",
         FRONTEND_BUILD,
     )
 
