@@ -8,7 +8,7 @@ en float no sirven para un sistema que emite comprobantes y cuadra caja.
 """
 
 from fastapi import FastAPI, APIRouter, Depends, HTTPException, Header, Query, Body
-from fastapi.responses import StreamingResponse, FileResponse, RedirectResponse
+from fastapi.responses import StreamingResponse, FileResponse, RedirectResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -27,6 +27,7 @@ import json
 import io
 import asyncio
 import secrets
+import hashlib
 
 import db_pg
 
@@ -4028,8 +4029,48 @@ LANDING = ROOT_DIR / "landing"
 if LANDING.exists():
     app.mount("/landing-assets", StaticFiles(directory=LANDING), name="landing_assets")
 
+
+def _version_css() -> str:
+    """Huella del CSS de la landing, para invalidar la cache de Cloudflare.
+
+    Sin esto, un despliegue no se ve: Cloudflare cachea los estaticos con
+    max-age de 4 horas, asi que el navegador seguia recibiendo el CSS anterior
+    -- `cf-cache-status: HIT` -- mientras el contenedor ya servia el nuevo. La
+    pagina quedaba con los colores viejos y nada en los logs indicaba el
+    porque.
+
+    Se calcula al vuelo y no una vez al arrancar: el contenedor se reconstruye
+    en cada despliegue, asi que da igual en cuanto a coste, y en desarrollo
+    permite editar el CSS sin reiniciar.
+    """
+    archivo = LANDING / "estilo.css"
+    if not archivo.is_file():
+        return "0"
+    return hashlib.md5(archivo.read_bytes()).hexdigest()[:10]
+
+
+def _pagina_landing(archivo: Path) -> HTMLResponse:
+    """Sirve una pagina de la landing con el CSS versionado.
+
+    El HTML va con `no-cache` a proposito: es lo que apunta a la version nueva
+    del CSS, asi que cachearlo dejaria clavada la referencia vieja y no habria
+    servido de nada versionar nada.
+    """
+    html = archivo.read_text(encoding="utf-8").replace(
+        "/landing-assets/estilo.css", f"/landing-assets/estilo.css?v={_version_css()}"
+    )
+    return HTMLResponse(html, headers={"Cache-Control": "no-cache, must-revalidate"})
+
 if FRONTEND_BUILD.exists():
-    # Los assets con hash en el nombre (JS, CSS) se sirven desde /static.
+    # Los assets con hash en el nombre (JS, CSS).
+    #
+    # Se montan DOS veces sobre el mismo directorio, y hace falta:
+    # package.json declara homepage="/app", asi que el index.html generado pide
+    # /app/static/js/main.<hash>.js. Con un unico mount en /static, esa ruta
+    # caia en el catch-all, no encontraba el archivo y devolvia el index.html
+    # -- el navegador recibia HTML donde esperaba JavaScript y la aplicacion no
+    # arrancaba nunca, sin un solo error en el log del servidor.
+    app.mount("/app/static", StaticFiles(directory=FRONTEND_BUILD / "static"), name="app_static")
     app.mount("/static", StaticFiles(directory=FRONTEND_BUILD / "static"), name="static")
 
 
@@ -4055,7 +4096,7 @@ async def servir_web(ruta: str):
         if ruta in paginas:
             archivo = LANDING / paginas[ruta]
             if archivo.is_file():
-                return FileResponse(archivo)
+                return _pagina_landing(archivo)
         if ruta == "precios":
             return RedirectResponse("/#planes", status_code=307)
 
