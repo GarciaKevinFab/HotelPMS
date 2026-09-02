@@ -69,12 +69,16 @@ const ROLE_LABELS = {
   SUPER_ADMIN: 'Super Admin',
 };
 
+/* Los cinco roles llevaban azul, esmeralda, ambar, morado y rojo: la paleta
+   por defecto de Tailwind, sin relacion con la marca ni entre si. Ahora salen
+   de los acentos del logotipo, y el fucsia -que en todo el sistema significa
+   "esto reclama atencion"- queda para el rol que mas puede romper. */
 const ROLE_COLORS = {
-  ADMIN: 'bg-blue-100 text-blue-700 border-blue-200',
-  RECEPTIONIST: 'bg-emerald-100 text-emerald-700 border-emerald-200',
-  HOUSEKEEPING: 'bg-amber-100 text-amber-700 border-amber-200',
-  SECURITY: 'bg-purple-100 text-purple-700 border-purple-200',
-  SUPER_ADMIN: 'bg-red-100 text-red-700 border-red-200',
+  ADMIN: 'bg-zen-100 text-zen-700 border-zen-200',
+  RECEPTIONIST: 'bg-[hsl(var(--acento-turquesa)/0.12)] text-[hsl(var(--acento-turquesa))] border-[hsl(var(--acento-turquesa)/0.25)]',
+  HOUSEKEEPING: 'bg-[hsl(var(--acento-lima)/0.14)] text-[hsl(var(--acento-lima))] border-[hsl(var(--acento-lima)/0.3)]',
+  SECURITY: 'bg-[hsl(var(--acento-oliva)/0.14)] text-[hsl(var(--acento-oliva))] border-[hsl(var(--acento-oliva)/0.3)]',
+  SUPER_ADMIN: 'bg-[hsl(var(--acento-fucsia)/0.10)] text-[hsl(var(--acento-fucsia))] border-[hsl(var(--acento-fucsia)/0.25)]',
 };
 
 export function Employees() {
@@ -360,8 +364,9 @@ export function Employees() {
       <Card className="p-4">
         <div className="flex items-center gap-4">
           <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zen-400" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zen-500" />
             <Input
+              aria-label="Buscar empleado por nombre o correo"
               placeholder="Buscar por nombre o email..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
@@ -370,7 +375,7 @@ export function Employees() {
             />
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Filter className="w-4 h-4 text-zen-400" />
+            <Filter className="w-4 h-4 text-zen-500" />
             <Select value={filterRole} onValueChange={setFilterRole}>
               <SelectTrigger className="w-[180px]">
                 <SelectValue placeholder="Filtrar por rol" />
@@ -429,7 +434,7 @@ export function Employees() {
                       <div>
                         <p className="font-medium">{emp.full_name}</p>
                         {isCurrentUser(emp) && (
-                          <p className="text-xs text-blue-500">(Tu cuenta)</p>
+                          <p className="text-xs text-[hsl(var(--acento-turquesa))]">(Tu cuenta)</p>
                         )}
                       </div>
                     </div>
@@ -457,7 +462,7 @@ export function Employees() {
                     {!isCurrentUser(emp) && (
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="sm">
+                          <Button variant="ghost" size="sm" aria-label="Acciones de esta fila" className="w-11 sm:w-9">
                             <MoreHorizontal className="w-4 h-4" />
                           </Button>
                         </DropdownMenuTrigger>

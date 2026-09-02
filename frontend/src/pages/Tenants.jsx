@@ -190,15 +190,16 @@ export function Tenants() {
         </Card>
         <Card className="p-4">
           <p className="text-sm text-zen-500">Inactivos</p>
-          <p className="text-2xl font-bold text-zen-400">{stats.inactive}</p>
+          <p className="text-2xl font-bold text-zen-500">{stats.inactive}</p>
         </Card>
       </div>
 
       {/* Search */}
       <Card className="p-4">
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zen-400" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zen-500" />
           <Input
+            aria-label="Buscar hotel por nombre o RUC"
             placeholder="Buscar por nombre o RUC..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
@@ -238,8 +239,8 @@ export function Tenants() {
                 <TableRow key={tenant.id}>
                   <TableCell>
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
-                        <Building2 className="w-5 h-5 text-blue-600" />
+                      <div className="w-10 h-10 bg-[hsl(var(--acento-turquesa)/0.12)] rounded-lg flex items-center justify-center">
+                        <Building2 className="w-5 h-5 text-[hsl(var(--acento-turquesa))]" />
                       </div>
                       <div>
                         <p className="font-medium">{tenant.name}</p>
@@ -443,8 +444,8 @@ export function Tenants() {
           {selectedTenant && (
             <div className="space-y-4 py-4">
               <div className="flex items-center gap-4">
-                <div className="w-16 h-16 bg-blue-100 rounded-xl flex items-center justify-center">
-                  <Building2 className="w-8 h-8 text-blue-600" />
+                <div className="w-16 h-16 bg-[hsl(var(--acento-turquesa)/0.12)] rounded-xl flex items-center justify-center">
+                  <Building2 className="w-8 h-8 text-[hsl(var(--acento-turquesa))]" />
                 </div>
                 <div>
                   <h3 className="text-xl font-bold">{selectedTenant.name}</h3>

@@ -36,7 +36,16 @@ import { reportsAPI } from '../lib/api';
 import { formatCurrency, getMonthName, getStatusLabel } from '../lib/utils';
 import { toast } from 'sonner';
 
-const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#8B5CF6', '#F43F5E'];
+/* Mismos tokens que el panel: turquesa, fucsia, lima, oliva y ambar, que
+   son los del logotipo. Antes eran los hexadecimales de Tailwind, con
+   azul de cabecera en una marca que no tiene azul. */
+const COLORS = [
+  'hsl(var(--chart-1))',
+  'hsl(var(--chart-4))',
+  'hsl(var(--chart-2))',
+  'hsl(var(--chart-5))',
+  'hsl(var(--chart-3))',
+];
 
 export function Reports() {
   const [activeTab, setActiveTab] = useState('occupancy');
@@ -311,7 +320,7 @@ export function Reports() {
                       <XAxis dataKey="name" tick={{ fontSize: 11 }} />
                       <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => `S/${v/1000}k`} />
                       <Tooltip formatter={(value) => formatCurrency(value)} />
-                      <Bar dataKey="value" fill="#3B82F6" radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="value" fill="hsl(var(--chart-1))" radius={[4, 4, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
                 </Card>
@@ -368,11 +377,15 @@ export function Reports() {
                         dataKey="value"
                         label
                       >
-                        <Cell fill="#3B82F6" />
+                        <Cell fill="hsl(var(--chart-1))" />
                         <Cell fill="#8B5CF6" />
                       </Pie>
                       <Tooltip formatter={(value) => formatCurrency(value)} />
-                      <Legend />
+                      <Legend
+                        formatter={(valor) => (
+                          <span className="text-[13px] text-zen-700">{valor}</span>
+                        )}
+                      />
                     </PieChart>
                   </ResponsiveContainer>
                 </Card>
@@ -386,7 +399,7 @@ export function Reports() {
                       <XAxis dataKey="name" tick={{ fontSize: 11 }} />
                       <YAxis tick={{ fontSize: 11 }} />
                       <Tooltip />
-                      <Bar dataKey="count" fill="#10B981" name="Cantidad" radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="count" fill="hsl(var(--chart-4))" name="Cantidad" radius={[4, 4, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
                 </Card>

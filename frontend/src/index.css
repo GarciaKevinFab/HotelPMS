@@ -45,7 +45,10 @@ code {
     --popover-foreground: 156 30% 11%;
     --primary: 156 30% 11%;
     --primary-foreground: 156 20% 98%;
-    --secondary: 156 12% 47%;
+    /* 47% dejaba el rotulo casi blanco de las insignias secundarias -la de
+       "MOCK" en Facturacion, por ejemplo- en 3.82:1, y un texto de 12 px
+       necesita 4.5. A 41% da 4.81 sin cambiar el tono. */
+    --secondary: 156 12% 41%;
     --secondary-foreground: 156 20% 98%;
     --muted: 156 12% 90%;
     --muted-foreground: 156 12% 40%;
@@ -66,35 +69,64 @@ code {
     --chart-4: 342 97% 60%;
     --chart-5: 75 30% 49%;
 
+    /* ACENTOS DE LA MARCA, EN VERSION QUE SE VE SOBRE BLANCO
+       Los cuatro colores del logotipo -turquesa, fucsia, lima y oliva- estan
+       elegidos para lucir sobre el verde profundo de la landing. Sobre el
+       blanco del interior son otra cosa: el turquesa da 2.31:1 y la lima
+       1.82:1, asi que un icono o un rotulo pintado con ellos no se distingue
+       del fondo. Estos son los mismos colores con la claridad bajada hasta
+       pasar de 4.5:1, para lo que va sobre las tarjetas blancas. El matiz no
+       cambia: siguen siendo el turquesa y la lima del colibri. */
+    --acento-turquesa: 172 100% 26%;   /* 4.56:1 sobre blanco */
+    --acento-lima:      60 55% 30%;    /* 4.72:1 */
+    --acento-fucsia:   342 80% 42%;    /* 6.05:1 */
+    --acento-oliva:     75 30% 33%;    /* 5.2:1  */
+
     /* Estados de habitacion: los MISMOS que el tablero de la landing. */
     --status-vacant-clean: 172 100% 34%;
     --status-occupied: 342 97% 60%;
     --status-dirty: 60 55% 50%;
-    --status-ooo: 156 12% 47%;
+    /* 47% dejaba el rotulo blanco de la insignia en 3.82:1, y un texto de
+       12 px necesita 4.5. A 41% da 4.81 sin cambiar el tono: sigue siendo el
+       mismo gris verdoso de "fuera de servicio". */
+    --status-ooo: 156 12% 41%;
     --status-reserved: 75 30% 49%;
     --status-checkout: 156 12% 40%;
   }
 
+  /* EL TEMA OSCURO ESTABA A MEDIAS
+     El fondo, el texto y la tarjeta ya se habian pasado al verde de la marca
+     (matiz 156), pero el resto se quedo en el azul de slate del que se
+     partia: el acento y el anillo de foco eran un azul brillante (217) en
+     una identidad donde no hay azul por ningun lado.
+
+     Hoy esto NO se ve: no hay ninguna linea que ponga la clase `dark`, asi
+     que el tema oscuro de la aplicacion es codigo que no se ejecuta. Se
+     completa igualmente porque el dia que alguien lo encienda -y el interes
+     de un recepcionista de turno de noche es evidente- lo que aparece es la
+     marca a medio pintar, y encontrarlo entonces cuesta mas que arreglarlo
+     ahora. Se conserva la claridad de cada token y solo gira el matiz, para
+     que ningun contraste empeore al cambiarlo. */
   .dark {
     --background: 156 30% 8%;
     --foreground: 156 20% 96%;
     --card: 156 26% 12%;
-    --card-foreground: 210 20% 98%;
-    --popover: 223 47% 14%;
-    --popover-foreground: 210 20% 98%;
-    --primary: 210 20% 98%;
-    --primary-foreground: 222 47% 11%;
-    --secondary: 215 16% 47%;
-    --secondary-foreground: 210 20% 98%;
-    --muted: 223 47% 20%;
-    --muted-foreground: 215 16% 60%;
-    --accent: 217 91% 60%;
-    --accent-foreground: 0 0% 100%;
-    --destructive: 350 89% 50%;
-    --destructive-foreground: 0 0% 100%;
-    --border: 223 47% 20%;
-    --input: 223 47% 20%;
-    --ring: 217 91% 60%;
+    --card-foreground: 156 20% 96%;
+    --popover: 156 26% 12%;
+    --popover-foreground: 156 20% 96%;
+    --primary: 156 20% 96%;
+    --primary-foreground: 156 30% 8%;
+    --secondary: 156 12% 41%;
+    --secondary-foreground: 156 20% 98%;
+    --muted: 156 20% 18%;
+    --muted-foreground: 156 10% 68%;
+    --accent: 172 100% 40%;
+    --accent-foreground: 156 30% 8%;
+    --destructive: 350 89% 60%;
+    --destructive-foreground: 156 30% 8%;
+    --border: 156 20% 20%;
+    --input: 156 20% 20%;
+    --ring: 172 100% 40%;
   }
 }
 
@@ -203,6 +235,20 @@ code {
 .room-calendar-grid {
   @apply overflow-auto;
 }
+/* El calendario es el caso extremo: 1473 px de tabla en una caja de 325.
+   Se ve menos de una cuarta parte, asi que aqui la senal de que sigue hacia
+   los lados hace mas falta que en ningun otro sitio. */
+.room-calendar-grid {
+  background-image:
+    linear-gradient(to right,  hsl(var(--card)) 40%, hsl(var(--card) / 0)),
+    linear-gradient(to left,   hsl(var(--card)) 40%, hsl(var(--card) / 0)),
+    radial-gradient(farthest-side at 0 50%,   rgba(14, 26, 21, .13), rgba(14, 26, 21, 0)),
+    radial-gradient(farthest-side at 100% 50%, rgba(14, 26, 21, .13), rgba(14, 26, 21, 0));
+  background-position: left center, right center, left center, right center;
+  background-size: 34px 100%, 34px 100%, 12px 100%, 12px 100%;
+  background-repeat: no-repeat;
+  background-attachment: local, local, scroll, scroll;
+}
 
 .room-calendar-grid table {
   @apply border-collapse;
@@ -244,4 +290,33 @@ code {
     print-color-adjust: exact;
     -webkit-print-color-adjust: exact;
   }
+}
+
+/* SE VE QUE LA TABLA SIGUE
+   ------------------------------------------------------------------
+   En un telefono la caja de la tabla mide 325 px y la tabla, segun la
+   pantalla, entre 366 y 583; el calendario llega a 1473. Todas se
+   desplazan de lado, pero nada lo decia: se veian las primeras columnas
+   y no habia forma de saber que existian las demas. En Empleados se veia
+   poco mas de la mitad, y en el calendario menos de una cuarta parte.
+
+   Estas dos sombras aparecen y desaparecen solas segun donde este el
+   scroll, sin una linea de JavaScript. El truco es mezclar dos capas con
+   `background-attachment` distinto: las que tapan viajan con el contenido
+   (`local`) y las sombras se quedan quietas (`scroll`), asi que cuando no
+   queda nada por desplazar la capa que tapa se pone justo encima de la
+   sombra y la borra.
+
+   El color de tapado sale de --card, que es el fondo real de la tabla: con
+   un blanco fijo se veria un parche en cuanto la tarjeta cambie de tono. */
+.tabla-desplazable {
+  background-image:
+    linear-gradient(to right,  hsl(var(--card)) 40%, hsl(var(--card) / 0)),
+    linear-gradient(to left,   hsl(var(--card)) 40%, hsl(var(--card) / 0)),
+    radial-gradient(farthest-side at 0 50%,   rgba(14, 26, 21, .13), rgba(14, 26, 21, 0)),
+    radial-gradient(farthest-side at 100% 50%, rgba(14, 26, 21, .13), rgba(14, 26, 21, 0));
+  background-position: left center, right center, left center, right center;
+  background-size: 34px 100%, 34px 100%, 12px 100%, 12px 100%;
+  background-repeat: no-repeat;
+  background-attachment: local, local, scroll, scroll;
 }

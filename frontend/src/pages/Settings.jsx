@@ -240,11 +240,15 @@ export function Settings() {
                       className="pr-10"
                       data-testid="nubefact-token-input"
                     />
+                    {/* Era un boton mudo: solo un ojo, sin nombre, asi que con
+                        lector de pantalla se oia "boton" y nada mas. Y median
+                        40 px de ancho; px-4 los lleva a 44. */}
                     <Button
                       type="button"
                       variant="ghost"
                       size="sm"
-                      className="absolute right-0 top-0 h-full px-3"
+                      aria-label={showToken ? 'Ocultar el token' : 'Mostrar el token'}
+                      className="absolute right-0 top-0 h-full px-4"
                       onClick={() => setShowToken(!showToken)}
                     >
                       {showToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}

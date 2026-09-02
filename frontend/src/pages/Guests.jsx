@@ -135,8 +135,9 @@ export function Guests() {
       {/* Search */}
       <Card className="p-4">
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zen-400" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zen-500" />
           <Input
+            aria-label="Buscar huésped por nombre, documento o correo"
             placeholder="Buscar por nombre, documento o email..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
@@ -342,19 +343,19 @@ export function Guests() {
               <div className="grid grid-cols-2 gap-4 pt-4 border-t">
                 {selectedGuest.phone && (
                   <div className="flex items-center gap-2">
-                    <Phone className="w-4 h-4 text-zen-400" />
+                    <Phone className="w-4 h-4 text-zen-500" />
                     <span>{selectedGuest.phone}</span>
                   </div>
                 )}
                 {selectedGuest.email && (
                   <div className="flex items-center gap-2">
-                    <Mail className="w-4 h-4 text-zen-400" />
+                    <Mail className="w-4 h-4 text-zen-500" />
                     <span>{selectedGuest.email}</span>
                   </div>
                 )}
                 {selectedGuest.address && (
                   <div className="flex items-center gap-2 col-span-2">
-                    <MapPin className="w-4 h-4 text-zen-400" />
+                    <MapPin className="w-4 h-4 text-zen-500" />
                     <span>{selectedGuest.address}</span>
                   </div>
                 )}

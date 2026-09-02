@@ -126,16 +126,16 @@ export function Maintenance() {
     switch (priority) {
       case 'CRITICAL': return <AlertTriangle className="w-4 h-4 text-rose-500" />;
       case 'HIGH': return <AlertTriangle className="w-4 h-4 text-amber-500" />;
-      default: return <Wrench className="w-4 h-4 text-zen-400" />;
+      default: return <Wrench className="w-4 h-4 text-zen-500" />;
     }
   };
 
   const getStatusIcon = (status) => {
     switch (status) {
       case 'OPEN': return <Clock className="w-4 h-4 text-amber-500" />;
-      case 'IN_PROGRESS': return <Wrench className="w-4 h-4 text-blue-500" />;
+      case 'IN_PROGRESS': return <Wrench className="w-4 h-4 text-[hsl(var(--acento-oliva))]" />;
       case 'RESOLVED': return <CheckCircle className="w-4 h-4 text-emerald-500" />;
-      case 'CANCELLED': return <XCircle className="w-4 h-4 text-zen-400" />;
+      case 'CANCELLED': return <XCircle className="w-4 h-4 text-zen-500" />;
       default: return null;
     }
   };
@@ -174,7 +174,7 @@ export function Maintenance() {
         </Card>
         <Card className="p-4">
           <p className="text-sm text-zen-500">En Progreso</p>
-          <p className="text-2xl font-bold text-blue-600">{stats.inProgress}</p>
+          <p className="text-2xl font-bold text-[hsl(var(--acento-oliva))]">{stats.inProgress}</p>
         </Card>
         <Card className="p-4">
           <p className="text-sm text-zen-500">Críticos</p>

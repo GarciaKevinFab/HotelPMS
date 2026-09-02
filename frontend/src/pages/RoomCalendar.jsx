@@ -111,11 +111,15 @@ export function RoomCalendar() {
     };
   };
 
+  /* Una habitacion ocupada se pintaba de VERDE aqui y de fucsia en el tablero
+     de estados, y una reservada de AZUL, que es el unico color que la marca no
+     tiene. Quien mira el calendario y el tablero en la misma jornada aprendia
+     dos codigos de color para lo mismo. Ahora los dos leen los mismos tokens. */
   const getStatusColor = (status) => {
     switch (status) {
-      case 'CONFIRMED': return 'bg-blue-500';
-      case 'CHECKED_IN': return 'bg-emerald-500';
-      case 'CHECKED_OUT': return 'bg-zen-400';
+      case 'CONFIRMED': return 'bg-[hsl(var(--status-reserved))]';
+      case 'CHECKED_IN': return 'bg-[hsl(var(--status-occupied))]';
+      case 'CHECKED_OUT': return 'bg-[hsl(var(--status-checkout))]';
       default: return 'bg-zen-300';
     }
   };
@@ -178,14 +182,18 @@ export function RoomCalendar() {
       {/* Navigation */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between bg-white rounded-lg border border-zen-200 p-3">
         <div className="flex flex-wrap items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => navigateDays(-1)}>
+          <Button variant="outline" size="sm" className="w-11 sm:w-9"
+                  aria-label="Ver los días anteriores"
+                  onClick={() => navigateDays(-1)}>
             <ChevronLeft className="w-4 h-4" />
           </Button>
           <Button variant="outline" size="sm" onClick={goToToday}>
             <CalendarIcon className="w-4 h-4 mr-2" />
             Hoy
           </Button>
-          <Button variant="outline" size="sm" onClick={() => navigateDays(1)}>
+          <Button variant="outline" size="sm" className="w-11 sm:w-9"
+                  aria-label="Ver los días siguientes"
+                  onClick={() => navigateDays(1)}>
             <ChevronRight className="w-4 h-4" />
           </Button>
         </div>
@@ -197,15 +205,15 @@ export function RoomCalendar() {
       {/* Legend */}
       <div className="flex items-center gap-4 text-sm">
         <div className="flex flex-wrap items-center gap-2">
-          <div className="w-4 h-4 rounded bg-blue-500" />
+          <div className="w-4 h-4 rounded bg-[hsl(var(--status-reserved))]" />
           <span>Confirmada</span>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <div className="w-4 h-4 rounded bg-emerald-500" />
+          <div className="w-4 h-4 rounded bg-[hsl(var(--status-occupied))]" />
           <span>Check-in</span>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <div className="w-4 h-4 rounded bg-zen-400" />
+          <div className="w-4 h-4 rounded bg-[hsl(var(--status-checkout))]" />
           <span>Check-out</span>
         </div>
       </div>
@@ -227,7 +235,7 @@ export function RoomCalendar() {
                       key={idx} 
                       className={cn(
                         "w-24 p-2 text-center text-xs",
-                        isToday && "bg-blue-50",
+                        isToday && "bg-[hsl(var(--acento-turquesa)/0.08)]",
                         isWeekend && "bg-zen-50"
                       )}
                     >
@@ -236,7 +244,7 @@ export function RoomCalendar() {
                       </div>
                       <div className={cn(
                         "text-lg",
-                        isToday && "text-blue-600 font-bold"
+                        isToday && "text-[hsl(var(--acento-turquesa))] font-bold"
                       )}>
                         {date.getDate()}
                       </div>
@@ -286,7 +294,7 @@ export function RoomCalendar() {
                               key={dateIdx} 
                               className={cn(
                                 "relative h-16 border-r border-zen-100 cursor-pointer hover:bg-zen-50 transition-colors",
-                                isToday && "bg-blue-50/50",
+                                isToday && "bg-[hsl(var(--acento-turquesa)/0.05)]",
                                 isWeekend && "bg-zen-50/50"
                               )}
                               onClick={() => handleCellClick(room, date)}
@@ -321,7 +329,7 @@ export function RoomCalendar() {
                                       <TooltipContent>
                                         <div className="text-sm">
                                           <p className="font-medium">{res.guest?.full_name}</p>
-                                          <p className="text-xs text-zen-400">{res.code}</p>
+                                          <p className="text-xs text-zen-500">{res.code}</p>
                                           <p className="text-xs mt-1">
                                             {formatDate(res.checkin_date)} - {formatDate(res.checkout_date)}
                                           </p>
