@@ -102,14 +102,22 @@ export function Housekeeping() {
   return (
     <div className="space-y-6" data-testid="housekeeping-page">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      {/* En movil va en columna. En una sola fila, el titulo mas el selector
+          de 180 px y los dos botones sumaban 515 px sobre una pantalla de
+          375: la cabecera se salia 140 px y arrastraba a toda la pagina.
+          Y esta es JUSTO la pantalla que el personal de limpieza abre desde
+          el telefono. */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Housekeeping</h1>
+          {/* "Limpieza", no "Housekeeping": lo abre desde el movil quien
+              limpia las habitaciones, y el propio subtitulo ya lo decia en
+              castellano. */}
+          <h1 className="text-2xl font-bold text-slate-900">Limpieza</h1>
           <p className="text-slate-500">Gestión de limpieza de habitaciones</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Select value={filter} onValueChange={setFilter}>
-            <SelectTrigger className="w-[180px]">
+            <SelectTrigger className="w-full sm:w-[180px]">
               <SelectValue placeholder="Filtrar por estado" />
             </SelectTrigger>
             <SelectContent>
@@ -117,7 +125,7 @@ export function Housekeeping() {
               <SelectItem value="DIRTY">Sucias</SelectItem>
               <SelectItem value="CLEANING">Limpiando</SelectItem>
               <SelectItem value="CLEAN">Limpias</SelectItem>
-              <SelectItem value="OUT_OF_ORDER">Fuera de Servicio</SelectItem>
+              <SelectItem value="OUT_OF_ORDER">Fuera de servicio</SelectItem>
             </SelectContent>
           </Select>
           <div className="flex border rounded-lg overflow-hidden">

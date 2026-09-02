@@ -130,7 +130,7 @@ export function getStatusLabel(status) {
     'SUPER_ADMIN': 'Super Admin',
     'ADMIN': 'Administrador',
     'RECEPTIONIST': 'Recepcionista',
-    'HOUSEKEEPING': 'Housekeeping',
+    'HOUSEKEEPING': 'Limpieza',
     'SECURITY': 'Seguridad',
     // Cash shift
     'OPEN': 'Abierta',

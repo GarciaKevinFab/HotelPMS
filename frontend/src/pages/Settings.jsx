@@ -370,7 +370,7 @@ export function Settings() {
                           className="mt-1 w-full px-3 py-2 border rounded-md"
                         >
                           <option value="RECEPTIONIST">Recepcionista</option>
-                          <option value="HOUSEKEEPING">Housekeeping</option>
+                          <option value="HOUSEKEEPING">Limpieza</option>
                           {isSuperAdmin && <option value="ADMIN">Administrador</option>}
                         </select>
                       </div>
