@@ -12,7 +12,36 @@ module.exports = {
   			md: 'calc(var(--radius) - 2px)',
   			sm: 'calc(var(--radius) - 4px)'
   		},
+  		fontFamily: {
+  			/* Las mismas dos de la landing. Existian solo alli, asi que el
+  			   titular del login caia en la familia global (Manrope) y salia con
+  			   otra letra y otro cuerpo que el del alta: 33.6 px de Manrope
+  			   frente a 54.4 px de Bricolage. */
+  			display: ['"Bricolage Grotesque"', '"Trebuchet MS"', 'sans-serif'],
+  			cuerpo: ['Karla', '-apple-system', 'BlinkMacSystemFont', '"Segoe UI"', 'sans-serif'],
+  		},
   		colors: {
+  			/* La paleta de la marca, la MISMA que usa la landing
+  			   (backend/landing/estilo.css). Los cuatro colores salen de contar
+  			   pixeles del logotipo registrado; los tonos de superficie llevan
+  			   matiz verde para emparentar con el oliva de las barras.
+
+  			   Existe porque la pantalla de entrada se pintaba con `slate`, que
+  			   es gris AZULADO, y en la identidad de ZenStay no hay azul por
+  			   ningun lado. El resultado era que el login no se parecia al sitio
+  			   del que venia el usuario. */
+  			zen: {
+  				fondo:      '#0c1210',
+  				superficie: '#141d19',
+  				alta:       '#1b2621',
+  				borde:      '#26332d',
+  				texto:      '#e9f0ec',
+  				suave:      '#93a89c',
+  				fucsia:     '#fc3c78',
+  				turquesa:   '#00c0a8',
+  				lima:       '#cccc54',
+  				oliva:      '#90a854',
+  			},
   			background: 'hsl(var(--background))',
   			foreground: 'hsl(var(--foreground))',
   			card: {
