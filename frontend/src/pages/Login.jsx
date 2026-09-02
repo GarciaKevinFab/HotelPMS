@@ -75,7 +75,7 @@ export function Login() {
     'disabled:opacity-60';
 
   return (
-    <div className="min-h-screen bg-zen-fondo text-zen-texto">
+    <div className="flex min-h-screen flex-col bg-zen-fondo text-zen-texto">
       {/* Cabecera identica a la del alta: misma altura, mismo logotipo, y el
           enlace cruzado al otro lado del flujo. */}
       <header className="mx-auto flex w-full max-w-[1120px] items-center justify-between px-7 py-4">
@@ -88,11 +88,17 @@ export function Login() {
         </a>
       </header>
 
-      <main className="mx-auto w-full max-w-[470px] px-7 pb-24 pt-10 sm:pt-16">
+      {/* grid place-items-center sobre flex-1: el bloque queda centrado en lo
+          que sobra de alto, sea cual sea la pantalla. */}
+      <main className="grid flex-1 place-items-center px-6 py-10">
+        <div className="w-full max-w-[440px]">
+        {/* La tarjeta le da cuerpo al formulario. Sin ella, sobre un fondo
+            plano y una pantalla ancha, los campos flotaban sueltos. */}
+        <div className="rounded-[26px] border border-zen-borde bg-gradient-to-b from-zen-alta to-zen-superficie p-7 shadow-[0_40px_90px_-40px_rgba(0,0,0,.85)] sm:p-9">
         <p className="text-[.76rem] font-bold uppercase tracking-[.16em] text-zen-turquesa">
           Acceso al sistema
         </p>
-        <h1 className="font-display mt-2.5 text-[clamp(2.1rem,4.4vw,3.4rem)] font-bold leading-[1.05] tracking-[-0.038em]">
+        <h1 className="font-display mt-2.5 text-[clamp(1.9rem,3.2vw,2.5rem)] font-bold leading-[1.05] tracking-[-0.035em]">
           Entra a tu hotel
         </h1>
         <p className="mt-2 text-[.96rem] text-zen-suave">
@@ -183,13 +189,16 @@ export function Login() {
           </a>
         </p>
 
-        <p className="mt-10 text-center text-[.82rem] text-zen-suave">
+        </div>
+
+        <p className="mt-6 text-center text-[.82rem] text-zen-suave">
           <a href="/terminos" className="hover:text-zen-turquesa">Términos</a>
           {' · '}
           <a href="/privacidad" className="hover:text-zen-turquesa">Privacidad</a>
           {' · '}
           <a href="/reclamaciones" className="hover:text-zen-turquesa">Libro de Reclamaciones</a>
         </p>
+        </div>
       </main>
     </div>
   );

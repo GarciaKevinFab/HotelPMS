@@ -232,7 +232,9 @@
       ];
       // El plan intermedio se destaca: es el que encaja con la mayoria de
       // hospedajes y el que se quiere vender.
-      const destacado = p.codigo === 'pro' ? ' destacado' : '';
+      // 'recomendado' y NO 'destacado': .destacado es la clase del degradado
+      // del titular y lleva color:transparent, que dejaba el precio invisible.
+      const destacado = p.codigo === 'pro' ? ' recomendado' : '';
       return '<div class="plan' + destacado + '">' +
         '<p class="apunte">' + p.nombre + '</p>' +
         '<div class="precio">S/ ' + Number(p.precio_mensual).toFixed(0) + '<small> /mes</small></div>' +
