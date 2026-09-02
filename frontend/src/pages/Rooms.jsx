@@ -12,6 +12,7 @@ import { Input } from '../components/ui/input';
 import { Badge } from '../components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Label } from '../components/ui/label';
+import { EstadoVacio } from '../components/EstadoVacio';
 import {
   Table,
   TableBody,
@@ -176,8 +177,8 @@ export function Rooms() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Habitaciones</h1>
-          <p className="text-slate-500">Gestión de inventario de habitaciones</p>
+          <h1 className="text-2xl font-bold text-zen-900">Habitaciones</h1>
+          <p className="text-zen-500">Gestión de inventario de habitaciones</p>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" onClick={() => setShowTypeDialog(true)}>
@@ -198,23 +199,23 @@ export function Rooms() {
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         <Card className="p-4">
-          <p className="text-sm text-slate-500">Total</p>
+          <p className="text-sm text-zen-500">Total</p>
           <p className="text-2xl font-bold">{stats.total}</p>
         </Card>
         <Card className="p-4">
-          <p className="text-sm text-slate-500">Disponibles</p>
+          <p className="text-sm text-zen-500">Disponibles</p>
           <p className="text-2xl font-bold text-emerald-600">{stats.available}</p>
         </Card>
         <Card className="p-4">
-          <p className="text-sm text-slate-500">Ocupadas</p>
+          <p className="text-sm text-zen-500">Ocupadas</p>
           <p className="text-2xl font-bold text-blue-600">{stats.occupied}</p>
         </Card>
         <Card className="p-4">
-          <p className="text-sm text-slate-500">Sucias</p>
+          <p className="text-sm text-zen-500">Sucias</p>
           <p className="text-2xl font-bold text-amber-600">{stats.dirty}</p>
         </Card>
         <Card className="p-4">
-          <p className="text-sm text-slate-500">Fuera Servicio</p>
+          <p className="text-sm text-zen-500">Fuera Servicio</p>
           <p className="text-2xl font-bold text-rose-600">{stats.ooo}</p>
         </Card>
       </div>
@@ -232,7 +233,7 @@ export function Rooms() {
                   <h3 className="font-medium">{type.name}</h3>
                   <Badge variant="secondary">{type.capacity} pax</Badge>
                 </div>
-                <p className="text-lg font-bold">{formatCurrency(type.base_price)}<span className="text-sm font-normal text-slate-500">/noche</span></p>
+                <p className="text-lg font-bold">{formatCurrency(type.base_price)}<span className="text-sm font-normal text-zen-500">/noche</span></p>
                 {type.amenities?.length > 0 && (
                   <div className="flex flex-wrap gap-1 mt-2">
                     {type.amenities.map((a, i) => (
@@ -243,9 +244,15 @@ export function Rooms() {
               </div>
             ))}
             {roomTypes.length === 0 && (
-              <p className="text-slate-500 col-span-3 text-center py-4">
-                No hay tipos de habitación configurados
-              </p>
+              <div className="col-span-3">
+                <EstadoVacio
+                  icono={BedDouble}
+                  titulo="Empieza por los tipos de habitación"
+                  descripcion="Una matrimonial, una doble, una suite… Cada tipo lleva su capacidad y su precio base, y es lo que después se usa para cobrar la noche."
+                  accion="Crear el primer tipo"
+                  onAccion={() => setShowTypeDialog(true)}
+                />
+              </div>
             )}
           </div>
         </CardContent>
@@ -255,7 +262,7 @@ export function Rooms() {
       <Card className="p-4">
         <div className="flex flex-col sm:flex-row gap-4">
           <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zen-400" />
             <Input
               placeholder="Buscar por número..."
               value={searchQuery}
@@ -305,13 +312,21 @@ export function Rooms() {
             {loading ? (
               <TableRow>
                 <TableCell colSpan={6} className="text-center py-8">
-                  <div className="w-6 h-6 border-2 border-slate-200 border-t-blue-500 rounded-full animate-spin mx-auto" />
+                  <div className="w-6 h-6 border-2 border-zen-200 border-t-zen-turquesa rounded-full animate-spin mx-auto" />
                 </TableCell>
               </TableRow>
             ) : filteredRooms.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} className="text-center py-8 text-slate-500">
-                  No se encontraron habitaciones
+                <TableCell colSpan={6} className="p-0">
+                  <EstadoVacio
+                    icono={BedDouble}
+                    titulo="Todavía no hay habitaciones"
+                    descripcion="Con «Crear múltiples» cargas un piso entero de una vez: dices el rango de números y el tipo, y quedan todas."
+                    accion="Crear varias habitaciones"
+                    onAccion={() => setShowBulkDialog(true)}
+                    filtrado={rooms.length > 0}
+                    onLimpiar={() => { setSearchQuery(''); setFloorFilter('all'); setStatusFilter('all'); }}
+                  />
                 </TableCell>
               </TableRow>
             ) : (

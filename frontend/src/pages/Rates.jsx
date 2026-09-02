@@ -7,6 +7,7 @@ import {
   Tag
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
+import { EstadoVacio } from '../components/EstadoVacio';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Badge } from '../components/ui/badge';
@@ -157,8 +158,8 @@ export function Rates() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Tarifas</h1>
-          <p className="text-slate-500">Gestión de precios por temporada</p>
+          <h1 className="text-2xl font-bold text-zen-900">Tarifas</h1>
+          <p className="text-zen-500">Gestión de precios por temporada</p>
         </div>
         {isAdmin && (
           <Button onClick={() => setShowCreateDialog(true)} data-testid="create-rate-btn">
@@ -175,11 +176,11 @@ export function Rates() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="font-medium">{rt.name}</p>
-                <p className="text-sm text-slate-500">Tarifa Base</p>
+                <p className="text-sm text-zen-500">Tarifa Base</p>
               </div>
               <p className="text-2xl font-bold text-blue-600">{formatCurrency(rt.base_price)}</p>
             </div>
-            <p className="text-xs text-slate-400 mt-2">
+            <p className="text-xs text-zen-400 mt-2">
               {ratesByType[rt.id]?.length || 0} tarifas especiales configuradas
             </p>
           </Card>
@@ -226,15 +227,21 @@ export function Rates() {
               {loading ? (
                 <TableRow>
                   <TableCell colSpan={7} className="text-center py-8">
-                    <div className="w-6 h-6 border-2 border-slate-200 border-t-blue-500 rounded-full animate-spin mx-auto" />
+                    <div className="w-6 h-6 border-2 border-zen-200 border-t-zen-turquesa rounded-full animate-spin mx-auto" />
                   </TableCell>
                 </TableRow>
               ) : rates.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center py-8 text-slate-500">
-                    No hay tarifas especiales configuradas
-                  </TableCell>
-                </TableRow>
+                <TableCell colSpan={7} className="p-0">
+                  <EstadoVacio
+                    icono={DollarSign}
+                    titulo="Sin tarifas especiales"
+                    descripcion="Cada tipo de habitación ya cobra su precio base. Las especiales sirven para temporada alta, fines de semana o un rango de fechas concreto."
+                    accion="Crear una tarifa"
+                    onAccion={() => setShowCreateDialog(true)}
+                  />
+                </TableCell>
+              </TableRow>
               ) : (
                 rates.map((rate) => {
                   const basePrice = getRoomTypeBasePrice(rate.room_type_id);
@@ -248,13 +255,13 @@ export function Rates() {
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-2">
-                          <Tag className="w-4 h-4 text-slate-400" />
+                          <Tag className="w-4 h-4 text-zen-400" />
                           {rate.name || 'Sin nombre'}
                         </div>
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-2 text-sm">
-                          <Calendar className="w-4 h-4 text-slate-400" />
+                          <Calendar className="w-4 h-4 text-zen-400" />
                           {formatDate(rate.date_from)} - {formatDate(rate.date_to)}
                         </div>
                       </TableCell>
@@ -265,7 +272,7 @@ export function Rates() {
                         {rate.min_stay > 1 ? `${rate.min_stay} noches` : '-'}
                       </TableCell>
                       <TableCell>
-                        <Badge className={diff > 0 ? 'bg-emerald-100 text-emerald-700' : diff < 0 ? 'bg-rose-100 text-rose-700' : 'bg-slate-100 text-slate-700'}>
+                        <Badge className={diff > 0 ? 'bg-emerald-100 text-emerald-700' : diff < 0 ? 'bg-rose-100 text-rose-700' : 'bg-zen-100 text-zen-700'}>
                           {diff > 0 ? '+' : ''}{diffPercent}%
                         </Badge>
                       </TableCell>

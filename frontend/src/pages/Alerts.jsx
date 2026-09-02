@@ -70,7 +70,7 @@ export function Alerts() {
       case 'CRITICAL': return <XCircle className="w-5 h-5 text-rose-500" />;
       case 'WARN': return <AlertTriangle className="w-5 h-5 text-amber-500" />;
       case 'INFO': return <Info className="w-5 h-5 text-blue-500" />;
-      default: return <Bell className="w-5 h-5 text-slate-400" />;
+      default: return <Bell className="w-5 h-5 text-zen-400" />;
     }
   };
 
@@ -79,7 +79,7 @@ export function Alerts() {
       case 'CRITICAL': return 'border-l-rose-500 bg-rose-50';
       case 'WARN': return 'border-l-amber-500 bg-amber-50';
       case 'INFO': return 'border-l-blue-500 bg-blue-50';
-      default: return 'border-l-slate-300 bg-slate-50';
+      default: return 'border-l-zen-300 bg-zen-50';
     }
   };
 
@@ -95,8 +95,8 @@ export function Alerts() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Centro de Alertas</h1>
-          <p className="text-slate-500">Gestión de notificaciones del sistema</p>
+          <h1 className="text-2xl font-bold text-zen-900">Centro de Alertas</h1>
+          <p className="text-zen-500">Gestión de notificaciones del sistema</p>
         </div>
       </div>
 
@@ -104,12 +104,12 @@ export function Alerts() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <Card className="p-4">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-slate-100 rounded-lg">
-              <Bell className="w-5 h-5 text-slate-600" />
+            <div className="p-2 bg-zen-100 rounded-lg">
+              <Bell className="w-5 h-5 text-zen-600" />
             </div>
             <div>
               <p className="text-2xl font-bold">{stats.total}</p>
-              <p className="text-sm text-slate-500">Total</p>
+              <p className="text-sm text-zen-500">Total</p>
             </div>
           </div>
         </Card>
@@ -120,7 +120,7 @@ export function Alerts() {
             </div>
             <div>
               <p className="text-2xl font-bold text-rose-600">{stats.critical}</p>
-              <p className="text-sm text-slate-500">Críticas</p>
+              <p className="text-sm text-zen-500">Críticas</p>
             </div>
           </div>
         </Card>
@@ -131,7 +131,7 @@ export function Alerts() {
             </div>
             <div>
               <p className="text-2xl font-bold text-amber-600">{stats.warn}</p>
-              <p className="text-sm text-slate-500">Advertencias</p>
+              <p className="text-sm text-zen-500">Advertencias</p>
             </div>
           </div>
         </Card>
@@ -142,7 +142,7 @@ export function Alerts() {
             </div>
             <div>
               <p className="text-2xl font-bold text-blue-600">{stats.info}</p>
-              <p className="text-sm text-slate-500">Información</p>
+              <p className="text-sm text-zen-500">Información</p>
             </div>
           </div>
         </Card>
@@ -176,13 +176,13 @@ export function Alerts() {
       {/* Alerts List */}
       {loading ? (
         <div className="flex items-center justify-center py-12">
-          <div className="w-8 h-8 border-4 border-slate-200 border-t-blue-500 rounded-full animate-spin" />
+          <div className="w-8 h-8 border-4 border-zen-200 border-t-zen-turquesa rounded-full animate-spin" />
         </div>
       ) : alerts.length === 0 ? (
         <Card className="p-12 text-center">
           <Check className="w-16 h-16 text-emerald-500 mx-auto mb-4" />
           <h3 className="text-xl font-medium mb-2">Sin alertas</h3>
-          <p className="text-slate-500">No hay alertas que mostrar con los filtros seleccionados</p>
+          <p className="text-zen-500">No hay alertas que mostrar con los filtros seleccionados</p>
         </Card>
       ) : (
         <div className="space-y-3">
@@ -210,8 +210,8 @@ export function Alerts() {
                         </Badge>
                       )}
                     </div>
-                    <p className="text-sm text-slate-600">{alert.message}</p>
-                    <p className="text-xs text-slate-400 mt-2">
+                    <p className="text-sm text-zen-600">{alert.message}</p>
+                    <p className="text-xs text-zen-400 mt-2">
                       {formatDateTime(alert.created_at)}
                       {alert.resolved_at && ` • Resuelta: ${formatDateTime(alert.resolved_at)}`}
                     </p>
@@ -246,9 +246,9 @@ export function Alerts() {
           </DialogHeader>
           {selectedAlert && (
             <div className="py-4 space-y-4">
-              <div className="p-3 bg-slate-50 rounded-lg">
+              <div className="p-3 bg-zen-50 rounded-lg">
                 <p className="font-medium">{selectedAlert.title}</p>
-                <p className="text-sm text-slate-600">{selectedAlert.message}</p>
+                <p className="text-sm text-zen-600">{selectedAlert.message}</p>
               </div>
               <div>
                 <label className="text-sm font-medium">Notas (opcional)</label>

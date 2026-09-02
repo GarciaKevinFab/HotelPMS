@@ -9,6 +9,7 @@ import {
   Building
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
+import { EstadoVacio } from '../components/EstadoVacio';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Badge } from '../components/ui/badge';
@@ -182,8 +183,8 @@ export function GroupReservations() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Reservas Grupales</h1>
-          <p className="text-slate-500">Gestión de grupos y eventos</p>
+          <h1 className="text-2xl font-bold text-zen-900">Reservas Grupales</h1>
+          <p className="text-zen-500">Gestión de grupos y eventos</p>
         </div>
         <Button onClick={() => setShowCreateDialog(true)} data-testid="create-group-btn">
           <Plus className="w-4 h-4 mr-2" />
@@ -194,19 +195,19 @@ export function GroupReservations() {
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <Card className="p-4">
-          <p className="text-sm text-slate-500">Total Grupos</p>
+          <p className="text-sm text-zen-500">Total Grupos</p>
           <p className="text-2xl font-bold">{stats.total}</p>
         </Card>
         <Card className="p-4">
-          <p className="text-sm text-slate-500">Confirmados</p>
+          <p className="text-sm text-zen-500">Confirmados</p>
           <p className="text-2xl font-bold text-emerald-600">{stats.confirmed}</p>
         </Card>
         <Card className="p-4">
-          <p className="text-sm text-slate-500">Total Habitaciones</p>
+          <p className="text-sm text-zen-500">Total Habitaciones</p>
           <p className="text-2xl font-bold">{stats.totalRooms}</p>
         </Card>
         <Card className="p-4">
-          <p className="text-sm text-slate-500">Ingreso Estimado</p>
+          <p className="text-sm text-zen-500">Ingreso Estimado</p>
           <p className="text-2xl font-bold">{formatCurrency(stats.totalRevenue)}</p>
         </Card>
       </div>
@@ -230,13 +231,19 @@ export function GroupReservations() {
             {loading ? (
               <TableRow>
                 <TableCell colSpan={8} className="text-center py-8">
-                  <div className="w-6 h-6 border-2 border-slate-200 border-t-blue-500 rounded-full animate-spin mx-auto" />
+                  <div className="w-6 h-6 border-2 border-zen-200 border-t-zen-turquesa rounded-full animate-spin mx-auto" />
                 </TableCell>
               </TableRow>
             ) : groups.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={8} className="text-center py-8 text-slate-500">
-                  No hay reservas grupales
+                <TableCell colSpan={8} className="p-0">
+                  <EstadoVacio
+                    icono={Users}
+                    titulo="Sin reservas de grupo"
+                    descripcion="Sirven para delegaciones, promociones o empresas: varias habitaciones bajo un mismo titular y una sola cuenta."
+                    accion="Crear una reserva de grupo"
+                    onAccion={() => setShowCreateDialog(true)}
+                  />
                 </TableCell>
               </TableRow>
             ) : (
@@ -245,7 +252,7 @@ export function GroupReservations() {
                   <TableCell className="font-mono font-medium">{group.code}</TableCell>
                   <TableCell>
                     <div className="flex items-center gap-2">
-                      <Building className="w-4 h-4 text-slate-400" />
+                      <Building className="w-4 h-4 text-zen-400" />
                       <span className="font-medium">{group.group_name}</span>
                     </div>
                   </TableCell>
@@ -253,7 +260,7 @@ export function GroupReservations() {
                     <div className="text-sm">
                       <p>{group.contact_name}</p>
                       {group.contact_phone && (
-                        <p className="text-slate-500 flex items-center gap-1">
+                        <p className="text-zen-500 flex items-center gap-1">
                           <Phone className="w-3 h-3" /> {group.contact_phone}
                         </p>
                       )}
@@ -262,7 +269,7 @@ export function GroupReservations() {
                   <TableCell>
                     <div className="text-sm">
                       <p>{formatDate(group.checkin_date)}</p>
-                      <p className="text-slate-500">→ {formatDate(group.checkout_date)}</p>
+                      <p className="text-zen-500">→ {formatDate(group.checkout_date)}</p>
                     </div>
                   </TableCell>
                   <TableCell>
@@ -475,9 +482,9 @@ export function GroupReservations() {
           </DialogHeader>
           {selectedGroup && (
             <div className="space-y-6">
-              <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg">
+              <div className="flex items-center justify-between p-4 bg-zen-50 rounded-lg">
                 <div>
-                  <p className="text-sm text-slate-500">Código</p>
+                  <p className="text-sm text-zen-500">Código</p>
                   <p className="text-xl font-bold font-mono">{selectedGroup.code}</p>
                 </div>
                 <Badge className={cn("badge", getStatusClass(selectedGroup.status))}>
@@ -487,27 +494,27 @@ export function GroupReservations() {
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <p className="text-sm text-slate-500">Grupo</p>
+                  <p className="text-sm text-zen-500">Grupo</p>
                   <p className="font-medium">{selectedGroup.group_name}</p>
                 </div>
                 <div>
-                  <p className="text-sm text-slate-500">Contacto</p>
+                  <p className="text-sm text-zen-500">Contacto</p>
                   <p className="font-medium">{selectedGroup.contact_name}</p>
                 </div>
                 <div>
-                  <p className="text-sm text-slate-500">Check-in</p>
+                  <p className="text-sm text-zen-500">Check-in</p>
                   <p className="font-medium">{formatDate(selectedGroup.checkin_date)}</p>
                 </div>
                 <div>
-                  <p className="text-sm text-slate-500">Check-out</p>
+                  <p className="text-sm text-zen-500">Check-out</p>
                   <p className="font-medium">{formatDate(selectedGroup.checkout_date)}</p>
                 </div>
                 <div>
-                  <p className="text-sm text-slate-500">Total Habitaciones</p>
+                  <p className="text-sm text-zen-500">Total Habitaciones</p>
                   <p className="font-medium">{selectedGroup.total_rooms}</p>
                 </div>
                 <div>
-                  <p className="text-sm text-slate-500">Total Estimado</p>
+                  <p className="text-sm text-zen-500">Total Estimado</p>
                   <p className="font-medium text-lg">{formatCurrency(selectedGroup.total_estimated)}</p>
                 </div>
               </div>

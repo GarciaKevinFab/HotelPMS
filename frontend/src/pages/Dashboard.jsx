@@ -121,7 +121,7 @@ export function Dashboard() {
       value: kpis?.today?.rooms_dirty || 0, 
       subtext: 'Pendientes limpieza',
       icon: SprayCan,
-      color: kpis?.today?.rooms_dirty > 5 ? 'text-rose-600' : 'text-slate-600'
+      color: kpis?.today?.rooms_dirty > 5 ? 'text-rose-600' : 'text-zen-600'
     },
     { 
       label: 'Ingresos Hoy', 
@@ -135,7 +135,7 @@ export function Dashboard() {
       value: formatCurrency(kpis?.today?.outstanding || 0), 
       subtext: 'En folios abiertos',
       icon: AlertTriangle,
-      color: kpis?.today?.outstanding > 0 ? 'text-amber-600' : 'text-slate-600'
+      color: kpis?.today?.outstanding > 0 ? 'text-amber-600' : 'text-zen-600'
     },
   ];
 
@@ -151,10 +151,10 @@ export function Dashboard() {
       {/* Page header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Panel</h1>
-          <p className="text-slate-500">Resumen operativo del día</p>
+          <h1 className="text-2xl font-bold text-zen-900">Panel</h1>
+          <p className="text-zen-500">Resumen operativo del día</p>
         </div>
-        <div className="flex items-center gap-2 text-sm text-slate-500">
+        <div className="flex items-center gap-2 text-sm text-zen-500">
           <Calendar className="w-4 h-4" />
           {formatDate(new Date().toISOString())}
         </div>
@@ -168,11 +168,11 @@ export function Dashboard() {
             <Card key={index} className="kpi-card" data-testid={`kpi-card-${index}`}>
               <div className="flex items-start justify-between">
                 <div>
-                  <p className="text-sm text-slate-500">{kpi.label}</p>
-                  <p className="text-2xl font-bold text-slate-900 mt-1">{kpi.value}</p>
-                  <p className="text-xs text-slate-400 mt-1">{kpi.subtext}</p>
+                  <p className="text-sm text-zen-500">{kpi.label}</p>
+                  <p className="text-2xl font-bold text-zen-900 mt-1">{kpi.value}</p>
+                  <p className="text-xs text-zen-400 mt-1">{kpi.subtext}</p>
                 </div>
-                <div className={`p-2 rounded-lg bg-slate-100 ${kpi.color}`}>
+                <div className={`p-2 rounded-lg bg-zen-100 ${kpi.color}`}>
                   <Icon className="w-5 h-5" />
                 </div>
               </div>
@@ -184,24 +184,24 @@ export function Dashboard() {
       {/* Monthly KPIs */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         <Card className="p-4">
-          <p className="text-sm text-slate-500">Ingresos del Mes</p>
-          <p className="text-xl font-bold text-slate-900 mt-1">{formatCurrency(kpis?.month?.revenue || 0)}</p>
+          <p className="text-sm text-zen-500">Ingresos del Mes</p>
+          <p className="text-xl font-bold text-zen-900 mt-1">{formatCurrency(kpis?.month?.revenue || 0)}</p>
         </Card>
         <Card className="p-4">
-          <p className="text-sm text-slate-500">ADR</p>
-          <p className="text-xl font-bold text-slate-900 mt-1">{formatCurrency(kpis?.month?.adr || 0)}</p>
+          <p className="text-sm text-zen-500">ADR</p>
+          <p className="text-xl font-bold text-zen-900 mt-1">{formatCurrency(kpis?.month?.adr || 0)}</p>
         </Card>
         <Card className="p-4">
-          <p className="text-sm text-slate-500">RevPAR</p>
-          <p className="text-xl font-bold text-slate-900 mt-1">{formatCurrency(kpis?.month?.revpar || 0)}</p>
+          <p className="text-sm text-zen-500">RevPAR</p>
+          <p className="text-xl font-bold text-zen-900 mt-1">{formatCurrency(kpis?.month?.revpar || 0)}</p>
         </Card>
         <Card className="p-4">
-          <p className="text-sm text-slate-500">Cancelaciones</p>
-          <p className="text-xl font-bold text-slate-900 mt-1">{kpis?.month?.cancellations || 0}</p>
+          <p className="text-sm text-zen-500">Cancelaciones</p>
+          <p className="text-xl font-bold text-zen-900 mt-1">{kpis?.month?.cancellations || 0}</p>
         </Card>
         <Card className="p-4">
-          <p className="text-sm text-slate-500">No Shows</p>
-          <p className="text-xl font-bold text-slate-900 mt-1">{kpis?.month?.no_shows || 0}</p>
+          <p className="text-sm text-zen-500">No Shows</p>
+          <p className="text-xl font-bold text-zen-900 mt-1">{kpis?.month?.no_shows || 0}</p>
         </Card>
       </div>
 
@@ -311,7 +311,7 @@ export function Dashboard() {
               {roomStatusArray.map((item, i) => (
                 <div key={i} className="flex items-center gap-2 text-sm">
                   <div className="w-3 h-3 rounded-full" style={{ backgroundColor: item.color }} />
-                  <span className="text-slate-600">{item.name}: <span className="font-medium">{item.value}</span></span>
+                  <span className="text-zen-600">{item.name}: <span className="font-medium">{item.value}</span></span>
                 </div>
               ))}
             </div>
@@ -348,7 +348,7 @@ export function Dashboard() {
                 <div key={i} className="flex items-center justify-between text-sm">
                   <div className="flex items-center gap-2">
                     <div className="w-3 h-3 rounded-full" style={{ backgroundColor: PAYMENT_COLORS[i % PAYMENT_COLORS.length] }} />
-                    <span className="text-slate-600">{getStatusLabel(item.method)}</span>
+                    <span className="text-zen-600">{getStatusLabel(item.method)}</span>
                   </div>
                   <span className="font-medium">{formatCurrency(item.total)}</span>
                 </div>

@@ -125,8 +125,8 @@ export function Reports() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Reportes</h1>
-          <p className="text-slate-500">Análisis y métricas del hotel</p>
+          <h1 className="text-2xl font-bold text-zen-900">Reportes</h1>
+          <p className="text-zen-500">Análisis y métricas del hotel</p>
         </div>
         <div className="flex items-center gap-2">
           <Select value={String(selectedMonth)} onValueChange={(v) => setSelectedMonth(parseInt(v))}>
@@ -192,34 +192,34 @@ export function Reports() {
         <TabsContent value="occupancy" className="space-y-6">
           {loading ? (
             <div className="flex items-center justify-center py-12">
-              <div className="w-8 h-8 border-4 border-slate-200 border-t-blue-500 rounded-full animate-spin" />
+              <div className="w-8 h-8 border-4 border-zen-200 border-t-zen-turquesa rounded-full animate-spin" />
             </div>
           ) : occupancyReport ? (
             <>
               {/* Summary Cards */}
               <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
                 <Card className="p-4">
-                  <p className="text-sm text-slate-500">Ocupación Promedio</p>
+                  <p className="text-sm text-zen-500">Ocupación Promedio</p>
                   <p className="text-2xl font-bold">{occupancyReport.summary.occupancy_avg}%</p>
                 </Card>
                 <Card className="p-4">
-                  <p className="text-sm text-slate-500">Noches Vendidas</p>
+                  <p className="text-sm text-zen-500">Noches Vendidas</p>
                   <p className="text-2xl font-bold">{occupancyReport.summary.room_nights_sold}</p>
                 </Card>
                 <Card className="p-4">
-                  <p className="text-sm text-slate-500">Check-ins</p>
+                  <p className="text-sm text-zen-500">Check-ins</p>
                   <p className="text-2xl font-bold">{occupancyReport.summary.checkins}</p>
                 </Card>
                 <Card className="p-4">
-                  <p className="text-sm text-slate-500">Check-outs</p>
+                  <p className="text-sm text-zen-500">Check-outs</p>
                   <p className="text-2xl font-bold">{occupancyReport.summary.checkouts}</p>
                 </Card>
                 <Card className="p-4">
-                  <p className="text-sm text-slate-500">ADR</p>
+                  <p className="text-sm text-zen-500">ADR</p>
                   <p className="text-2xl font-bold">{formatCurrency(occupancyReport.summary.adr)}</p>
                 </Card>
                 <Card className="p-4">
-                  <p className="text-sm text-slate-500">RevPAR</p>
+                  <p className="text-sm text-zen-500">RevPAR</p>
                   <p className="text-2xl font-bold">{formatCurrency(occupancyReport.summary.revpar)}</p>
                 </Card>
               </div>
@@ -227,21 +227,21 @@ export function Reports() {
               {/* Additional stats */}
               <div className="grid grid-cols-3 gap-4">
                 <Card className="p-4">
-                  <p className="text-sm text-slate-500">Cancelaciones</p>
+                  <p className="text-sm text-zen-500">Cancelaciones</p>
                   <p className="text-xl font-bold text-amber-600">{occupancyReport.summary.cancellations}</p>
                 </Card>
                 <Card className="p-4">
-                  <p className="text-sm text-slate-500">No Shows</p>
+                  <p className="text-sm text-zen-500">No Shows</p>
                   <p className="text-xl font-bold text-rose-600">{occupancyReport.summary.no_shows}</p>
                 </Card>
                 <Card className="p-4">
-                  <p className="text-sm text-slate-500">Ingresos Habitaciones</p>
+                  <p className="text-sm text-zen-500">Ingresos Habitaciones</p>
                   <p className="text-xl font-bold text-emerald-600">{formatCurrency(occupancyReport.summary.room_revenue)}</p>
                 </Card>
               </div>
             </>
           ) : (
-            <Card className="p-8 text-center text-slate-500">
+            <Card className="p-8 text-center text-zen-500">
               No hay datos disponibles para este período
             </Card>
           )}
@@ -251,26 +251,26 @@ export function Reports() {
         <TabsContent value="revenue" className="space-y-6">
           {loading ? (
             <div className="flex items-center justify-center py-12">
-              <div className="w-8 h-8 border-4 border-slate-200 border-t-blue-500 rounded-full animate-spin" />
+              <div className="w-8 h-8 border-4 border-zen-200 border-t-zen-turquesa rounded-full animate-spin" />
             </div>
           ) : revenueReport ? (
             <>
               {/* Summary Cards */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <Card className="p-4">
-                  <p className="text-sm text-slate-500">Total Cargos</p>
+                  <p className="text-sm text-zen-500">Total Cargos</p>
                   <p className="text-2xl font-bold">{formatCurrency(revenueReport.summary.total_charges)}</p>
                 </Card>
                 <Card className="p-4">
-                  <p className="text-sm text-slate-500">Total Pagos</p>
+                  <p className="text-sm text-zen-500">Total Pagos</p>
                   <p className="text-2xl font-bold text-emerald-600">{formatCurrency(revenueReport.summary.total_payments)}</p>
                 </Card>
                 <Card className="p-4">
-                  <p className="text-sm text-slate-500">Ingresos Habitaciones</p>
+                  <p className="text-sm text-zen-500">Ingresos Habitaciones</p>
                   <p className="text-2xl font-bold">{formatCurrency(revenueReport.summary.rooms_revenue)}</p>
                 </Card>
                 <Card className="p-4">
-                  <p className="text-sm text-slate-500">Ingresos Extras</p>
+                  <p className="text-sm text-zen-500">Ingresos Extras</p>
                   <p className="text-2xl font-bold">{formatCurrency(revenueReport.summary.extras_revenue)}</p>
                 </Card>
               </div>
@@ -316,7 +316,7 @@ export function Reports() {
               </div>
             </>
           ) : (
-            <Card className="p-8 text-center text-slate-500">
+            <Card className="p-8 text-center text-zen-500">
               No hay datos disponibles para este período
             </Card>
           )}
@@ -326,26 +326,26 @@ export function Reports() {
         <TabsContent value="invoicing" className="space-y-6">
           {loading ? (
             <div className="flex items-center justify-center py-12">
-              <div className="w-8 h-8 border-4 border-slate-200 border-t-blue-500 rounded-full animate-spin" />
+              <div className="w-8 h-8 border-4 border-zen-200 border-t-zen-turquesa rounded-full animate-spin" />
             </div>
           ) : invoicingReport ? (
             <>
               {/* Summary Cards */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <Card className="p-4">
-                  <p className="text-sm text-slate-500">Total Comprobantes</p>
+                  <p className="text-sm text-zen-500">Total Comprobantes</p>
                   <p className="text-2xl font-bold">{invoicingReport.summary.total_invoices}</p>
                 </Card>
                 <Card className="p-4">
-                  <p className="text-sm text-slate-500">Monto Total</p>
+                  <p className="text-sm text-zen-500">Monto Total</p>
                   <p className="text-2xl font-bold text-emerald-600">{formatCurrency(invoicingReport.summary.total_amount)}</p>
                 </Card>
                 <Card className="p-4">
-                  <p className="text-sm text-slate-500">Boletas</p>
+                  <p className="text-sm text-zen-500">Boletas</p>
                   <p className="text-2xl font-bold">{invoicingReport.by_type?.BOLETA?.count || 0}</p>
                 </Card>
                 <Card className="p-4">
-                  <p className="text-sm text-slate-500">Facturas</p>
+                  <p className="text-sm text-zen-500">Facturas</p>
                   <p className="text-2xl font-bold">{invoicingReport.by_type?.FACTURA?.count || 0}</p>
                 </Card>
               </div>
@@ -391,7 +391,7 @@ export function Reports() {
               </div>
             </>
           ) : (
-            <Card className="p-8 text-center text-slate-500">
+            <Card className="p-8 text-center text-zen-500">
               No hay datos disponibles para este período
             </Card>
           )}

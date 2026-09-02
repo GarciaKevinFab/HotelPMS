@@ -92,8 +92,8 @@ export function Housekeeping() {
     return (
       <div className="flex items-center justify-center h-96">
         <div className="text-center">
-          <div className="w-8 h-8 border-4 border-slate-200 border-t-blue-500 rounded-full animate-spin mx-auto"></div>
-          <p className="mt-2 text-slate-500">Cargando...</p>
+          <div className="w-8 h-8 border-4 border-zen-200 border-t-zen-turquesa rounded-full animate-spin mx-auto"></div>
+          <p className="mt-2 text-zen-500">Cargando...</p>
         </div>
       </div>
     );
@@ -112,8 +112,8 @@ export function Housekeeping() {
           {/* "Limpieza", no "Housekeeping": lo abre desde el movil quien
               limpia las habitaciones, y el propio subtitulo ya lo decia en
               castellano. */}
-          <h1 className="text-2xl font-bold text-slate-900">Limpieza</h1>
-          <p className="text-slate-500">Gestión de limpieza de habitaciones</p>
+          <h1 className="text-2xl font-bold text-zen-900">Limpieza</h1>
+          <p className="text-zen-500">Gestión de limpieza de habitaciones</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Select value={filter} onValueChange={setFilter}>
@@ -179,7 +179,7 @@ export function Housekeeping() {
             return (
               <div key={floor} className="hk-floor-section">
                 <h2 className="hk-floor-title">
-                  <SprayCan className="w-5 h-5 text-slate-400" />
+                  <SprayCan className="w-5 h-5 text-zen-400" />
                   Piso {floor}
                   <Badge variant="secondary" className="ml-2">
                     {rooms.filter(r => r.housekeeping_status === 'DIRTY').length} sucias
@@ -203,7 +203,7 @@ export function Housekeeping() {
                         <span className="text-lg font-bold">{room.number}</span>
                         {getStatusIcon(room.housekeeping_status)}
                       </div>
-                      <p className="text-sm text-slate-600">
+                      <p className="text-sm text-zen-600">
                         {getStatusLabel(room.housekeeping_status)}
                       </p>
                       {room.occupancy_status === 'OCCUPIED' && (
@@ -213,7 +213,7 @@ export function Housekeeping() {
                       )}
                       
                       {room.housekeeping_status !== 'OUT_OF_ORDER' && room.housekeeping_status !== 'CLEAN' && (
-                        <div className="mt-3 pt-3 border-t border-slate-200 space-y-1">
+                        <div className="mt-3 pt-3 border-t border-zen-200 space-y-1">
                           {room.housekeeping_status === 'DIRTY' && (
                             <Button 
                               size="sm" 
@@ -255,7 +255,7 @@ export function Housekeeping() {
             <Card className="p-8 text-center">
               <Check className="w-12 h-12 text-emerald-500 mx-auto mb-4" />
               <h3 className="text-lg font-medium">¡Todas las tareas completadas!</h3>
-              <p className="text-slate-500">No hay tareas pendientes de limpieza</p>
+              <p className="text-zen-500">No hay tareas pendientes de limpieza</p>
             </Card>
           ) : (
             tasks.map(task => (
@@ -270,7 +270,7 @@ export function Housekeeping() {
                     </div>
                     <div>
                       <p className="font-medium">Habitación {task.room?.number}</p>
-                      <p className="text-sm text-slate-500">Piso {task.room?.floor}</p>
+                      <p className="text-sm text-zen-500">Piso {task.room?.floor}</p>
                       <Badge variant={task.priority === 'HIGH' ? 'destructive' : 'secondary'} className="mt-1">
                         Prioridad {task.priority === 'HIGH' ? 'Alta' : 'Normal'}
                       </Badge>

@@ -139,7 +139,7 @@ export function Settings() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-96">
-        <div className="w-8 h-8 border-4 border-slate-200 border-t-blue-500 rounded-full animate-spin" />
+        <div className="w-8 h-8 border-4 border-zen-200 border-t-zen-turquesa rounded-full animate-spin" />
       </div>
     );
   }
@@ -148,8 +148,8 @@ export function Settings() {
     <div className="space-y-6" data-testid="settings-page">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-slate-900">Configuración</h1>
-        <p className="text-slate-500">Ajustes del sistema y facturación</p>
+        <h1 className="text-2xl font-bold text-zen-900">Configuración</h1>
+        <p className="text-zen-500">Ajustes del sistema y facturación</p>
       </div>
 
       <Tabs defaultValue="invoicing" className="space-y-6">
@@ -184,14 +184,14 @@ export function Settings() {
             </CardHeader>
             <CardContent className="space-y-6">
               {/* Mode indicator */}
-              <div className="flex items-center justify-between p-4 rounded-lg bg-slate-50">
+              <div className="flex items-center justify-between p-4 rounded-lg bg-zen-50">
                 <div className="flex items-center gap-3">
                   {invoicingConfig.nubefact_token ? (
                     <>
                       <CheckCircle className="w-5 h-5 text-emerald-500" />
                       <div>
                         <p className="font-medium">Modo Producción</p>
-                        <p className="text-sm text-slate-500">Facturas enviadas a SUNAT</p>
+                        <p className="text-sm text-zen-500">Facturas enviadas a SUNAT</p>
                       </div>
                     </>
                   ) : (
@@ -199,7 +199,7 @@ export function Settings() {
                       <AlertTriangle className="w-5 h-5 text-amber-500" />
                       <div>
                         <p className="font-medium">Modo Pruebas (MOCK)</p>
-                        <p className="text-sm text-slate-500">Facturas simuladas, no enviadas a SUNAT</p>
+                        <p className="text-sm text-zen-500">Facturas simuladas, no enviadas a SUNAT</p>
                       </div>
                     </>
                   )}
@@ -223,7 +223,7 @@ export function Settings() {
                     className="mt-2"
                     data-testid="nubefact-ruta-input"
                   />
-                  <p className="text-xs text-slate-500 mt-1">
+                  <p className="text-xs text-zen-500 mt-1">
                     La URL proporcionada por NubeFact para su cuenta
                   </p>
                 </div>
@@ -250,7 +250,7 @@ export function Settings() {
                       {showToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </Button>
                   </div>
-                  <p className="text-xs text-slate-500 mt-1">
+                  <p className="text-xs text-zen-500 mt-1">
                     El token de su cuenta NubeFact. Nunca compartir este valor.
                   </p>
                 </div>
@@ -279,32 +279,32 @@ export function Settings() {
               {tenant ? (
                 <div className="grid grid-cols-2 gap-6">
                   <div>
-                    <Label className="text-slate-500">Razón Social</Label>
+                    <Label className="text-zen-500">Razón Social</Label>
                     <p className="font-medium mt-1">{tenant.name}</p>
                   </div>
                   <div>
-                    <Label className="text-slate-500">Nombre Comercial</Label>
+                    <Label className="text-zen-500">Nombre Comercial</Label>
                     <p className="font-medium mt-1">{tenant.nombre_comercial || '-'}</p>
                   </div>
                   <div>
-                    <Label className="text-slate-500">RUC</Label>
+                    <Label className="text-zen-500">RUC</Label>
                     <p className="font-medium mt-1">{tenant.ruc}</p>
                   </div>
                   <div>
-                    <Label className="text-slate-500">Dirección</Label>
+                    <Label className="text-zen-500">Dirección</Label>
                     <p className="font-medium mt-1">{tenant.address || '-'}</p>
                   </div>
                   <div>
-                    <Label className="text-slate-500">Teléfono</Label>
+                    <Label className="text-zen-500">Teléfono</Label>
                     <p className="font-medium mt-1">{tenant.phone || '-'}</p>
                   </div>
                   <div>
-                    <Label className="text-slate-500">Email</Label>
+                    <Label className="text-zen-500">Email</Label>
                     <p className="font-medium mt-1">{tenant.email || '-'}</p>
                   </div>
                 </div>
               ) : (
-                <p className="text-slate-500">No hay información del hotel disponible</p>
+                <p className="text-zen-500">No hay información del hotel disponible</p>
               )}
             </CardContent>
           </Card>
@@ -333,7 +333,7 @@ export function Settings() {
               <CardContent>
                 {/* New User Form */}
                 {showUserForm && (
-                  <div className="mb-6 p-4 border rounded-lg bg-slate-50">
+                  <div className="mb-6 p-4 border rounded-lg bg-zen-50">
                     <h4 className="font-medium mb-4">Crear Nuevo Usuario</h4>
                     <div className="grid grid-cols-2 gap-4">
                       <div>
@@ -391,12 +391,12 @@ export function Settings() {
                   {users.map(u => (
                     <div key={u.id} className="flex items-center justify-between p-4 border rounded-lg">
                       <div className="flex items-center gap-4">
-                        <div className="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center">
-                          <Users className="w-5 h-5 text-slate-500" />
+                        <div className="w-10 h-10 bg-zen-100 rounded-full flex items-center justify-center">
+                          <Users className="w-5 h-5 text-zen-500" />
                         </div>
                         <div>
                           <p className="font-medium">{u.full_name}</p>
-                          <p className="text-sm text-slate-500">{u.email}</p>
+                          <p className="text-sm text-zen-500">{u.email}</p>
                         </div>
                       </div>
                       <div className="flex items-center gap-4">
@@ -416,7 +416,7 @@ export function Settings() {
                     </div>
                   ))}
                   {users.length === 0 && (
-                    <p className="text-center text-slate-500 py-8">No hay usuarios registrados</p>
+                    <p className="text-center text-zen-500 py-8">No hay usuarios registrados</p>
                   )}
                 </div>
               </CardContent>

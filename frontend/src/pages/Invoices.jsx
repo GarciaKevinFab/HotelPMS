@@ -13,6 +13,7 @@ import {
   AlertCircle
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
+import { EstadoVacio } from '../components/EstadoVacio';
 import { Input } from '../components/ui/input';
 import { Badge } from '../components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
@@ -121,7 +122,7 @@ export function Invoices() {
       case 'ACCEPTED': return <Check className="w-4 h-4 text-emerald-500" />;
       case 'REJECTED': return <XCircle className="w-4 h-4 text-rose-500" />;
       case 'PENDING': return <RefreshCw className="w-4 h-4 text-amber-500" />;
-      default: return <AlertCircle className="w-4 h-4 text-slate-400" />;
+      default: return <AlertCircle className="w-4 h-4 text-zen-400" />;
     }
   };
 
@@ -148,8 +149,8 @@ export function Invoices() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Facturación</h1>
-          <p className="text-slate-500">Gestión de comprobantes electrónicos</p>
+          <h1 className="text-2xl font-bold text-zen-900">Facturación</h1>
+          <p className="text-zen-500">Gestión de comprobantes electrónicos</p>
         </div>
         <Button variant="outline" onClick={fetchInvoices}>
           <RefreshCw className="w-4 h-4 mr-2" />
@@ -160,19 +161,19 @@ export function Invoices() {
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <Card className="p-4">
-          <p className="text-sm text-slate-500">Total Comprobantes</p>
+          <p className="text-sm text-zen-500">Total Comprobantes</p>
           <p className="text-2xl font-bold">{stats.total}</p>
         </Card>
         <Card className="p-4">
-          <p className="text-sm text-slate-500">Aceptados</p>
+          <p className="text-sm text-zen-500">Aceptados</p>
           <p className="text-2xl font-bold text-emerald-600">{stats.accepted}</p>
         </Card>
         <Card className="p-4">
-          <p className="text-sm text-slate-500">Rechazados</p>
+          <p className="text-sm text-zen-500">Rechazados</p>
           <p className="text-2xl font-bold text-rose-600">{stats.rejected}</p>
         </Card>
         <Card className="p-4">
-          <p className="text-sm text-slate-500">Monto Total Aceptado</p>
+          <p className="text-sm text-zen-500">Monto Total Aceptado</p>
           <p className="text-2xl font-bold">{formatCurrency(stats.totalAmount)}</p>
         </Card>
       </div>
@@ -181,7 +182,7 @@ export function Invoices() {
       <Card className="p-4">
         <div className="flex flex-col sm:flex-row gap-4">
           <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zen-400" />
             <Input
               placeholder="Buscar por número, cliente..."
               value={searchQuery}
@@ -231,13 +232,19 @@ export function Invoices() {
             {loading ? (
               <TableRow>
                 <TableCell colSpan={6} className="text-center py-8">
-                  <div className="w-6 h-6 border-2 border-slate-200 border-t-blue-500 rounded-full animate-spin mx-auto" />
+                  <div className="w-6 h-6 border-2 border-zen-200 border-t-zen-turquesa rounded-full animate-spin mx-auto" />
                 </TableCell>
               </TableRow>
             ) : filteredInvoices.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} className="text-center py-8 text-slate-500">
-                  No se encontraron comprobantes
+                <TableCell colSpan={6} className="p-0">
+                  <EstadoVacio
+                    icono={FileText}
+                    titulo="Todavía no hay comprobantes"
+                    descripcion="Se emiten al cerrar la cuenta de una estancia. Boleta o factura, según lo que pida el huésped."
+                    filtrado={true}
+                    onLimpiar={() => { setSearchQuery(''); setTypeFilter('all'); setStatusFilter('all'); }}
+                  />
                 </TableCell>
               </TableRow>
             ) : (
@@ -253,7 +260,7 @@ export function Invoices() {
                       </div>
                       <div>
                         <p className="font-medium">{invoice.series}-{String(invoice.number).padStart(8, '0')}</p>
-                        <p className="text-xs text-slate-500">{getStatusLabel(invoice.type)}</p>
+                        <p className="text-xs text-zen-500">{getStatusLabel(invoice.type)}</p>
                       </div>
                     </div>
                   </TableCell>
@@ -263,7 +270,7 @@ export function Invoices() {
                   <TableCell>
                     <div>
                       <p className="font-medium text-sm">{invoice.client_name}</p>
-                      <p className="text-xs text-slate-500">
+                      <p className="text-xs text-zen-500">
                         {invoice.client_doc_type}: {invoice.client_doc_number}
                       </p>
                     </div>
@@ -329,21 +336,21 @@ export function Invoices() {
           {selectedInvoice && (
             <div className="space-y-6">
               {/* Header info */}
-              <div className="grid grid-cols-2 gap-4 p-4 bg-slate-50 rounded-lg">
+              <div className="grid grid-cols-2 gap-4 p-4 bg-zen-50 rounded-lg">
                 <div>
-                  <p className="text-sm text-slate-500">Tipo</p>
+                  <p className="text-sm text-zen-500">Tipo</p>
                   <p className="font-medium">{getStatusLabel(selectedInvoice.type)}</p>
                 </div>
                 <div>
-                  <p className="text-sm text-slate-500">Número</p>
+                  <p className="text-sm text-zen-500">Número</p>
                   <p className="font-medium">{selectedInvoice.series}-{String(selectedInvoice.number).padStart(8, '0')}</p>
                 </div>
                 <div>
-                  <p className="text-sm text-slate-500">Fecha Emisión</p>
+                  <p className="text-sm text-zen-500">Fecha Emisión</p>
                   <p className="font-medium">{formatDateTime(selectedInvoice.issued_at)}</p>
                 </div>
                 <div>
-                  <p className="text-sm text-slate-500">Estado</p>
+                  <p className="text-sm text-zen-500">Estado</p>
                   <Badge className={cn("badge", getStatusClass(selectedInvoice.status))}>
                     {getStatusLabel(selectedInvoice.status)}
                   </Badge>
@@ -355,16 +362,16 @@ export function Invoices() {
                 <h4 className="font-medium mb-2">Datos del Cliente</h4>
                 <div className="grid grid-cols-2 gap-4 p-4 border rounded-lg">
                   <div>
-                    <p className="text-sm text-slate-500">Nombre/Razón Social</p>
+                    <p className="text-sm text-zen-500">Nombre/Razón Social</p>
                     <p className="font-medium">{selectedInvoice.client_name}</p>
                   </div>
                   <div>
-                    <p className="text-sm text-slate-500">Documento</p>
+                    <p className="text-sm text-zen-500">Documento</p>
                     <p className="font-medium">{selectedInvoice.client_doc_type}: {selectedInvoice.client_doc_number}</p>
                   </div>
                   {selectedInvoice.client_address && (
                     <div className="col-span-2">
-                      <p className="text-sm text-slate-500">Dirección</p>
+                      <p className="text-sm text-zen-500">Dirección</p>
                       <p className="font-medium">{selectedInvoice.client_address}</p>
                     </div>
                   )}
@@ -376,11 +383,11 @@ export function Invoices() {
                 <h4 className="font-medium mb-2">Montos</h4>
                 <div className="p-4 border rounded-lg space-y-2">
                   <div className="flex justify-between">
-                    <span className="text-slate-600">Subtotal:</span>
+                    <span className="text-zen-600">Subtotal:</span>
                     <span>{formatCurrency(selectedInvoice.subtotal)}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-slate-600">IGV (18%):</span>
+                    <span className="text-zen-600">IGV (18%):</span>
                     <span>{formatCurrency(selectedInvoice.igv)}</span>
                   </div>
                   <div className="flex justify-between font-bold text-lg border-t pt-2">
@@ -394,7 +401,7 @@ export function Invoices() {
               {selectedInvoice.nubefact_response && (
                 <div>
                   <h4 className="font-medium mb-2">Respuesta SUNAT</h4>
-                  <div className="p-4 bg-slate-50 rounded-lg text-sm">
+                  <div className="p-4 bg-zen-50 rounded-lg text-sm">
                     <p><strong>Descripción:</strong> {selectedInvoice.nubefact_response.sunat_description}</p>
                     {selectedInvoice.hash && (
                       <p className="mt-2"><strong>Hash:</strong> {selectedInvoice.hash}</p>

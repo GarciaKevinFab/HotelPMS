@@ -12,7 +12,7 @@ import { useAuth } from '../contexts/AuthContext';
  *   eran dos productos distintos. El alta iba sobre el verde profundo de la
  *   marca, con Bricolage Grotesque y el fucsia del colibri; esto era una
  *   pantalla partida con una FOTO DE STOCK y una tarjeta blanca sobre
- *   `bg-slate-50`, con el boton en negro. Alguien que se daba de alta y
+ *   `bg-zen-50`, con el boton en negro. Alguien que se daba de alta y
  *   entraba a continuacion veia dos sitios distintos en el mismo minuto.
  *
  *   Ahora las dos comparten estructura y paleta: misma cabecera, mismo ancho

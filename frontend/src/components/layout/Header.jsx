@@ -95,7 +95,7 @@ export function Header({ onMenuClick }) {
 
       {/* Search */}
       <div className="relative flex-1 max-w-md">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zen-400" />
         <Input
           type="text"
           placeholder="Buscar huésped, reserva, habitación..."
@@ -103,25 +103,25 @@ export function Header({ onMenuClick }) {
           onChange={(e) => setSearchQuery(e.target.value)}
           onFocus={() => searchResults && setShowResults(true)}
           onBlur={() => setTimeout(() => setShowResults(false), 200)}
-          className="pl-10 bg-slate-50 border-slate-200"
+          className="pl-10 bg-zen-50 border-zen-200"
           data-testid="global-search-input"
         />
         
         {/* Search results dropdown */}
         {showResults && searchResults && (
-          <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-lg shadow-lg border border-slate-200 z-50 max-h-96 overflow-y-auto">
+          <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-lg shadow-lg border border-zen-200 z-50 max-h-96 overflow-y-auto">
             {/* Guests */}
             {searchResults.guests?.length > 0 && (
               <div className="p-2">
-                <p className="text-xs font-medium text-slate-500 px-2 py-1">Huéspedes</p>
+                <p className="text-xs font-medium text-zen-500 px-2 py-1">Huéspedes</p>
                 {searchResults.guests.map((guest) => (
                   <button
                     key={guest.id}
                     onClick={() => handleResultClick('guest', guest.id)}
-                    className="w-full text-left px-2 py-2 hover:bg-slate-50 rounded-md"
+                    className="w-full text-left px-2 py-2 hover:bg-zen-50 rounded-md"
                   >
                     <p className="text-sm font-medium">{guest.full_name}</p>
-                    <p className="text-xs text-slate-500">{guest.doc_type}: {guest.doc_number}</p>
+                    <p className="text-xs text-zen-500">{guest.doc_type}: {guest.doc_number}</p>
                   </button>
                 ))}
               </div>
@@ -129,16 +129,16 @@ export function Header({ onMenuClick }) {
             
             {/* Reservations */}
             {searchResults.reservations?.length > 0 && (
-              <div className="p-2 border-t border-slate-100">
-                <p className="text-xs font-medium text-slate-500 px-2 py-1">Reservas</p>
+              <div className="p-2 border-t border-zen-100">
+                <p className="text-xs font-medium text-zen-500 px-2 py-1">Reservas</p>
                 {searchResults.reservations.map((res) => (
                   <button
                     key={res.id}
                     onClick={() => handleResultClick('reservation', res.id)}
-                    className="w-full text-left px-2 py-2 hover:bg-slate-50 rounded-md"
+                    className="w-full text-left px-2 py-2 hover:bg-zen-50 rounded-md"
                   >
                     <p className="text-sm font-medium">{res.code}</p>
-                    <p className="text-xs text-slate-500">{getStatusLabel(res.status)}</p>
+                    <p className="text-xs text-zen-500">{getStatusLabel(res.status)}</p>
                   </button>
                 ))}
               </div>
@@ -146,16 +146,16 @@ export function Header({ onMenuClick }) {
             
             {/* Rooms */}
             {searchResults.rooms?.length > 0 && (
-              <div className="p-2 border-t border-slate-100">
-                <p className="text-xs font-medium text-slate-500 px-2 py-1">Habitaciones</p>
+              <div className="p-2 border-t border-zen-100">
+                <p className="text-xs font-medium text-zen-500 px-2 py-1">Habitaciones</p>
                 {searchResults.rooms.map((room) => (
                   <button
                     key={room.id}
                     onClick={() => handleResultClick('room', room.id)}
-                    className="w-full text-left px-2 py-2 hover:bg-slate-50 rounded-md"
+                    className="w-full text-left px-2 py-2 hover:bg-zen-50 rounded-md"
                   >
                     <p className="text-sm font-medium">Hab. {room.number}</p>
-                    <p className="text-xs text-slate-500">Piso {room.floor}</p>
+                    <p className="text-xs text-zen-500">Piso {room.floor}</p>
                   </button>
                 ))}
               </div>
@@ -165,7 +165,7 @@ export function Header({ onMenuClick }) {
             {!searchResults.guests?.length && 
              !searchResults.reservations?.length && 
              !searchResults.rooms?.length && (
-              <div className="p-4 text-center text-sm text-slate-500">
+              <div className="p-4 text-center text-sm text-zen-500">
                 No se encontraron resultados
               </div>
             )}
@@ -188,7 +188,7 @@ export function Header({ onMenuClick }) {
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-80">
-            <div className="px-3 py-2 border-b border-slate-100">
+            <div className="px-3 py-2 border-b border-zen-100">
               <h3 className="font-semibold">Alertas</h3>
             </div>
             {alerts.length > 0 ? (
@@ -199,15 +199,15 @@ export function Header({ onMenuClick }) {
                       <Badge variant={alert.severity === 'CRITICAL' ? 'destructive' : 'secondary'} className="text-xs">
                         {getStatusLabel(alert.severity)}
                       </Badge>
-                      <span className="text-xs text-slate-500 ml-auto">
+                      <span className="text-xs text-zen-500 ml-auto">
                         {new Date(alert.created_at).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' })}
                       </span>
                     </div>
                     <p className="text-sm font-medium mt-1">{alert.title}</p>
-                    <p className="text-xs text-slate-500 line-clamp-1">{alert.message}</p>
+                    <p className="text-xs text-zen-500 line-clamp-1">{alert.message}</p>
                   </DropdownMenuItem>
                 ))}
-                <div className="p-2 border-t border-slate-100">
+                <div className="p-2 border-t border-zen-100">
                   <Button 
                     variant="ghost" 
                     className="w-full text-sm"
@@ -218,7 +218,7 @@ export function Header({ onMenuClick }) {
                 </div>
               </>
             ) : (
-              <div className="p-4 text-center text-sm text-slate-500">
+              <div className="p-4 text-center text-sm text-zen-500">
                 No hay alertas pendientes
               </div>
             )}
@@ -226,12 +226,12 @@ export function Header({ onMenuClick }) {
         </DropdownMenu>
 
         {/* User info */}
-        <div className="hidden md:flex items-center gap-3 pl-4 border-l border-slate-200">
+        <div className="hidden md:flex items-center gap-3 pl-4 border-l border-zen-200">
           <div className="text-right">
-            <p className="text-sm font-medium text-slate-900">{user?.full_name}</p>
-            <p className="text-xs text-slate-500">{getStatusLabel(user?.role)}</p>
+            <p className="text-sm font-medium text-zen-900">{user?.full_name}</p>
+            <p className="text-xs text-zen-500">{getStatusLabel(user?.role)}</p>
           </div>
-          <div className="w-9 h-9 bg-slate-900 rounded-full flex items-center justify-center text-sm font-medium text-white">
+          <div className="w-9 h-9 bg-zen-900 rounded-full flex items-center justify-center text-sm font-medium text-white">
             {user?.full_name?.charAt(0) || 'U'}
           </div>
         </div>
