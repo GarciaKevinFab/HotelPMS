@@ -156,12 +156,14 @@ export function RoomCalendar() {
   return (
     <div className="space-y-4" data-testid="room-calendar-page">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      {/* En movil va en columna: titulo y botones en una sola fila con
+          justify-between no caben en 375 px y desbordaban la pagina. */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-zen-900">Calendario de Habitaciones</h1>
           <p className="text-zen-500">Vista general de ocupación y reservas</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button variant="outline" size="sm" onClick={fetchData}>
             <RefreshCw className="w-4 h-4 mr-2" />
             Actualizar
@@ -174,8 +176,8 @@ export function RoomCalendar() {
       </div>
 
       {/* Navigation */}
-      <div className="flex items-center justify-between bg-white rounded-lg border border-zen-200 p-3">
-        <div className="flex items-center gap-2">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between bg-white rounded-lg border border-zen-200 p-3">
+        <div className="flex flex-wrap items-center gap-2">
           <Button variant="outline" size="sm" onClick={() => navigateDays(-1)}>
             <ChevronLeft className="w-4 h-4" />
           </Button>
@@ -194,15 +196,15 @@ export function RoomCalendar() {
 
       {/* Legend */}
       <div className="flex items-center gap-4 text-sm">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <div className="w-4 h-4 rounded bg-blue-500" />
           <span>Confirmada</span>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <div className="w-4 h-4 rounded bg-emerald-500" />
           <span>Check-in</span>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <div className="w-4 h-4 rounded bg-zen-400" />
           <span>Check-out</span>
         </div>

@@ -122,7 +122,7 @@ const navItems = [
   },
 ];
 
-export function Sidebar({ collapsed, onToggle }) {
+export function Sidebar({ collapsed, onToggle, abierto = false, onNavegar }) {
   const { user, logout } = useAuth();
   const location = useLocation();
 
@@ -133,7 +133,8 @@ export function Sidebar({ collapsed, onToggle }) {
   return (
     <aside className={cn(
       "sidebar flex flex-col",
-      collapsed && "collapsed"
+      collapsed && "collapsed",
+      abierto && "open"
     )}>
       {/*
         Marca. Antes era un icono genérico de edificio sobre un cuadrado azul
@@ -162,7 +163,7 @@ export function Sidebar({ collapsed, onToggle }) {
             
             return (
               <li key={item.path}>
-                <NavLink
+                <NavLink onClick={onNavegar}
                   to={item.path}
                   className={cn(
                     "sidebar-nav-item",
@@ -215,10 +216,18 @@ export function Sidebar({ collapsed, onToggle }) {
         */}
       </div>
 
-      {/* Collapse button */}
+      {/* Contraer o desplegar el menu.
+          `hidden lg:flex`: en movil el menu no se contrae, se abre y se cierra
+          con la hamburguesa. Este boton estaba SIEMPRE, y como el menu vive
+          fuera de la pantalla, asomaba 12 px por el borde izquierdo del panel:
+          medio circulo oscuro flotando junto al titulo, sin funcion.
+
+          Y llevaba solo un icono sin nombre: para un lector de pantalla era un
+          boton mudo. */}
       <button
         onClick={onToggle}
-        className="absolute -right-3 top-20 w-6 h-6 bg-zen-800 border border-zen-700 rounded-full flex items-center justify-center text-zen-400 hover:text-white hover:bg-zen-700 transition-colors"
+        aria-label={collapsed ? 'Desplegar el menú' : 'Contraer el menú'}
+        className="absolute -right-3 top-20 hidden h-6 w-6 items-center justify-center rounded-full border border-zen-700 bg-zen-800 text-zen-400 transition-colors hover:bg-zen-700 hover:text-white lg:flex"
       >
         {collapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
       </button>

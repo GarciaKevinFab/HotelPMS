@@ -87,8 +87,12 @@ export function Header({ onMenuClick }) {
       <Button
         variant="ghost"
         size="icon"
-        className="md:hidden"
+        /* h-11 w-11: medía 36x36, por debajo del objetivo tactil de 44.
+           Y sin aria-label era un boton mudo para un lector de pantalla: el
+           unico icono que abre TODA la navegacion en movil. */
+        className="h-11 w-11 md:hidden"
         onClick={onMenuClick}
+        aria-label="Abrir el menú"
       >
         <Menu className="h-5 w-5" />
       </Button>

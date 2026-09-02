@@ -123,12 +123,14 @@ export function Reports() {
   return (
     <div className="space-y-6" data-testid="reports-page">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      {/* En movil va en columna: titulo y botones en una sola fila con
+          justify-between no caben en 375 px y desbordaban la pagina. */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-zen-900">Reportes</h1>
           <p className="text-zen-500">Análisis y métricas del hotel</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Select value={String(selectedMonth)} onValueChange={(v) => setSelectedMonth(parseInt(v))}>
             <SelectTrigger className="w-[140px]">
               <Calendar className="w-4 h-4 mr-2" />
@@ -174,15 +176,15 @@ export function Reports() {
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="grid w-full grid-cols-3 lg:w-auto lg:inline-grid">
-          <TabsTrigger value="occupancy" className="flex items-center gap-2">
+          <TabsTrigger value="occupancy" className="flex flex-wrap items-center gap-2">
             <Users className="w-4 h-4" />
             Ocupación
           </TabsTrigger>
-          <TabsTrigger value="revenue" className="flex items-center gap-2">
+          <TabsTrigger value="revenue" className="flex flex-wrap items-center gap-2">
             <Wallet className="w-4 h-4" />
             Ingresos
           </TabsTrigger>
-          <TabsTrigger value="invoicing" className="flex items-center gap-2">
+          <TabsTrigger value="invoicing" className="flex flex-wrap items-center gap-2">
             <Receipt className="w-4 h-4" />
             Facturación
           </TabsTrigger>
