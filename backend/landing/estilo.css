@@ -358,7 +358,10 @@ p  { margin: 0 0 1rem; }
   flex-wrap: wrap;
 }
 .pie-legal p { margin: 0; font-size: .84rem; line-height: 1.65; }
-.pie-legal .tenue { font-size: .78rem; color: #5c6b62; }
+/* #748679 y no #5c6b62: el tono anterior daba 3.37:1 sobre el fondo y no
+   llegaba al 4.5 que pide la norma. Este da 4.89 y sigue leyendose como
+   letra pequena, que es su papel. */
+.pie-legal .tenue { font-size: .78rem; color: #748679; }
 
 /* El distintivo del Libro. Es un boton, no un enlace de texto: se busca por su
    forma. */
