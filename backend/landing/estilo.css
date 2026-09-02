@@ -256,11 +256,17 @@ p  { margin: 0 0 1rem; }
   padding: clamp(28px, 3.4vw, 40px) clamp(24px, 3vw, 32px);
   background: linear-gradient(180deg, var(--superficie-alta), var(--superficie));
 }
-.plan.destacado {
+/* NO se llama .destacado, y no es capricho: esa clase ya existe arriba para el
+   degradado del titular, y lleva `color: transparent` con background-clip:text.
+   Al ponersela tambien a la tarjeta del plan, TODO el texto que heredaba el
+   color se volvia invisible. Solo se noto en el precio porque es el unico que
+   no trae color propio: el plan Pro salia sin su "S/ 119", con el numero en el
+   DOM y pintado en transparente. */
+.plan.recomendado {
   border-color: var(--fucsia); background: var(--superficie-alta); position: relative;
   box-shadow: 0 0 44px -22px rgba(252,60,120,.55);
 }
-.plan.destacado::after {
+.plan.recomendado::after {
   content: "Más elegido"; position: absolute; top: -12px; left: 28px;
   background: var(--fucsia); color: #fff; font-size: .68rem; font-weight: 700;
   letter-spacing: .1em; text-transform: uppercase; padding: 5px 13px; border-radius: var(--radio-pastilla);
