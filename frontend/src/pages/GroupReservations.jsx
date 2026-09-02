@@ -9,6 +9,7 @@ import {
   Building
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
+import { EstadoVacio } from '../components/EstadoVacio';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Badge } from '../components/ui/badge';
@@ -235,8 +236,14 @@ export function GroupReservations() {
               </TableRow>
             ) : groups.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={8} className="text-center py-8 text-zen-500">
-                  No hay reservas grupales
+                <TableCell colSpan={8} className="p-0">
+                  <EstadoVacio
+                    icono={Users}
+                    titulo="Sin reservas de grupo"
+                    descripcion="Sirven para delegaciones, promociones o empresas: varias habitaciones bajo un mismo titular y una sola cuenta."
+                    accion="Crear una reserva de grupo"
+                    onAccion={() => setShowCreateDialog(true)}
+                  />
                 </TableCell>
               </TableRow>
             ) : (

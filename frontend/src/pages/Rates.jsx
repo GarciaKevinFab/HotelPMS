@@ -7,6 +7,7 @@ import {
   Tag
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
+import { EstadoVacio } from '../components/EstadoVacio';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Badge } from '../components/ui/badge';
@@ -231,10 +232,16 @@ export function Rates() {
                 </TableRow>
               ) : rates.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center py-8 text-zen-500">
-                    No hay tarifas especiales configuradas
-                  </TableCell>
-                </TableRow>
+                <TableCell colSpan={7} className="p-0">
+                  <EstadoVacio
+                    icono={DollarSign}
+                    titulo="Sin tarifas especiales"
+                    descripcion="Cada tipo de habitación ya cobra su precio base. Las especiales sirven para temporada alta, fines de semana o un rango de fechas concreto."
+                    accion="Crear una tarifa"
+                    onAccion={() => setShowCreateDialog(true)}
+                  />
+                </TableCell>
+              </TableRow>
               ) : (
                 rates.map((rate) => {
                   const basePrice = getRoomTypeBasePrice(rate.room_type_id);

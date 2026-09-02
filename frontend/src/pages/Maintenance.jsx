@@ -8,6 +8,7 @@ import {
   XCircle
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
+import { EstadoVacio } from '../components/EstadoVacio';
 import { Input } from '../components/ui/input';
 import { Badge } from '../components/ui/badge';
 import { Card } from '../components/ui/card';
@@ -232,8 +233,16 @@ export function Maintenance() {
               </TableRow>
             ) : tickets.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7} className="text-center py-8 text-zen-500">
-                  No se encontraron tickets
+                <TableCell colSpan={7} className="p-0">
+                  <EstadoVacio
+                    icono={Wrench}
+                    titulo="Ningún parte de mantenimiento"
+                    descripcion="Aquí se anota lo que se rompe: una ducha, un aire, una cerradura. Mientras el parte está abierto, la habitación puede quedar fuera de servicio."
+                    accion="Abrir un parte"
+                    onAccion={() => setShowCreateDialog(true)}
+                    filtrado={true}
+                    onLimpiar={() => { setStatusFilter('all'); setPriorityFilter('all'); }}
+                  />
                 </TableCell>
               </TableRow>
             ) : (

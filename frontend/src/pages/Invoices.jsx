@@ -13,6 +13,7 @@ import {
   AlertCircle
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
+import { EstadoVacio } from '../components/EstadoVacio';
 import { Input } from '../components/ui/input';
 import { Badge } from '../components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
@@ -236,8 +237,14 @@ export function Invoices() {
               </TableRow>
             ) : filteredInvoices.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} className="text-center py-8 text-zen-500">
-                  No se encontraron comprobantes
+                <TableCell colSpan={6} className="p-0">
+                  <EstadoVacio
+                    icono={FileText}
+                    titulo="Todavía no hay comprobantes"
+                    descripcion="Se emiten al cerrar la cuenta de una estancia. Boleta o factura, según lo que pida el huésped."
+                    filtrado={true}
+                    onLimpiar={() => { setSearchQuery(''); setTypeFilter('all'); setStatusFilter('all'); }}
+                  />
                 </TableCell>
               </TableRow>
             ) : (

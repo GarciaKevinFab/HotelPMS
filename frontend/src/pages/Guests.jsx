@@ -6,9 +6,11 @@ import {
   Phone,
   Mail,
   MapPin,
-  Eye
+  Eye,
+  Users
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
+import { EstadoVacio } from '../components/EstadoVacio';
 import { Input } from '../components/ui/input';
 import { Badge } from '../components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
@@ -181,8 +183,16 @@ export function Guests() {
               </TableRow>
             ) : guests.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={5} className="text-center py-8 text-zen-500">
-                  No se encontraron huéspedes
+                <TableCell colSpan={5} className="p-0">
+                  <EstadoVacio
+                    icono={Users}
+                    titulo="Todavía no hay huéspedes"
+                    descripcion="Se van creando solos al registrar la primera reserva. También puedes darlos de alta ahora si ya tienes sus datos."
+                    accion="Registrar un huésped"
+                    onAccion={() => setShowCreateDialog(true)}
+                    filtrado={guests.length > 0}
+                    onLimpiar={() => { setSearchQuery(''); }}
+                  />
                 </TableCell>
               </TableRow>
             ) : (

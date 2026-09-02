@@ -12,6 +12,7 @@ import { Input } from '../components/ui/input';
 import { Badge } from '../components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Label } from '../components/ui/label';
+import { EstadoVacio } from '../components/EstadoVacio';
 import {
   Table,
   TableBody,
@@ -243,9 +244,15 @@ export function Rooms() {
               </div>
             ))}
             {roomTypes.length === 0 && (
-              <p className="text-zen-500 col-span-3 text-center py-4">
-                No hay tipos de habitación configurados
-              </p>
+              <div className="col-span-3">
+                <EstadoVacio
+                  icono={BedDouble}
+                  titulo="Empieza por los tipos de habitación"
+                  descripcion="Una matrimonial, una doble, una suite… Cada tipo lleva su capacidad y su precio base, y es lo que después se usa para cobrar la noche."
+                  accion="Crear el primer tipo"
+                  onAccion={() => setShowTypeDialog(true)}
+                />
+              </div>
             )}
           </div>
         </CardContent>
@@ -310,8 +317,16 @@ export function Rooms() {
               </TableRow>
             ) : filteredRooms.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} className="text-center py-8 text-zen-500">
-                  No se encontraron habitaciones
+                <TableCell colSpan={6} className="p-0">
+                  <EstadoVacio
+                    icono={BedDouble}
+                    titulo="Todavía no hay habitaciones"
+                    descripcion="Con «Crear múltiples» cargas un piso entero de una vez: dices el rango de números y el tipo, y quedan todas."
+                    accion="Crear varias habitaciones"
+                    onAccion={() => setShowBulkDialog(true)}
+                    filtrado={rooms.length > 0}
+                    onLimpiar={() => { setSearchQuery(''); setFloorFilter('all'); setStatusFilter('all'); }}
+                  />
                 </TableCell>
               </TableRow>
             ) : (
