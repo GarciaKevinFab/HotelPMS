@@ -71,7 +71,7 @@ export function Login() {
   const campo =
     'w-full rounded-xl border border-zen-borde bg-zen-superficie px-4 py-3 text-[15px] ' +
     'text-zen-texto placeholder:text-zen-suave/60 outline-none transition ' +
-    'focus:border-transparent focus:ring-2 focus:ring-zen-turquesa ' +
+    'focus:border-transparent focus:ring-2 focus:ring-zen-turquesa aria-[invalid=true]:border-zen-fucsia/60 ' +
     'disabled:opacity-60';
 
   return (
@@ -80,7 +80,7 @@ export function Login() {
           enlace cruzado al otro lado del flujo. */}
       <header className="mx-auto flex w-full max-w-[1120px] items-center justify-between px-7 py-4">
         <a href="/" className="flex items-center gap-3">
-          <img src="/logo-zenstay.png" alt="ZenStay" className="h-10 w-10 object-contain" />
+          <img src="/logo-zenstay.png" alt="" width={40} height={40} className="h-10 w-10 object-contain" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
           <span className="font-display text-[1.4rem] font-bold tracking-[-0.03em]">ZenStay</span>
         </a>
         <a href="/registro" className="text-[.95rem] text-zen-suave transition hover:text-zen-turquesa">
@@ -109,7 +109,8 @@ export function Login() {
           {error && (
             <div
               role="alert"
-              className="flex items-start gap-2.5 rounded-xl border border-zen-fucsia/35 bg-zen-fucsia/10 px-4 py-3 text-[.91rem] text-[#ff8fae]"
+              aria-live="assertive"
+              className="animate-fade-in flex items-start gap-2.5 rounded-xl border border-zen-fucsia/35 bg-zen-fucsia/10 px-4 py-3 text-[.91rem] text-[#ff8fae]"
             >
               <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
               <span>{error}</span>
@@ -128,6 +129,7 @@ export function Login() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className={campo}
+              aria-invalid={error ? true : undefined}
               required
               disabled={loading}
               data-testid="login-email-input"
@@ -146,6 +148,7 @@ export function Login() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className={`${campo} pr-12`}
+                aria-invalid={error ? true : undefined}
                 required
                 disabled={loading}
                 data-testid="login-password-input"
@@ -165,9 +168,10 @@ export function Login() {
           <button
             type="submit"
             disabled={loading || authLoading}
+            aria-busy={loading || undefined}
             data-testid="login-submit-button"
-            className="w-full rounded-full bg-zen-fucsia px-7 py-3.5 text-base font-bold text-[#1a0a10] transition
-                       hover:-translate-y-px hover:shadow-[0_6px_26px_-6px_rgba(252,60,120,.6)]
+            className="w-full rounded-full bg-zen-fucsia px-7 py-3.5 text-base font-bold text-[#1a0a10] transition-[transform,box-shadow,opacity] duration-150 ease-out
+                       hover:-translate-y-px hover:shadow-[0_6px_26px_-6px_rgba(252,60,120,.6)] active:translate-y-0 active:scale-[.97]
                        focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zen-fucsia
                        disabled:cursor-wait disabled:opacity-60 disabled:hover:translate-y-0"
           >
