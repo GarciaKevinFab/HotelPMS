@@ -81,7 +81,7 @@ export function Login() {
       <header className="mx-auto flex w-full max-w-[1120px] items-center justify-between px-7 py-4">
         <a href="/" className="flex items-center gap-3">
           <img src="/logo-zenstay.png" alt="ZenStay" className="h-10 w-10 object-contain" />
-          <span className="text-[1.4rem] font-bold tracking-[-0.03em]">ZenStay</span>
+          <span className="font-display text-[1.4rem] font-bold tracking-[-0.03em]">ZenStay</span>
         </a>
         <a href="/registro" className="text-[.95rem] text-zen-suave transition hover:text-zen-turquesa">
           Crear cuenta
@@ -92,7 +92,7 @@ export function Login() {
         <p className="text-[.76rem] font-bold uppercase tracking-[.16em] text-zen-turquesa">
           Acceso al sistema
         </p>
-        <h1 className="mt-2.5 text-[2.1rem] font-bold leading-[1.05] tracking-[-0.035em]">
+        <h1 className="font-display mt-2.5 text-[clamp(2.1rem,4.4vw,3.4rem)] font-bold leading-[1.05] tracking-[-0.038em]">
           Entra a tu hotel
         </h1>
         <p className="mt-2 text-[.96rem] text-zen-suave">

@@ -12,6 +12,14 @@ module.exports = {
   			md: 'calc(var(--radius) - 2px)',
   			sm: 'calc(var(--radius) - 4px)'
   		},
+  		fontFamily: {
+  			/* Las mismas dos de la landing. Existian solo alli, asi que el
+  			   titular del login caia en la familia global (Manrope) y salia con
+  			   otra letra y otro cuerpo que el del alta: 33.6 px de Manrope
+  			   frente a 54.4 px de Bricolage. */
+  			display: ['"Bricolage Grotesque"', '"Trebuchet MS"', 'sans-serif'],
+  			cuerpo: ['Karla', '-apple-system', 'BlinkMacSystemFont', '"Segoe UI"', 'sans-serif'],
+  		},
   		colors: {
   			/* La paleta de la marca, la MISMA que usa la landing
   			   (backend/landing/estilo.css). Los cuatro colores salen de contar

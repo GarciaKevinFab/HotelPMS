@@ -4074,6 +4074,43 @@ if FRONTEND_BUILD.exists():
     app.mount("/static", StaticFiles(directory=FRONTEND_BUILD / "static"), name="static")
 
 
+# Cuanto puede guardarse cada cosa del build.
+#
+# Tres politicas, porque el riesgo de cada fichero es distinto. La primera es
+# la que faltaba y la que rompia los despliegues.
+_UN_ANO_SPA = 60 * 60 * 24 * 365
+_UN_DIA_SPA = 60 * 60 * 24
+
+
+def _cache_del_build(ruta: Path) -> str:
+    """Devuelve el Cache-Control que le toca a un fichero del build de la SPA."""
+    nombre = ruta.name
+
+    # index.html NUNCA en duro: es el que NOMBRA al bundle. Si el navegador se
+    # queda con el viejo sigue mostrando la version anterior de la aplicacion,
+    # indefinidamente. Sin cabecera pasaba justo eso: el navegador aplicaba su
+    # heuristica -un 10% del tiempo desde Last-Modified- y se quedaba con el.
+    #
+    # El service worker va igual y por lo mismo: mientras el navegador lo tenga
+    # cacheado no se entera de que hay uno nuevo, y el service worker es quien
+    # manda sobre lo que acaba viendo el usuario.
+    #
+    # s-maxage=0 ademas de no-cache: Cloudflare tiene el "Browser Cache TTL"
+    # del panel en 4 horas y REESCRIBE la cabecera que sale de aqui para los
+    # ficheros que cachea en el borde. Medido: el origen mandaba
+    # 'no-cache, must-revalidate' y al navegador le llegaba 'max-age=14400'.
+    # Con s-maxage=0 el borde no lo retiene y la cabecera del origen sobrevive.
+    if nombre in ("index.html", "service-worker.js"):
+        return "public, no-cache, must-revalidate, s-maxage=0"
+
+    # Lo que lleva hash de contenido en el nombre es inmutable por definicion.
+    if re.search(r"\.[0-9a-f]{8,}\.[a-z0-9]+$", nombre):
+        return f"public, max-age={_UN_ANO_SPA}, immutable"
+
+    # El resto -logo, favicon, manifest- conserva el nombre entre despliegues.
+    return f"public, max-age={_UN_DIA_SPA}, stale-while-revalidate={_UN_DIA_SPA * 7}"
+
+
 @app.get("/{ruta:path}")
 async def servir_web(ruta: str):
     """Reparte entre la landing y la aplicacion.
@@ -4126,7 +4163,9 @@ async def servir_web(ruta: str):
             continue
         candidato = FRONTEND_BUILD / candidata
         if candidato.is_file() and str(candidato.resolve()).startswith(str(FRONTEND_BUILD.resolve())):
-            return FileResponse(candidato)
+            return FileResponse(
+                candidato, headers={"Cache-Control": _cache_del_build(candidato)}
+            )
 
     # 3. Si la ruta PARECE un archivo (tiene extension) y no se encontro, es un
     #    404 de verdad -- no una ruta de la SPA.
@@ -4142,7 +4181,8 @@ async def servir_web(ruta: str):
     # 4. Cualquier otra cosa es una ruta de la SPA. Se devuelve el index.html y
     #    React resuelve el enrutado: es lo que hace falta para que recargar
     #    /app/reservations o entrar por un enlace directo no de 404.
-    return FileResponse(FRONTEND_BUILD / "index.html")
+    indice = FRONTEND_BUILD / "index.html"
+    return FileResponse(indice, headers={"Cache-Control": _cache_del_build(indice)})
 
 
 if not FRONTEND_BUILD.exists():
