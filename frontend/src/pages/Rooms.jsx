@@ -175,12 +175,14 @@ export function Rooms() {
   return (
     <div className="space-y-6" data-testid="rooms-page">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      {/* En movil va en columna: titulo y botones en una sola fila con
+          justify-between no caben en 375 px y desbordaban la pagina. */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-zen-900">Habitaciones</h1>
           <p className="text-zen-500">Gestión de inventario de habitaciones</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button variant="outline" onClick={() => setShowTypeDialog(true)}>
             <Plus className="w-4 h-4 mr-2" />
             Tipo

@@ -29,15 +29,26 @@ export function AppLayout() {
   return (
     <div className="min-h-screen bg-zen-50">
       {/* Sidebar */}
+      {/* `abierto` faltaba, y con el la navegacion entera en movil.
+          El CSS ya traia la regla `.sidebar.open { translate-x-0 }` y este
+          componente ya guardaba el estado... pero no se lo pasaba al Sidebar.
+          Resultado: al tocar la hamburguesa se encendia el velo oscuro y el
+          menu se quedaba en left:-256, fuera de la pantalla. Desde un telefono
+          no habia forma de cambiar de pantalla: se quedaba uno donde estuviera.
+
+          `onNavegar` lo cierra al elegir destino, que es lo que se espera de
+          un menu que tapa la pagina entera. */}
       <Sidebar 
         collapsed={sidebarCollapsed}
         onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
+        abierto={mobileMenuOpen}
+        onNavegar={() => setMobileMenuOpen(false)}
       />
       
       {/* Mobile overlay */}
       {mobileMenuOpen && (
         <div 
-          className="fixed inset-0 bg-black/50 z-30 md:hidden"
+          className="fixed inset-0 z-30 bg-black/50 md:hidden"
           onClick={() => setMobileMenuOpen(false)}
         />
       )}

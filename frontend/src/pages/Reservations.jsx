@@ -361,12 +361,14 @@ export function Reservations() {
   return (
     <div className="space-y-6" data-testid="reservations-page">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      {/* En movil va en columna: titulo y botones en una sola fila con
+          justify-between no caben en 375 px y desbordaban la pagina. */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-zen-900">Reservas</h1>
           <p className="text-zen-500">Gestión de reservaciones</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button 
             variant="outline" 
             onClick={() => {
@@ -628,7 +630,7 @@ export function Reservations() {
                       />
                     </div>
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2">
                     <Button variant="outline" onClick={() => setShowNewGuestForm(false)}>
                       Cancelar
                     </Button>
@@ -797,7 +799,7 @@ export function Reservations() {
       <Dialog open={showWalkinDialog} onOpenChange={setShowWalkinDialog}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
+            <DialogTitle className="flex flex-wrap items-center gap-2">
               <Zap className="w-5 h-5 text-amber-500" />
               Walk-in
             </DialogTitle>

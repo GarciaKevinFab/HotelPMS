@@ -169,7 +169,12 @@ export function Dashboard() {
               <div className="flex items-start justify-between">
                 <div>
                   <p className="text-sm text-zen-500">{kpi.label}</p>
-                  <p className="text-2xl font-bold text-zen-900 mt-1">{kpi.value}</p>
+                  {/* whitespace-nowrap y tabular-nums: en un movil de 375 px "S/ 0.00"
+                      partia en dos lineas -"S/" arriba y "0.00" debajo-, que en
+                      una cifra de dinero se lee fatal. Las cifras tabulares ademas
+                      mantienen la misma anchura por digito, asi que la tarjeta no
+                      cambia de tamano al pasar de 0.00 a 1234.00. */}
+                  <p className="mt-1 whitespace-nowrap text-2xl font-bold tabular-nums text-zen-900">{kpi.value}</p>
                   <p className="text-xs text-zen-400 mt-1">{kpi.subtext}</p>
                 </div>
                 <div className={`p-2 rounded-lg bg-zen-100 ${kpi.color}`}>
@@ -185,23 +190,23 @@ export function Dashboard() {
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         <Card className="p-4">
           <p className="text-sm text-zen-500">Ingresos del Mes</p>
-          <p className="text-xl font-bold text-zen-900 mt-1">{formatCurrency(kpis?.month?.revenue || 0)}</p>
+          <p className="mt-1 whitespace-nowrap text-xl font-bold tabular-nums text-zen-900">{formatCurrency(kpis?.month?.revenue || 0)}</p>
         </Card>
         <Card className="p-4">
           <p className="text-sm text-zen-500">ADR</p>
-          <p className="text-xl font-bold text-zen-900 mt-1">{formatCurrency(kpis?.month?.adr || 0)}</p>
+          <p className="mt-1 whitespace-nowrap text-xl font-bold tabular-nums text-zen-900">{formatCurrency(kpis?.month?.adr || 0)}</p>
         </Card>
         <Card className="p-4">
           <p className="text-sm text-zen-500">RevPAR</p>
-          <p className="text-xl font-bold text-zen-900 mt-1">{formatCurrency(kpis?.month?.revpar || 0)}</p>
+          <p className="mt-1 whitespace-nowrap text-xl font-bold tabular-nums text-zen-900">{formatCurrency(kpis?.month?.revpar || 0)}</p>
         </Card>
         <Card className="p-4">
           <p className="text-sm text-zen-500">Cancelaciones</p>
-          <p className="text-xl font-bold text-zen-900 mt-1">{kpis?.month?.cancellations || 0}</p>
+          <p className="mt-1 whitespace-nowrap text-xl font-bold tabular-nums text-zen-900">{kpis?.month?.cancellations || 0}</p>
         </Card>
         <Card className="p-4">
           <p className="text-sm text-zen-500">No Shows</p>
-          <p className="text-xl font-bold text-zen-900 mt-1">{kpis?.month?.no_shows || 0}</p>
+          <p className="mt-1 whitespace-nowrap text-xl font-bold tabular-nums text-zen-900">{kpis?.month?.no_shows || 0}</p>
         </Card>
       </div>
 

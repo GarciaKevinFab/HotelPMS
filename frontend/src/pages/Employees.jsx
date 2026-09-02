@@ -281,7 +281,9 @@ export function Employees() {
   return (
     <div className="space-y-6" data-testid="employees-page">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      {/* En movil va en columna: titulo y botones en una sola fila con
+          justify-between no caben en 375 px y desbordaban la pagina. */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-zen-900">Gestion de Empleados</h1>
           <p className="text-zen-500">Administra el personal del hotel</p>
@@ -293,7 +295,10 @@ export function Employees() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-5 gap-4">
+      {/* grid-cols-5 fijo no cabe en un movil: cinco tarjetas sobre 375 px dan
+          66 px cada una y la ultima se salia de la pantalla. Dos columnas en
+          movil, tres en tableta y las cinco cuando hay sitio. */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5 lg:gap-4">
         <Card className="p-4">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-zen-100 rounded-lg flex items-center justify-center">
@@ -364,7 +369,7 @@ export function Employees() {
               data-testid="search-employees-input"
             />
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Filter className="w-4 h-4 text-zen-400" />
             <Select value={filterRole} onValueChange={setFilterRole}>
               <SelectTrigger className="w-[180px]">
