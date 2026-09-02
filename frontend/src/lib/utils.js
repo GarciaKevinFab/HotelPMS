@@ -82,7 +82,7 @@ export function getStatusClass(status) {
     'CRITICAL': 'status-ooo',
     'RESOLVED': 'status-vacant-clean',
   };
-  return statusClasses[status] || 'bg-slate-100 text-slate-700 border-slate-200';
+  return statusClasses[status] || 'bg-zen-100 text-zen-700 border-zen-200';
 }
 
 // Get status label in Spanish

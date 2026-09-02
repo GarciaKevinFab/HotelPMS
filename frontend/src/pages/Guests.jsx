@@ -121,8 +121,8 @@ export function Guests() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Huéspedes</h1>
-          <p className="text-slate-500">Gestión de perfiles de huéspedes</p>
+          <h1 className="text-2xl font-bold text-zen-900">Huéspedes</h1>
+          <p className="text-zen-500">Gestión de perfiles de huéspedes</p>
         </div>
         <Button onClick={() => setShowCreateDialog(true)} data-testid="create-guest-btn">
           <UserPlus className="w-4 h-4 mr-2" />
@@ -133,7 +133,7 @@ export function Guests() {
       {/* Search */}
       <Card className="p-4">
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zen-400" />
           <Input
             placeholder="Buscar por nombre, documento o email..."
             value={searchQuery}
@@ -147,15 +147,15 @@ export function Guests() {
       {/* Stats */}
       <div className="grid grid-cols-3 gap-4">
         <Card className="p-4">
-          <p className="text-sm text-slate-500">Total Huéspedes</p>
+          <p className="text-sm text-zen-500">Total Huéspedes</p>
           <p className="text-2xl font-bold">{guests.length}</p>
         </Card>
         <Card className="p-4">
-          <p className="text-sm text-slate-500">Con DNI</p>
+          <p className="text-sm text-zen-500">Con DNI</p>
           <p className="text-2xl font-bold">{guests.filter(g => g.doc_type === 'DNI').length}</p>
         </Card>
         <Card className="p-4">
-          <p className="text-sm text-slate-500">Extranjeros</p>
+          <p className="text-sm text-zen-500">Extranjeros</p>
           <p className="text-2xl font-bold">{guests.filter(g => g.nationality !== 'PE').length}</p>
         </Card>
       </div>
@@ -176,12 +176,12 @@ export function Guests() {
             {loading ? (
               <TableRow>
                 <TableCell colSpan={5} className="text-center py-8">
-                  <div className="w-6 h-6 border-2 border-slate-200 border-t-blue-500 rounded-full animate-spin mx-auto" />
+                  <div className="w-6 h-6 border-2 border-zen-200 border-t-zen-turquesa rounded-full animate-spin mx-auto" />
                 </TableCell>
               </TableRow>
             ) : guests.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={5} className="text-center py-8 text-slate-500">
+                <TableCell colSpan={5} className="text-center py-8 text-zen-500">
                   No se encontraron huéspedes
                 </TableCell>
               </TableRow>
@@ -190,8 +190,8 @@ export function Guests() {
                 <TableRow key={guest.id}>
                   <TableCell>
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center">
-                        <User className="w-5 h-5 text-slate-500" />
+                      <div className="w-10 h-10 bg-zen-100 rounded-full flex items-center justify-center">
+                        <User className="w-5 h-5 text-zen-500" />
                       </div>
                       <div>
                         <p className="font-medium">{guest.full_name}</p>
@@ -205,7 +205,7 @@ export function Guests() {
                   <TableCell>
                     <div className="text-sm">
                       {guest.phone && <p className="flex items-center gap-1"><Phone className="w-3 h-3" /> {guest.phone}</p>}
-                      {guest.email && <p className="flex items-center gap-1 text-slate-500"><Mail className="w-3 h-3" /> {guest.email}</p>}
+                      {guest.email && <p className="flex items-center gap-1 text-zen-500"><Mail className="w-3 h-3" /> {guest.email}</p>}
                     </div>
                   </TableCell>
                   <TableCell>
@@ -320,38 +320,38 @@ export function Guests() {
           {selectedGuest && (
             <div className="space-y-4 py-4">
               <div className="flex items-center gap-4">
-                <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center">
-                  <User className="w-8 h-8 text-slate-500" />
+                <div className="w-16 h-16 bg-zen-100 rounded-full flex items-center justify-center">
+                  <User className="w-8 h-8 text-zen-500" />
                 </div>
                 <div>
                   <h3 className="text-xl font-bold">{selectedGuest.full_name}</h3>
-                  <p className="text-slate-500">{getStatusLabel(selectedGuest.doc_type)}: {selectedGuest.doc_number}</p>
+                  <p className="text-zen-500">{getStatusLabel(selectedGuest.doc_type)}: {selectedGuest.doc_number}</p>
                 </div>
               </div>
               
               <div className="grid grid-cols-2 gap-4 pt-4 border-t">
                 {selectedGuest.phone && (
                   <div className="flex items-center gap-2">
-                    <Phone className="w-4 h-4 text-slate-400" />
+                    <Phone className="w-4 h-4 text-zen-400" />
                     <span>{selectedGuest.phone}</span>
                   </div>
                 )}
                 {selectedGuest.email && (
                   <div className="flex items-center gap-2">
-                    <Mail className="w-4 h-4 text-slate-400" />
+                    <Mail className="w-4 h-4 text-zen-400" />
                     <span>{selectedGuest.email}</span>
                   </div>
                 )}
                 {selectedGuest.address && (
                   <div className="flex items-center gap-2 col-span-2">
-                    <MapPin className="w-4 h-4 text-slate-400" />
+                    <MapPin className="w-4 h-4 text-zen-400" />
                     <span>{selectedGuest.address}</span>
                   </div>
                 )}
               </div>
               
               <div className="pt-4 border-t">
-                <p className="text-sm text-slate-500">
+                <p className="text-sm text-zen-500">
                   Registrado: {formatDate(selectedGuest.created_at)}
                 </p>
               </div>

@@ -169,8 +169,8 @@ export function Tenants() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Hoteles (Tenants)</h1>
-          <p className="text-slate-500">Gestión de hoteles en el sistema</p>
+          <h1 className="text-2xl font-bold text-zen-900">Hoteles (Tenants)</h1>
+          <p className="text-zen-500">Gestión de hoteles en el sistema</p>
         </div>
         <Button onClick={() => setShowCreateDialog(true)} data-testid="create-tenant-btn">
           <Plus className="w-4 h-4 mr-2" />
@@ -181,23 +181,23 @@ export function Tenants() {
       {/* Stats */}
       <div className="grid grid-cols-3 gap-4">
         <Card className="p-4">
-          <p className="text-sm text-slate-500">Total Hoteles</p>
+          <p className="text-sm text-zen-500">Total Hoteles</p>
           <p className="text-2xl font-bold">{stats.total}</p>
         </Card>
         <Card className="p-4">
-          <p className="text-sm text-slate-500">Activos</p>
+          <p className="text-sm text-zen-500">Activos</p>
           <p className="text-2xl font-bold text-emerald-600">{stats.active}</p>
         </Card>
         <Card className="p-4">
-          <p className="text-sm text-slate-500">Inactivos</p>
-          <p className="text-2xl font-bold text-slate-400">{stats.inactive}</p>
+          <p className="text-sm text-zen-500">Inactivos</p>
+          <p className="text-2xl font-bold text-zen-400">{stats.inactive}</p>
         </Card>
       </div>
 
       {/* Search */}
       <Card className="p-4">
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zen-400" />
           <Input
             placeholder="Buscar por nombre o RUC..."
             value={searchQuery}
@@ -224,12 +224,12 @@ export function Tenants() {
             {loading ? (
               <TableRow>
                 <TableCell colSpan={6} className="text-center py-8">
-                  <div className="w-6 h-6 border-2 border-slate-200 border-t-blue-500 rounded-full animate-spin mx-auto" />
+                  <div className="w-6 h-6 border-2 border-zen-200 border-t-zen-turquesa rounded-full animate-spin mx-auto" />
                 </TableCell>
               </TableRow>
             ) : filteredTenants.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} className="text-center py-8 text-slate-500">
+                <TableCell colSpan={6} className="text-center py-8 text-zen-500">
                   No se encontraron hoteles
                 </TableCell>
               </TableRow>
@@ -244,7 +244,7 @@ export function Tenants() {
                       <div>
                         <p className="font-medium">{tenant.name}</p>
                         {tenant.nombre_comercial && tenant.nombre_comercial !== tenant.name && (
-                          <p className="text-xs text-slate-500">{tenant.nombre_comercial}</p>
+                          <p className="text-xs text-zen-500">{tenant.nombre_comercial}</p>
                         )}
                       </div>
                     </div>
@@ -253,7 +253,7 @@ export function Tenants() {
                   <TableCell>
                     <div className="text-sm">
                       {tenant.phone && <p>{tenant.phone}</p>}
-                      {tenant.email && <p className="text-slate-500">{tenant.email}</p>}
+                      {tenant.email && <p className="text-zen-500">{tenant.email}</p>}
                     </div>
                   </TableCell>
                   <TableCell>
@@ -269,7 +269,7 @@ export function Tenants() {
                       </Badge>
                     )}
                   </TableCell>
-                  <TableCell className="text-sm text-slate-500">
+                  <TableCell className="text-sm text-zen-500">
                     {formatDate(tenant.created_at)}
                   </TableCell>
                   <TableCell className="text-right">
@@ -347,7 +347,7 @@ export function Tenants() {
                     maxLength={11}
                     className="mt-1 font-mono"
                   />
-                  <p className="text-xs text-slate-500 mt-1">{formData.ruc.length}/11 dígitos</p>
+                  <p className="text-xs text-zen-500 mt-1">{formData.ruc.length}/11 dígitos</p>
                 </div>
                 <div>
                   <Label>Teléfono</Label>
@@ -386,7 +386,7 @@ export function Tenants() {
                 <Users className="w-4 h-4" />
                 Usuario Administrador
               </h4>
-              <p className="text-sm text-slate-500 mb-4">
+              <p className="text-sm text-zen-500 mb-4">
                 Se creará un usuario ADMIN para este hotel
               </p>
               <div className="grid grid-cols-2 gap-4">
@@ -448,36 +448,36 @@ export function Tenants() {
                 </div>
                 <div>
                   <h3 className="text-xl font-bold">{selectedTenant.name}</h3>
-                  <p className="text-slate-500">{selectedTenant.nombre_comercial}</p>
+                  <p className="text-zen-500">{selectedTenant.nombre_comercial}</p>
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4 pt-4 border-t">
                 <div>
-                  <p className="text-sm text-slate-500">RUC</p>
+                  <p className="text-sm text-zen-500">RUC</p>
                   <p className="font-mono">{selectedTenant.ruc}</p>
                 </div>
                 <div>
-                  <p className="text-sm text-slate-500">Estado</p>
+                  <p className="text-sm text-zen-500">Estado</p>
                   <Badge className={selectedTenant.is_active !== false ? 'bg-emerald-100 text-emerald-700' : ''}>
                     {selectedTenant.is_active !== false ? 'Activo' : 'Inactivo'}
                   </Badge>
                 </div>
                 {selectedTenant.phone && (
                   <div>
-                    <p className="text-sm text-slate-500">Teléfono</p>
+                    <p className="text-sm text-zen-500">Teléfono</p>
                     <p>{selectedTenant.phone}</p>
                   </div>
                 )}
                 {selectedTenant.email && (
                   <div>
-                    <p className="text-sm text-slate-500">Email</p>
+                    <p className="text-sm text-zen-500">Email</p>
                     <p>{selectedTenant.email}</p>
                   </div>
                 )}
                 {selectedTenant.address && (
                   <div className="col-span-2">
-                    <p className="text-sm text-slate-500">Dirección</p>
+                    <p className="text-sm text-zen-500">Dirección</p>
                     <p>{selectedTenant.address}</p>
                   </div>
                 )}
@@ -486,9 +486,9 @@ export function Tenants() {
               {/* Invoicing Config */}
               <div className="pt-4 border-t">
                 <h4 className="font-medium mb-2">Configuración Facturación</h4>
-                <div className="p-3 bg-slate-50 rounded-lg">
+                <div className="p-3 bg-zen-50 rounded-lg">
                   <p className="text-sm">
-                    <span className="text-slate-500">Modo NubeFact:</span>{' '}
+                    <span className="text-zen-500">Modo NubeFact:</span>{' '}
                     <Badge variant="outline">
                       {selectedTenant.invoicing_mode || 'MOCK'}
                     </Badge>
@@ -497,7 +497,7 @@ export function Tenants() {
               </div>
 
               <div className="pt-4 border-t">
-                <p className="text-sm text-slate-500">
+                <p className="text-sm text-zen-500">
                   Creado: {formatDate(selectedTenant.created_at)}
                 </p>
               </div>

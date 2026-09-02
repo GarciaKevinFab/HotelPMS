@@ -273,7 +273,7 @@ export function Employees() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-96">
-        <div className="w-8 h-8 border-4 border-slate-200 border-t-blue-500 rounded-full animate-spin" />
+        <div className="w-8 h-8 border-4 border-zen-200 border-t-zen-turquesa rounded-full animate-spin" />
       </div>
     );
   }
@@ -283,8 +283,8 @@ export function Employees() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Gestion de Empleados</h1>
-          <p className="text-slate-500">Administra el personal del hotel</p>
+          <h1 className="text-2xl font-bold text-zen-900">Gestion de Empleados</h1>
+          <p className="text-zen-500">Administra el personal del hotel</p>
         </div>
         <Button onClick={() => setShowCreateDialog(true)} data-testid="create-employee-btn">
           <Plus className="w-4 h-4 mr-2" />
@@ -296,11 +296,11 @@ export function Employees() {
       <div className="grid grid-cols-5 gap-4">
         <Card className="p-4">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-slate-100 rounded-lg flex items-center justify-center">
-              <Users className="w-5 h-5 text-slate-600" />
+            <div className="w-10 h-10 bg-zen-100 rounded-lg flex items-center justify-center">
+              <Users className="w-5 h-5 text-zen-600" />
             </div>
             <div>
-              <p className="text-sm text-slate-500">Total Empleados</p>
+              <p className="text-sm text-zen-500">Total Empleados</p>
               <p className="text-2xl font-bold">{stats.total}</p>
             </div>
           </div>
@@ -311,7 +311,7 @@ export function Employees() {
               <UserCheck className="w-5 h-5 text-emerald-600" />
             </div>
             <div>
-              <p className="text-sm text-slate-500">Activos</p>
+              <p className="text-sm text-zen-500">Activos</p>
               <p className="text-2xl font-bold">{stats.active}</p>
             </div>
           </div>
@@ -322,7 +322,7 @@ export function Employees() {
               <Shield className="w-5 h-5 text-emerald-500" />
             </div>
             <div>
-              <p className="text-sm text-slate-500">Recepcionistas</p>
+              <p className="text-sm text-zen-500">Recepcionistas</p>
               <p className="text-2xl font-bold">{stats.receptionists}</p>
             </div>
           </div>
@@ -333,7 +333,7 @@ export function Employees() {
               <Users className="w-5 h-5 text-amber-500" />
             </div>
             <div>
-              <p className="text-sm text-slate-500">Limpieza</p>
+              <p className="text-sm text-zen-500">Limpieza</p>
               <p className="text-2xl font-bold">{stats.housekeeping}</p>
             </div>
           </div>
@@ -344,7 +344,7 @@ export function Employees() {
               <Shield className="w-5 h-5 text-purple-500" />
             </div>
             <div>
-              <p className="text-sm text-slate-500">Seguridad</p>
+              <p className="text-sm text-zen-500">Seguridad</p>
               <p className="text-2xl font-bold">{stats.security}</p>
             </div>
           </div>
@@ -355,7 +355,7 @@ export function Employees() {
       <Card className="p-4">
         <div className="flex items-center gap-4">
           <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zen-400" />
             <Input
               placeholder="Buscar por nombre o email..."
               value={searchQuery}
@@ -365,7 +365,7 @@ export function Employees() {
             />
           </div>
           <div className="flex items-center gap-2">
-            <Filter className="w-4 h-4 text-slate-400" />
+            <Filter className="w-4 h-4 text-zen-400" />
             <Select value={filterRole} onValueChange={setFilterRole}>
               <SelectTrigger className="w-[180px]">
                 <SelectValue placeholder="Filtrar por rol" />
@@ -407,7 +407,7 @@ export function Employees() {
           <TableBody>
             {filteredEmployees.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={5} className="text-center py-8 text-slate-500">
+                <TableCell colSpan={5} className="text-center py-8 text-zen-500">
                   No se encontraron empleados
                 </TableCell>
               </TableRow>
@@ -416,8 +416,8 @@ export function Employees() {
                 <TableRow key={emp.id}>
                   <TableCell>
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center">
-                        <span className="text-sm font-medium text-slate-600">
+                      <div className="w-10 h-10 bg-zen-100 rounded-full flex items-center justify-center">
+                        <span className="text-sm font-medium text-zen-600">
                           {emp.full_name?.charAt(0)?.toUpperCase() || 'U'}
                         </span>
                       </div>
@@ -430,10 +430,10 @@ export function Employees() {
                     </div>
                   </TableCell>
                   <TableCell>
-                    <span className="text-slate-600">{emp.email}</span>
+                    <span className="text-zen-600">{emp.email}</span>
                   </TableCell>
                   <TableCell>
-                    <Badge className={ROLE_COLORS[emp.role] || 'bg-slate-100 text-slate-700'}>
+                    <Badge className={ROLE_COLORS[emp.role] || 'bg-zen-100 text-zen-700'}>
                       {ROLE_LABELS[emp.role] || emp.role}
                     </Badge>
                   </TableCell>

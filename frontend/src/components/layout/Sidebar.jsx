@@ -141,7 +141,7 @@ export function Sidebar({ collapsed, onToggle }) {
         producto. El azul además no aparece en ninguna parte de la identidad:
         la marca es fucsia, turquesa, lima y oliva.
       */}
-      <div className="h-16 flex items-center px-4 border-b border-slate-800">
+      <div className="h-16 flex items-center px-4 border-b border-zen-800">
         {!collapsed ? (
           <div className="flex items-center gap-2.5">
             <img src="/logo-zenstay.png" alt="ZenStay" className="h-9 w-9 object-contain" />
@@ -181,15 +181,15 @@ export function Sidebar({ collapsed, onToggle }) {
       </nav>
 
       {/* User section */}
-      <div className="p-3 border-t border-slate-800">
+      <div className="p-3 border-t border-zen-800">
         {!collapsed ? (
           <div className="flex items-center gap-3 px-3 py-2">
-            <div className="w-8 h-8 bg-slate-700 rounded-full flex items-center justify-center text-sm font-medium text-white">
+            <div className="w-8 h-8 bg-zen-700 rounded-full flex items-center justify-center text-sm font-medium text-white">
               {user?.full_name?.charAt(0) || 'U'}
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium text-white truncate">{user?.full_name}</p>
-              <p className="text-xs text-slate-400 truncate">{user?.email}</p>
+              <p className="text-xs text-zen-400 truncate">{user?.email}</p>
             </div>
           </div>
         ) : null}
@@ -218,7 +218,7 @@ export function Sidebar({ collapsed, onToggle }) {
       {/* Collapse button */}
       <button
         onClick={onToggle}
-        className="absolute -right-3 top-20 w-6 h-6 bg-slate-800 border border-slate-700 rounded-full flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-700 transition-colors"
+        className="absolute -right-3 top-20 w-6 h-6 bg-zen-800 border border-zen-700 rounded-full flex items-center justify-center text-zen-400 hover:text-white hover:bg-zen-700 transition-colors"
       >
         {collapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
       </button>

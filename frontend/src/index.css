@@ -22,48 +22,63 @@ code {
 }
 
 @layer base {
+  /* Los tokens del sistema, con los colores de la marca.
+     ------------------------------------------------------------------
+     Antes TODOS los neutros usaban matices 210-223, que son azules, y el
+     acento era un azul puro (217 91% 60%). En la identidad de ZenStay no hay
+     azul por ningun lado: se entraba por un login verde y se aterrizaba en
+     una aplicacion azulada.
+
+     Los neutros pasan al matiz 156 -el verde de la marca- CONSERVANDO la
+     luminosidad de cada token, que es lo que sostiene los contrastes: solo
+     gira el tono.
+
+     Los ESTADOS DE HABITACION se alinean con el tablero de la landing, que es
+     donde el hotelero los ve por primera vez: ocupada en fucsia, por limpiar
+     en lima, libre en turquesa. Antes "ocupada" era azul aqui y fucsia alli. */
   :root {
-    --background: 210 20% 98%;
-    --foreground: 222 47% 11%;
+    --background: 156 20% 98%;
+    --foreground: 156 30% 11%;
     --card: 0 0% 100%;
-    --card-foreground: 222 47% 11%;
+    --card-foreground: 156 30% 11%;
     --popover: 0 0% 100%;
-    --popover-foreground: 222 47% 11%;
-    --primary: 222 47% 11%;
-    --primary-foreground: 210 20% 98%;
-    --secondary: 215 16% 47%;
-    --secondary-foreground: 210 20% 98%;
-    --muted: 215 16% 90%;
-    --muted-foreground: 215 16% 47%;
-    --accent: 217 91% 60%;
+    --popover-foreground: 156 30% 11%;
+    --primary: 156 30% 11%;
+    --primary-foreground: 156 20% 98%;
+    --secondary: 156 12% 47%;
+    --secondary-foreground: 156 20% 98%;
+    --muted: 156 12% 90%;
+    --muted-foreground: 156 12% 40%;
+    --accent: 172 100% 30%;
     --accent-foreground: 0 0% 100%;
-    --destructive: 350 89% 60%;
+    --destructive: 342 97% 55%;
     --destructive-foreground: 0 0% 100%;
-    --border: 214 32% 91%;
-    --input: 214 32% 91%;
-    --ring: 217 91% 60%;
+    --border: 156 18% 89%;
+    --input: 156 18% 89%;
+    --ring: 172 100% 34%;
     --radius: 0.5rem;
-    
-    /* Chart colors */
-    --chart-1: 217 91% 60%;
-    --chart-2: 160 84% 39%;
-    --chart-3: 38 92% 50%;
-    --chart-4: 280 65% 60%;
-    --chart-5: 350 89% 60%;
-    
-    /* Status colors */
-    --status-vacant-clean: 160 84% 39%;
-    --status-occupied: 217 91% 60%;
-    --status-dirty: 38 92% 50%;
-    --status-ooo: 350 89% 60%;
-    --status-reserved: 280 65% 60%;
-    --status-checkout: 215 16% 47%;
+
+    /* Graficos: el turquesa y el lima de la marca primero, y despues tonos
+       que se distinguen entre si tambien en escala de grises. */
+    --chart-1: 172 100% 34%;
+    --chart-2: 60 55% 50%;
+    --chart-3: 38 92% 45%;
+    --chart-4: 342 97% 60%;
+    --chart-5: 75 30% 49%;
+
+    /* Estados de habitacion: los MISMOS que el tablero de la landing. */
+    --status-vacant-clean: 172 100% 34%;
+    --status-occupied: 342 97% 60%;
+    --status-dirty: 60 55% 50%;
+    --status-ooo: 156 12% 47%;
+    --status-reserved: 75 30% 49%;
+    --status-checkout: 156 12% 40%;
   }
 
   .dark {
-    --background: 222 47% 11%;
-    --foreground: 210 20% 98%;
-    --card: 223 47% 14%;
+    --background: 156 30% 8%;
+    --foreground: 156 20% 96%;
+    --card: 156 26% 12%;
     --card-foreground: 210 20% 98%;
     --popover: 223 47% 14%;
     --popover-foreground: 210 20% 98%;
@@ -176,7 +191,7 @@ code {
 }
 
 .status-checkout {
-  @apply bg-slate-100 text-slate-700 border-slate-200;
+  @apply bg-zen-100 text-zen-700 border-zen-200;
 }
 
 /* Glass morphism effect */
@@ -195,15 +210,15 @@ code {
 
 .room-calendar-grid th,
 .room-calendar-grid td {
-  @apply border border-slate-200 p-0;
+  @apply border border-zen-200 p-0;
 }
 
 .room-calendar-grid th {
-  @apply bg-slate-50 font-medium text-sm text-slate-600 sticky top-0 z-10;
+  @apply bg-zen-50 font-medium text-sm text-zen-600 sticky top-0 z-10;
 }
 
 .room-calendar-grid th:first-child {
-  @apply sticky left-0 z-20 bg-slate-100;
+  @apply sticky left-0 z-20 bg-zen-100;
 }
 
 .room-calendar-grid td:first-child {

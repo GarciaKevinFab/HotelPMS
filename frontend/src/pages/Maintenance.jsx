@@ -125,7 +125,7 @@ export function Maintenance() {
     switch (priority) {
       case 'CRITICAL': return <AlertTriangle className="w-4 h-4 text-rose-500" />;
       case 'HIGH': return <AlertTriangle className="w-4 h-4 text-amber-500" />;
-      default: return <Wrench className="w-4 h-4 text-slate-400" />;
+      default: return <Wrench className="w-4 h-4 text-zen-400" />;
     }
   };
 
@@ -134,7 +134,7 @@ export function Maintenance() {
       case 'OPEN': return <Clock className="w-4 h-4 text-amber-500" />;
       case 'IN_PROGRESS': return <Wrench className="w-4 h-4 text-blue-500" />;
       case 'RESOLVED': return <CheckCircle className="w-4 h-4 text-emerald-500" />;
-      case 'CANCELLED': return <XCircle className="w-4 h-4 text-slate-400" />;
+      case 'CANCELLED': return <XCircle className="w-4 h-4 text-zen-400" />;
       default: return null;
     }
   };
@@ -152,8 +152,8 @@ export function Maintenance() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Mantenimiento</h1>
-          <p className="text-slate-500">Gestión de tickets de mantenimiento</p>
+          <h1 className="text-2xl font-bold text-zen-900">Mantenimiento</h1>
+          <p className="text-zen-500">Gestión de tickets de mantenimiento</p>
         </div>
         <Button onClick={() => setShowCreateDialog(true)} data-testid="create-ticket-btn">
           <Plus className="w-4 h-4 mr-2" />
@@ -164,19 +164,19 @@ export function Maintenance() {
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <Card className="p-4">
-          <p className="text-sm text-slate-500">Total Tickets</p>
+          <p className="text-sm text-zen-500">Total Tickets</p>
           <p className="text-2xl font-bold">{stats.total}</p>
         </Card>
         <Card className="p-4">
-          <p className="text-sm text-slate-500">Pendientes</p>
+          <p className="text-sm text-zen-500">Pendientes</p>
           <p className="text-2xl font-bold text-amber-600">{stats.open}</p>
         </Card>
         <Card className="p-4">
-          <p className="text-sm text-slate-500">En Progreso</p>
+          <p className="text-sm text-zen-500">En Progreso</p>
           <p className="text-2xl font-bold text-blue-600">{stats.inProgress}</p>
         </Card>
         <Card className="p-4">
-          <p className="text-sm text-slate-500">Críticos</p>
+          <p className="text-sm text-zen-500">Críticos</p>
           <p className="text-2xl font-bold text-rose-600">{stats.critical}</p>
         </Card>
       </div>
@@ -227,12 +227,12 @@ export function Maintenance() {
             {loading ? (
               <TableRow>
                 <TableCell colSpan={7} className="text-center py-8">
-                  <div className="w-6 h-6 border-2 border-slate-200 border-t-blue-500 rounded-full animate-spin mx-auto" />
+                  <div className="w-6 h-6 border-2 border-zen-200 border-t-zen-turquesa rounded-full animate-spin mx-auto" />
                 </TableCell>
               </TableRow>
             ) : tickets.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7} className="text-center py-8 text-slate-500">
+                <TableCell colSpan={7} className="text-center py-8 text-zen-500">
                   No se encontraron tickets
                 </TableCell>
               </TableRow>
@@ -246,7 +246,7 @@ export function Maintenance() {
                     <div>
                       <p className="font-medium">{ticket.title}</p>
                       {ticket.description && (
-                        <p className="text-xs text-slate-500 line-clamp-1">{ticket.description}</p>
+                        <p className="text-xs text-zen-500 line-clamp-1">{ticket.description}</p>
                       )}
                     </div>
                   </TableCell>

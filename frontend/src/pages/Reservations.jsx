@@ -363,8 +363,8 @@ export function Reservations() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Reservas</h1>
-          <p className="text-slate-500">Gestión de reservaciones</p>
+          <h1 className="text-2xl font-bold text-zen-900">Reservas</h1>
+          <p className="text-zen-500">Gestión de reservaciones</p>
         </div>
         <div className="flex gap-2">
           <Button 
@@ -389,7 +389,7 @@ export function Reservations() {
       <Card className="p-4">
         <div className="flex flex-col sm:flex-row gap-4">
           <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zen-400" />
             <Input
               placeholder="Buscar por código, huésped..."
               value={searchQuery}
@@ -433,12 +433,12 @@ export function Reservations() {
             {loading ? (
               <TableRow>
                 <TableCell colSpan={7} className="text-center py-8">
-                  <div className="w-6 h-6 border-2 border-slate-200 border-t-blue-500 rounded-full animate-spin mx-auto" />
+                  <div className="w-6 h-6 border-2 border-zen-200 border-t-zen-turquesa rounded-full animate-spin mx-auto" />
                 </TableCell>
               </TableRow>
             ) : filteredReservations.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7} className="text-center py-8 text-slate-500">
+                <TableCell colSpan={7} className="text-center py-8 text-zen-500">
                   No se encontraron reservas
                 </TableCell>
               </TableRow>
@@ -449,7 +449,7 @@ export function Reservations() {
                   <TableCell>
                     <div>
                       <p className="font-medium">{reservation.guest?.full_name || '-'}</p>
-                      <p className="text-xs text-slate-500">
+                      <p className="text-xs text-zen-500">
                         {reservation.guest?.doc_type}: {reservation.guest?.doc_number}
                       </p>
                     </div>
@@ -457,8 +457,8 @@ export function Reservations() {
                   <TableCell>
                     <div className="text-sm">
                       <p>{formatDate(reservation.checkin_date)}</p>
-                      <p className="text-slate-500">{formatDate(reservation.checkout_date)}</p>
-                      <p className="text-xs text-slate-400">
+                      <p className="text-zen-500">{formatDate(reservation.checkout_date)}</p>
+                      <p className="text-xs text-zen-400">
                         {calculateNights(reservation.checkin_date, reservation.checkout_date)} noches
                       </p>
                     </div>
@@ -538,12 +538,12 @@ export function Reservations() {
           <div className="space-y-6 py-4">
             {/* Guest Section */}
             <div className="space-y-4">
-              <h3 className="font-medium text-slate-900">Huésped</h3>
+              <h3 className="font-medium text-zen-900">Huésped</h3>
               
               {!showNewGuestForm ? (
                 <div className="space-y-3">
                   <div className="relative">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zen-400" />
                     <Input
                       placeholder="Buscar huésped por nombre o documento..."
                       className="pl-10"
@@ -557,13 +557,13 @@ export function Reservations() {
                         <button
                           key={guest.id}
                           className={cn(
-                            "w-full text-left p-3 hover:bg-slate-50 border-b last:border-0",
+                            "w-full text-left p-3 hover:bg-zen-50 border-b last:border-0",
                             formData.guest_id === guest.id && "bg-blue-50"
                           )}
                           onClick={() => setFormData(prev => ({ ...prev, guest_id: guest.id }))}
                         >
                           <p className="font-medium">{guest.full_name}</p>
-                          <p className="text-sm text-slate-500">{guest.doc_type}: {guest.doc_number}</p>
+                          <p className="text-sm text-zen-500">{guest.doc_type}: {guest.doc_number}</p>
                         </button>
                       ))}
                     </div>
@@ -579,7 +579,7 @@ export function Reservations() {
                   </Button>
                 </div>
               ) : (
-                <div className="space-y-4 p-4 border rounded-lg bg-slate-50">
+                <div className="space-y-4 p-4 border rounded-lg bg-zen-50">
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <Label>Tipo Documento</Label>
@@ -727,7 +727,7 @@ export function Reservations() {
                 <Input
                   value={formatCurrency(formData.total_estimated)}
                   readOnly
-                  className="bg-slate-50"
+                  className="bg-zen-50"
                 />
               </div>
               <div>

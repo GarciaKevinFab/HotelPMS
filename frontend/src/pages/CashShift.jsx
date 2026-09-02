@@ -155,7 +155,7 @@ export function CashShift() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-96">
-        <div className="w-8 h-8 border-4 border-slate-200 border-t-blue-500 rounded-full animate-spin" />
+        <div className="w-8 h-8 border-4 border-zen-200 border-t-zen-turquesa rounded-full animate-spin" />
       </div>
     );
   }
@@ -165,8 +165,8 @@ export function CashShift() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Caja</h1>
-          <p className="text-slate-500">Gestión de turnos de caja</p>
+          <h1 className="text-2xl font-bold text-zen-900">Caja</h1>
+          <p className="text-zen-500">Gestión de turnos de caja</p>
         </div>
         <Button variant="outline" size="sm" onClick={fetchData}>
           <RefreshCw className="w-4 h-4 mr-2" />
@@ -184,7 +184,7 @@ export function CashShift() {
               </div>
               <div>
                 <h2 className="text-xl font-bold">Caja Abierta</h2>
-                <p className="text-slate-300 text-sm">
+                <p className="text-zen-300 text-sm">
                   Desde {formatDateTime(currentShift.opened_at)}
                 </p>
               </div>
@@ -194,19 +194,19 @@ export function CashShift() {
 
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
             <div className="cash-shift-stat">
-              <p className="text-sm text-slate-300">Apertura</p>
+              <p className="text-sm text-zen-300">Apertura</p>
               <p className="text-xl font-bold">{formatCurrency(currentShift.opening_amount)}</p>
             </div>
             <div className="cash-shift-stat">
-              <p className="text-sm text-slate-300">Efectivo</p>
+              <p className="text-sm text-zen-300">Efectivo</p>
               <p className="text-xl font-bold">{formatCurrency(currentShift.totals?.EFECTIVO || 0)}</p>
             </div>
             <div className="cash-shift-stat">
-              <p className="text-sm text-slate-300">Tarjeta</p>
+              <p className="text-sm text-zen-300">Tarjeta</p>
               <p className="text-xl font-bold">{formatCurrency(currentShift.totals?.TARJETA || 0)}</p>
             </div>
             <div className="cash-shift-stat">
-              <p className="text-sm text-slate-300">Total Pagos</p>
+              <p className="text-sm text-zen-300">Total Pagos</p>
               <p className="text-xl font-bold text-emerald-400">{formatCurrency(currentShift.total_payments || 0)}</p>
             </div>
           </div>
@@ -214,7 +214,7 @@ export function CashShift() {
           {/* Payment Methods Breakdown */}
           {currentShift.totals && Object.keys(currentShift.totals).length > 0 && (
             <div className="mb-6">
-              <h3 className="text-sm font-medium text-slate-300 mb-3">Desglose por Método</h3>
+              <h3 className="text-sm font-medium text-zen-300 mb-3">Desglose por Método</h3>
               <div className="space-y-2">
                 {Object.entries(currentShift.totals).map(([method, amount]) => (
                   <div key={method} className="flex items-center justify-between bg-white/5 rounded-lg px-4 py-2">
@@ -239,7 +239,7 @@ export function CashShift() {
               Movimiento
             </Button>
             <Button 
-              className="bg-white text-slate-900 hover:bg-slate-100"
+              className="bg-white text-zen-900 hover:bg-zen-100"
               onClick={() => setShowCloseDialog(true)}
               data-testid="close-shift-btn"
             >
@@ -251,9 +251,9 @@ export function CashShift() {
       ) : (
         <Card className="border-2 border-dashed">
           <CardContent className="py-12 text-center">
-            <Lock className="w-12 h-12 text-slate-300 mx-auto mb-4" />
-            <h3 className="text-lg font-medium text-slate-900 mb-2">No hay caja abierta</h3>
-            <p className="text-slate-500 mb-6">Abra una caja para comenzar a registrar pagos</p>
+            <Lock className="w-12 h-12 text-zen-300 mx-auto mb-4" />
+            <h3 className="text-lg font-medium text-zen-900 mb-2">No hay caja abierta</h3>
+            <p className="text-zen-500 mb-6">Abra una caja para comenzar a registrar pagos</p>
             <Button onClick={() => setShowOpenDialog(true)} data-testid="open-shift-btn">
               <Unlock className="w-4 h-4 mr-2" />
               Abrir Caja
@@ -310,7 +310,7 @@ export function CashShift() {
               ))}
               {shifts.filter(s => s.status === 'CLOSED').length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center text-slate-500 py-8">
+                  <TableCell colSpan={7} className="text-center text-zen-500 py-8">
                     No hay registros de cajas cerradas
                   </TableCell>
                 </TableRow>
@@ -363,7 +363,7 @@ export function CashShift() {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
-            <div className="p-4 bg-slate-50 rounded-lg space-y-2">
+            <div className="p-4 bg-zen-50 rounded-lg space-y-2">
               <div className="flex justify-between text-sm">
                 <span>Monto apertura:</span>
                 <span className="font-medium">{formatCurrency(currentShift?.opening_amount || 0)}</span>

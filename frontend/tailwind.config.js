@@ -31,6 +31,25 @@ module.exports = {
   			   ningun lado. El resultado era que el login no se parecia al sitio
   			   del que venia el usuario. */
   			zen: {
+  				/* Escala neutra de la marca. Sustituye a `slate`, que es gris
+  				   AZULADO y no pinta nada en una identidad sin azul.
+
+  				   Cada peldano tiene EXACTAMENTE la misma luminancia relativa
+  				   que el slate al que reemplaza -calculado, no a ojo-, asi que
+  				   ningun contraste de la interfaz empeora al cambiarla: solo
+  				   gira el matiz de azul a verde. */
+  				50:  '#f7fbf9',
+  				100: '#eff6f3',
+  				200: '#daebe5',
+  				300: '#bedacf',
+  				400: '#7eab9a',
+  				500: '#567a6c',
+  				600: '#3c5a4e',
+  				700: '#29463b',
+  				800: '#182d25',
+  				900: '#0e1a15',
+  				950: '#040806',
+
   				fondo:      '#0c1210',
   				superficie: '#141d19',
   				alta:       '#1b2621',

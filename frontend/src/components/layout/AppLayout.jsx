@@ -13,10 +13,10 @@ export function AppLayout() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+      <div className="min-h-screen flex items-center justify-center bg-zen-50">
         <div className="text-center">
-          <div className="w-12 h-12 border-4 border-slate-200 border-t-blue-500 rounded-full animate-spin mx-auto"></div>
-          <p className="mt-4 text-slate-600">Cargando...</p>
+          <div className="w-12 h-12 border-4 border-zen-200 border-t-zen-turquesa rounded-full animate-spin mx-auto"></div>
+          <p className="mt-4 text-zen-600">Cargando...</p>
         </div>
       </div>
     );
@@ -27,7 +27,7 @@ export function AppLayout() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-zen-50">
       {/* Sidebar */}
       <Sidebar 
         collapsed={sidebarCollapsed}

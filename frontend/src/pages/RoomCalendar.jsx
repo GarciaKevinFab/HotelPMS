@@ -115,8 +115,8 @@ export function RoomCalendar() {
     switch (status) {
       case 'CONFIRMED': return 'bg-blue-500';
       case 'CHECKED_IN': return 'bg-emerald-500';
-      case 'CHECKED_OUT': return 'bg-slate-400';
-      default: return 'bg-slate-300';
+      case 'CHECKED_OUT': return 'bg-zen-400';
+      default: return 'bg-zen-300';
     }
   };
 
@@ -146,8 +146,8 @@ export function RoomCalendar() {
     return (
       <div className="flex items-center justify-center h-96">
         <div className="text-center">
-          <div className="w-8 h-8 border-4 border-slate-200 border-t-blue-500 rounded-full animate-spin mx-auto"></div>
-          <p className="mt-2 text-slate-500">Cargando calendario...</p>
+          <div className="w-8 h-8 border-4 border-zen-200 border-t-zen-turquesa rounded-full animate-spin mx-auto"></div>
+          <p className="mt-2 text-zen-500">Cargando calendario...</p>
         </div>
       </div>
     );
@@ -158,8 +158,8 @@ export function RoomCalendar() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Calendario de Habitaciones</h1>
-          <p className="text-slate-500">Vista general de ocupación y reservas</p>
+          <h1 className="text-2xl font-bold text-zen-900">Calendario de Habitaciones</h1>
+          <p className="text-zen-500">Vista general de ocupación y reservas</p>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={fetchData}>
@@ -174,7 +174,7 @@ export function RoomCalendar() {
       </div>
 
       {/* Navigation */}
-      <div className="flex items-center justify-between bg-white rounded-lg border border-slate-200 p-3">
+      <div className="flex items-center justify-between bg-white rounded-lg border border-zen-200 p-3">
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={() => navigateDays(-1)}>
             <ChevronLeft className="w-4 h-4" />
@@ -187,7 +187,7 @@ export function RoomCalendar() {
             <ChevronRight className="w-4 h-4" />
           </Button>
         </div>
-        <div className="text-sm font-medium text-slate-700">
+        <div className="text-sm font-medium text-zen-700">
           {formatDate(startDate.toISOString())} - {formatDate(dateRange[dateRange.length - 1]?.toISOString())}
         </div>
       </div>
@@ -203,18 +203,18 @@ export function RoomCalendar() {
           <span>Check-in</span>
         </div>
         <div className="flex items-center gap-2">
-          <div className="w-4 h-4 rounded bg-slate-400" />
+          <div className="w-4 h-4 rounded bg-zen-400" />
           <span>Check-out</span>
         </div>
       </div>
 
       {/* Calendar Grid */}
-      <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+      <div className="bg-white rounded-lg border border-zen-200 overflow-hidden">
         <div className="room-calendar-grid overflow-x-auto">
           <table className="w-full min-w-max">
             <thead>
               <tr>
-                <th className="w-32 p-2 text-left bg-slate-100 sticky left-0 z-20">
+                <th className="w-32 p-2 text-left bg-zen-100 sticky left-0 z-20">
                   Habitación
                 </th>
                 {dateRange.map((date, idx) => {
@@ -226,7 +226,7 @@ export function RoomCalendar() {
                       className={cn(
                         "w-24 p-2 text-center text-xs",
                         isToday && "bg-blue-50",
-                        isWeekend && "bg-slate-50"
+                        isWeekend && "bg-zen-50"
                       )}
                     >
                       <div className="font-medium">
@@ -250,7 +250,7 @@ export function RoomCalendar() {
                   <tr>
                     <td 
                       colSpan={dateRange.length + 1} 
-                      className="bg-slate-100 px-3 py-1.5 text-sm font-semibold text-slate-600 sticky left-0"
+                      className="bg-zen-100 px-3 py-1.5 text-sm font-semibold text-zen-600 sticky left-0"
                     >
                       Piso {floor}
                     </td>
@@ -261,9 +261,9 @@ export function RoomCalendar() {
                     
                     return (
                       <tr key={room.id} className="group">
-                        <td className="p-2 border-r border-slate-200 bg-white sticky left-0 z-10">
+                        <td className="p-2 border-r border-zen-200 bg-white sticky left-0 z-10">
                           <div className="font-medium text-sm">{room.number}</div>
-                          <div className="text-xs text-slate-500">{room.room_type?.name}</div>
+                          <div className="text-xs text-zen-500">{room.room_type?.name}</div>
                           <Badge 
                             variant="outline" 
                             className={cn("text-[10px] mt-1", 
@@ -283,9 +283,9 @@ export function RoomCalendar() {
                             <td 
                               key={dateIdx} 
                               className={cn(
-                                "relative h-16 border-r border-slate-100 cursor-pointer hover:bg-slate-50 transition-colors",
+                                "relative h-16 border-r border-zen-100 cursor-pointer hover:bg-zen-50 transition-colors",
                                 isToday && "bg-blue-50/50",
-                                isWeekend && "bg-slate-50/50"
+                                isWeekend && "bg-zen-50/50"
                               )}
                               onClick={() => handleCellClick(room, date)}
                             >
@@ -319,7 +319,7 @@ export function RoomCalendar() {
                                       <TooltipContent>
                                         <div className="text-sm">
                                           <p className="font-medium">{res.guest?.full_name}</p>
-                                          <p className="text-xs text-slate-400">{res.code}</p>
+                                          <p className="text-xs text-zen-400">{res.code}</p>
                                           <p className="text-xs mt-1">
                                             {formatDate(res.checkin_date)} - {formatDate(res.checkout_date)}
                                           </p>
