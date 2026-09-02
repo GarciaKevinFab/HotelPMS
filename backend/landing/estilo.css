@@ -40,7 +40,16 @@
   --lima: #cccc54;
   --oliva: #90a854;
 
-  --radio: 4px;
+  /* Escala de radios. Antes habia un solo valor de 4 px para todo. Un radio no
+     es un adorno: dice de que tamano es la pieza, y una pastilla y un bloque de
+     700 px no pueden curvarse igual. */
+  --radio: 12px;          /* campos de formulario */
+  --radio-tarjeta: 20px;  /* tarjetas y planes */
+  --radio-grande: 28px;   /* bloques grandes: tablero, contraste */
+  --radio-pastilla: 980px;
+
+  /* El aire entre secciones crece con la ventana; no es un numero fijo. */
+  --aire: clamp(88px, 11vw, 148px);
 
   --display: "Bricolage Grotesque", "Trebuchet MS", sans-serif;
   --sans: "Karla", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -78,9 +87,12 @@ body::before {
 .envoltorio { max-width: 1120px; margin: 0 auto; padding: 0 28px; position: relative; z-index: 2; }
 
 /* --- Tipografia -------------------------------------------------------- */
-h1, h2, h3 { font-family: var(--display); font-weight: 700; line-height: 1.06; letter-spacing: -.03em; margin: 0; }
-h1 { font-size: clamp(2.7rem, 6.8vw, 4.9rem); }
-h2 { font-size: clamp(1.9rem, 3.7vw, 2.8rem); }
+h1, h2, h3 { font-family: var(--display); font-weight: 700; line-height: 1.05; letter-spacing: -.035em; margin: 0; }
+/* Titulares grandes de verdad. Cuanto mayor es el cuerpo, mas sobra el espacio
+   entre letras que el tipo trae de serie: por eso el tracking es negativo y se
+   aprieta mas conforme crece el tamano. */
+h1 { font-size: clamp(3.1rem, 7.6vw, 6.2rem); letter-spacing: -.042em; text-wrap: balance; }
+h2 { font-size: clamp(2.1rem, 4.4vw, 3.4rem); letter-spacing: -.038em; }
 h3 { font-size: 1.2rem; letter-spacing: -.015em; }
 p  { margin: 0 0 1rem; }
 
@@ -94,9 +106,25 @@ p  { margin: 0 0 1rem; }
 }
 
 /* --- Cabecera ---------------------------------------------------------- */
+/* Cabecera fija de vidrio esmerilado. El truco no es el desenfoque sino el
+   `saturate`: al difuminar, el color de debajo se apaga, y subir la saturacion
+   lo devuelve. Sin eso el vidrio se ve gris y sucio.
+   El fondo lleva alfa, asi que donde no haya backdrop-filter la barra sigue
+   siendo legible: solo que opaca. */
 .cabecera {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 20px 0; border-bottom: 1px solid var(--borde);
+  padding: 15px 0;
+}
+.barra {
+  position: sticky; top: 0; z-index: 50;
+  background: color-mix(in srgb, var(--fondo) 72%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--borde) 60%, transparent);
+}
+@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+  .barra {
+    -webkit-backdrop-filter: saturate(180%) blur(20px);
+    backdrop-filter: saturate(180%) blur(20px);
+  }
 }
 .marca { display: flex; align-items: center; gap: 11px; text-decoration: none; color: var(--texto); }
 .marca img { width: 40px; height: 40px; object-fit: contain; }
@@ -107,11 +135,26 @@ p  { margin: 0 0 1rem; }
 
 /* --- Botones ----------------------------------------------------------- */
 .boton {
-  display: inline-block; padding: 13px 26px; border-radius: var(--radio);
-  font-weight: 700; font-size: .96rem; text-decoration: none; cursor: pointer;
-  border: 1px solid transparent; font-family: var(--sans);
-  transition: transform .12s ease, box-shadow .2s ease, background .2s ease;
+  display: inline-block; padding: 14px 30px; border-radius: var(--radio-pastilla);
+  font-weight: 700; font-size: 1rem; text-decoration: none; cursor: pointer;
+  border: 1px solid transparent; font-family: var(--sans); line-height: 1.2;
+  transition: transform .18s cubic-bezier(.2,.7,.3,1), box-shadow .25s ease, background .2s ease;
 }
+.boton:hover { transform: translateY(-1px); }
+
+/* El enlace con chevron: la segunda accion no compite con la primera, pero
+   sigue siendo evidente que lleva a alguna parte. La flecha avanza al pasar
+   por encima, que es lo unico que hace falta para que se lea como enlace. */
+.enlace-flecha {
+  display: inline-flex; align-items: center; gap: .3em;
+  color: var(--turquesa); text-decoration: none; font-size: 1rem; font-weight: 600;
+  padding: 14px 4px;
+}
+.enlace-flecha::after {
+  content: "\203A"; font-size: 1.35em; line-height: 0;
+  transition: transform .18s cubic-bezier(.2,.7,.3,1);
+}
+.enlace-flecha:hover::after { transform: translateX(3px); }
 .boton:active { transform: translateY(1px); }
 .boton-lleno {
   background: var(--fucsia); color: #fff;
@@ -123,24 +166,38 @@ p  { margin: 0 0 1rem; }
 .boton[disabled] { opacity: .5; cursor: wait; }
 
 /* --- Portada ----------------------------------------------------------- */
-.portada { padding: 84px 0 72px; display: grid; grid-template-columns: 1.1fr .9fr; gap: 56px; align-items: center; }
-.portada p.entrada { font-size: 1.18rem; color: var(--texto-suave); max-width: 46ch; margin-top: 24px; }
-.portada .acciones { margin-top: 32px; display: flex; gap: 13px; flex-wrap: wrap; }
-.portada .letra-chica { margin-top: 17px; font-size: .86rem; color: var(--texto-suave); }
+/* La portada pasa de dos columnas a una sola centrada, con el tablero DEBAJO y
+   a todo el ancho. El motivo no es la moda: en dos columnas el tablero -que es
+   el producto- media 400 px y competia con el titular por la atencion. Debajo y
+   grande, primero se lee la promesa y despues se la ve cumplida. */
+.portada { padding: clamp(64px, 9vw, 112px) 0 0; text-align: center; }
+.portada .dicho { max-width: 20ch; margin: 0 auto; }
+.portada p.entrada {
+  font-size: clamp(1.15rem, 2vw, 1.4rem); color: var(--texto-suave);
+  max-width: 54ch; margin: 26px auto 0;
+}
+.portada .acciones {
+  margin-top: 34px; display: flex; gap: 18px; flex-wrap: wrap;
+  justify-content: center; align-items: center;
+}
+.portada .letra-chica { margin-top: 20px; font-size: .88rem; color: var(--texto-suave); }
 
 /* El tablero de habitaciones: se explica solo, mejor que cualquier captura. */
+.escena-portada { margin-top: clamp(48px, 7vw, 82px); padding-bottom: var(--aire); }
 .tablero {
-  background: var(--superficie); border: 1px solid var(--borde);
-  border-radius: 10px; padding: 22px;
-  box-shadow: 0 30px 70px -30px rgba(0,0,0,.8);
+  background: linear-gradient(180deg, var(--superficie-alta), var(--superficie));
+  border: 1px solid var(--borde);
+  border-radius: var(--radio-grande); padding: clamp(22px, 3vw, 38px);
+  box-shadow: 0 40px 90px -40px rgba(0,0,0,.85);
+  max-width: 760px; margin: 0 auto; text-align: left;
 }
 .tablero .fila { display: flex; justify-content: space-between; font-size: .8rem;
   color: var(--texto-suave); margin-bottom: 14px; letter-spacing: .04em; }
 .tablero .fila strong { color: var(--texto); }
-.rejilla { display: grid; grid-template-columns: repeat(5, 1fr); gap: 7px; }
+.rejilla { display: grid; grid-template-columns: repeat(5, 1fr); gap: clamp(7px, 1.1vw, 12px); }
 .hab {
-  aspect-ratio: 1; border-radius: 3px; display: grid; place-items: center;
-  font-size: .72rem; font-weight: 700; font-variant-numeric: tabular-nums;
+  aspect-ratio: 1; border-radius: 10px; display: grid; place-items: center;
+  font-size: clamp(.72rem, 1.3vw, .95rem); font-weight: 700; font-variant-numeric: tabular-nums;
 }
 /* Los cuatro estados de una habitacion, definidos UNA sola vez.
    La ficha del tablero y el cuadradito de la leyenda comparten estas reglas a
@@ -160,12 +217,15 @@ p  { margin: 0 0 1rem; }
 .hab.fuera   { color: #5c6b62; text-decoration: line-through; }
 
 .leyenda { display: flex; gap: 15px; margin-top: 16px; font-size: .75rem; color: var(--texto-suave); flex-wrap: wrap; }
-.leyenda i { width: 9px; height: 9px; display: inline-block; margin-right: 5px; border-radius: 2px; vertical-align: middle; }
+.leyenda i { width: 10px; height: 10px; display: inline-block; margin-right: 5px; border-radius: 2px; vertical-align: middle; }
 
 /* --- Secciones --------------------------------------------------------- */
-.seccion { padding: 74px 0; border-top: 1px solid var(--borde); }
-.seccion-titulo { max-width: 52ch; margin-bottom: 44px; }
-.seccion-titulo p { color: var(--texto-suave); margin-top: 13px; }
+.seccion { padding: var(--aire) 0; border-top: 1px solid var(--borde); }
+.seccion-titulo { max-width: 24ch; margin-bottom: clamp(44px, 6vw, 72px); }
+.seccion-titulo p {
+  color: var(--texto-suave); margin-top: 18px; max-width: 52ch;
+  font-size: clamp(1.02rem, 1.6vw, 1.18rem);
+}
 
 .columnas { display: grid; grid-template-columns: repeat(3, 1fr); gap: 34px; }
 .columnas h3 { margin-bottom: 10px; }
@@ -179,8 +239,8 @@ p  { margin: 0 0 1rem; }
 .columnas > div:nth-child(3) .numero { color: var(--fucsia); }
 
 /* El antes/despues: el argumento de venta mas honesto es el contraste. */
-.contraste { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--borde); border-radius: 10px; overflow: hidden; }
-.contraste > div { padding: 32px; }
+.contraste { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--borde); border-radius: var(--radio-grande); overflow: hidden; }
+.contraste > div { padding: clamp(28px, 4vw, 44px); }
 .contraste .antes { background: var(--superficie); border-right: 1px solid var(--borde); }
 .contraste .despues { background: var(--superficie-alta); }
 .contraste .antes .apunte { color: var(--texto-suave); }
@@ -192,19 +252,20 @@ p  { margin: 0 0 1rem; }
 /* --- Planes ------------------------------------------------------------ */
 .planes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; align-items: start; }
 .plan {
-  border: 1px solid var(--borde); border-radius: 10px;
-  padding: 30px 26px; background: var(--superficie);
+  border: 1px solid var(--borde); border-radius: var(--radio-tarjeta);
+  padding: clamp(28px, 3.4vw, 40px) clamp(24px, 3vw, 32px);
+  background: linear-gradient(180deg, var(--superficie-alta), var(--superficie));
 }
 .plan.destacado {
   border-color: var(--fucsia); background: var(--superficie-alta); position: relative;
   box-shadow: 0 0 44px -22px rgba(252,60,120,.55);
 }
 .plan.destacado::after {
-  content: "Más elegido"; position: absolute; top: -11px; left: 24px;
+  content: "Más elegido"; position: absolute; top: -12px; left: 28px;
   background: var(--fucsia); color: #fff; font-size: .68rem; font-weight: 700;
-  letter-spacing: .1em; text-transform: uppercase; padding: 4px 11px; border-radius: 3px;
+  letter-spacing: .1em; text-transform: uppercase; padding: 5px 13px; border-radius: var(--radio-pastilla);
 }
-.plan .precio { font-family: var(--display); font-size: 2.7rem; line-height: 1; margin: 13px 0 4px; font-variant-numeric: tabular-nums; font-weight: 700; }
+.plan .precio { font-family: var(--display); font-size: clamp(2.7rem, 4vw, 3.4rem); letter-spacing: -.04em; line-height: 1; margin: 13px 0 4px; font-variant-numeric: tabular-nums; font-weight: 700; }
 .plan .precio small { font-family: var(--sans); font-size: .9rem; color: var(--texto-suave); font-weight: 400; }
 .plan ul { list-style: none; padding: 0; margin: 19px 0 25px; }
 .plan li { padding: 7px 0 7px 22px; position: relative; font-size: .92rem; color: var(--texto-suave); }
@@ -419,4 +480,25 @@ p  { margin: 0 0 1rem; }
 @media (prefers-reduced-motion: reduce) {
   .rejilla .hab { opacity: 1; transform: none; }
   .tablero { transform: none; }
+}
+
+/* ===========================================================================
+   REVELADO AL HACER SCROLL
+   ===========================================================================
+   Cada bloque entra cuando le toca, no todos de golpe al cargar. Es lo que
+   convierte una pagina larga en un recorrido: se lee un argumento, aparece el
+   siguiente.
+
+   El estado de reposo lo pone el JS con la clase `.revela`, NO el CSS. Es
+   deliberado: si el script falla o esta desactivado, no puede quedar media
+   pagina invisible. Sin JS no hay efecto; nunca hay hueco.
+   =========================================================================== */
+@media (prefers-reduced-motion: no-preference) {
+  .revela {
+    opacity: 0;
+    transform: translate3d(0, 26px, 0);
+    transition: opacity .7s cubic-bezier(.16,1,.3,1), transform .7s cubic-bezier(.16,1,.3,1);
+    transition-delay: calc(var(--r, 0) * .07s);
+  }
+  .revela.dentro { opacity: 1; transform: none; }
 }

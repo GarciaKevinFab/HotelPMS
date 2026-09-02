@@ -13,41 +13,43 @@
 </head>
 <body>
 
-<div class="envoltorio">
-  <header class="cabecera">
-    <a class="marca" href="/">
-      <img src="/logo-zenstay.png" alt="ZenStay">
-      <span>ZenStay</span>
-    </a>
-    <nav>
-      <a href="#como-funciona" class="oculta-movil">Cómo funciona</a>
-      <a href="#planes">Precios</a>
-      <a href="/app/login">Entrar</a>
-      <a href="/registro" class="boton boton-lleno">Probar gratis</a>
-    </nav>
-  </header>
+<div class="barra">
+  <div class="envoltorio">
+    <header class="cabecera">
+      <a class="marca" href="/">
+        <img src="/logo-zenstay.png" alt="ZenStay">
+        <span>ZenStay</span>
+      </a>
+      <nav>
+        <a href="#como-funciona" class="oculta-movil">Cómo funciona</a>
+        <a href="#planes">Precios</a>
+        <a href="/app/login">Entrar</a>
+        <a href="/registro" class="boton boton-lleno">Probar gratis</a>
+      </nav>
+    </header>
+  </div>
 </div>
 
 <div class="envoltorio">
   <section class="portada">
-    <div>
-      <p class="apunte aparece d1">Para hoteles, hostales y hospedajes del Perú</p>
-      <h1 class="aparece d2">De la reserva<br>a la boleta,<br><span class="destacado">sin cuadernos.</span></h1>
-      <p class="entrada aparece d3">
-        Recepción sabe qué habitación entregar. Limpieza sabe qué toca asear.
-        Y a fin de mes la caja cuadra, porque el sistema la cuadra sola.
-      </p>
-      <div class="acciones aparece d3">
-        <a href="/registro" class="boton boton-lleno">Empezar los 14 días gratis</a>
-        <a href="#planes" class="boton boton-linea">Ver precios</a>
-      </div>
-      <p class="letra-chica aparece d3">Sin tarjeta. Sin instalación. Funciona en la computadora de recepción.</p>
+    <p class="apunte aparece d1">Para hoteles, hostales y hospedajes del Perú</p>
+    <h1 class="dicho aparece d2">De la reserva a la boleta,<br><span class="destacado">sin cuadernos.</span></h1>
+    <p class="entrada aparece d3">
+      Recepción sabe qué habitación entregar. Limpieza sabe qué toca asear.
+      Y a fin de mes la caja cuadra, porque el sistema la cuadra sola.
+    </p>
+    <div class="acciones aparece d3">
+      <a href="/registro" class="boton boton-lleno">Empezar los 14 días gratis</a>
+      <a href="#planes" class="enlace-flecha">Ver precios</a>
     </div>
+    <p class="letra-chica aparece d3">Sin tarjeta. Sin instalación. Funciona en la computadora de recepción.</p>
+  </section>
 
-    <!-- .escena aporta la perspectiva; el giro va en .tablero. Separar padre e
-         hijo es obligatorio: con las dos cosas en el mismo elemento, cada ficha
-         tendria su propio punto de fuga y el tablero saldria deformado. -->
-    <div class="escena aparece d3">
+  <!-- El producto va DEBAJO de la promesa y a todo el ancho.
+       .escena aporta la perspectiva; el giro va en .tablero. Separar padre e
+       hijo es obligatorio: con las dos cosas en el mismo elemento, cada ficha
+       tendria su propio punto de fuga y el tablero saldria deformado. -->
+  <div class="escena escena-portada aparece d3">
     <div class="tablero" aria-label="Tablero de habitaciones de ejemplo">
       <div class="fila"><strong>Hoy</strong><span>12 de 15 ocupadas</span></div>
       <div class="rejilla">
@@ -70,8 +72,7 @@
         <span><i class="fuera"></i>Fuera de servicio</span>
       </div>
     </div>
-    </div>
-  </section>
+  </div>
 </div>
 
 <div class="envoltorio">
@@ -274,6 +275,45 @@
     escena.addEventListener('mouseleave', function () {
       tablero.style.setProperty('--giro-y', '0deg');
     });
+  }
+})();
+</script>
+
+
+<script>
+/* Revelado al hacer scroll.
+   ---------------------------------------------------------------------------
+   El estado de reposo lo pone ESTE script (clase .revela) y no la hoja de
+   estilos, para que sin JS no quede nada invisible.
+
+   Se numeran los hermanos de cada grupo para que entren en cascada: el retraso
+   sale de --r y no de quince reglas escritas a mano. */
+(function () {
+  if (!('IntersectionObserver' in window)) return;
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+
+  var grupos = document.querySelectorAll(
+    '.seccion-titulo, .contraste, .columnas > div, .planes > *, .pie');
+  if (!grupos.length) return;
+
+  var ojo = new IntersectionObserver(function (entradas) {
+    for (var i = 0; i < entradas.length; i++) {
+      if (!entradas[i].isIntersecting) continue;
+      entradas[i].target.classList.add('dentro');
+      ojo.unobserve(entradas[i].target);
+    }
+  }, { rootMargin: '0px 0px -10% 0px' });
+
+  var previo = null, n = 0;
+  for (var i = 0; i < grupos.length; i++) {
+    var el = grupos[i];
+    // Reinicia la cuenta al cambiar de grupo, para que la cascada sea de
+    // hermanos y no del documento entero.
+    n = (el.parentElement === previo) ? n + 1 : 0;
+    previo = el.parentElement;
+    el.style.setProperty('--r', n);
+    el.classList.add('revela');
+    ojo.observe(el);
   }
 })();
 </script>
