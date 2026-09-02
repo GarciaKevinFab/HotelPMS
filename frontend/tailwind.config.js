@@ -13,6 +13,27 @@ module.exports = {
   			sm: 'calc(var(--radius) - 4px)'
   		},
   		colors: {
+  			/* La paleta de la marca, la MISMA que usa la landing
+  			   (backend/landing/estilo.css). Los cuatro colores salen de contar
+  			   pixeles del logotipo registrado; los tonos de superficie llevan
+  			   matiz verde para emparentar con el oliva de las barras.
+
+  			   Existe porque la pantalla de entrada se pintaba con `slate`, que
+  			   es gris AZULADO, y en la identidad de ZenStay no hay azul por
+  			   ningun lado. El resultado era que el login no se parecia al sitio
+  			   del que venia el usuario. */
+  			zen: {
+  				fondo:      '#0c1210',
+  				superficie: '#141d19',
+  				alta:       '#1b2621',
+  				borde:      '#26332d',
+  				texto:      '#e9f0ec',
+  				suave:      '#93a89c',
+  				fucsia:     '#fc3c78',
+  				turquesa:   '#00c0a8',
+  				lima:       '#cccc54',
+  				oliva:      '#90a854',
+  			},
   			background: 'hsl(var(--background))',
   			foreground: 'hsl(var(--foreground))',
   			card: {

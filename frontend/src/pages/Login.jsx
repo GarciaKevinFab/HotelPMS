@@ -1,17 +1,42 @@
 import React, { useState } from 'react';
 import { useNavigate, Navigate } from 'react-router-dom';
-import { Building2, Mail, Lock, Eye, EyeOff, AlertCircle } from 'lucide-react';
-import { Button } from '../components/ui/button';
-import { Input } from '../components/ui/input';
-import { Label } from '../components/ui/label';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
-import { Alert, AlertDescription } from '../components/ui/alert';
+import { Eye, EyeOff, AlertCircle } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
+/**
+ * Entrada al sistema.
+ *
+ * POR QUE SE REHIZO
+ *
+ *   Esta pantalla y la de alta (/registro, que sirve el backend como HTML)
+ *   eran dos productos distintos. El alta iba sobre el verde profundo de la
+ *   marca, con Bricolage Grotesque y el fucsia del colibri; esto era una
+ *   pantalla partida con una FOTO DE STOCK y una tarjeta blanca sobre
+ *   `bg-slate-50`, con el boton en negro. Alguien que se daba de alta y
+ *   entraba a continuacion veia dos sitios distintos en el mismo minuto.
+ *
+ *   Ahora las dos comparten estructura y paleta: misma cabecera, mismo ancho
+ *   de columna, mismos campos, mismo boton. Se lee como el mismo producto
+ *   porque lo es.
+ *
+ * LA FOTO SE FUE, Y NO SOLO POR ESTETICA
+ *
+ *   El fondo se cargaba desde images.unsplash.com. Media pantalla de la puerta
+ *   de entrada dependia de un tercero: si Unsplash tarda o esta bloqueado, el
+ *   recepcionista que llega a las 6 de la manana ve medio login vacio mientras
+ *   espera. Ademas era una peticion externa mas y una foto que no es del hotel
+ *   de nadie.
+ *
+ * UN SOLO DISTINTIVO
+ *
+ *   Habia DOS a la vez: uno propio sobre la foto y el global de index.html
+ *   abajo a la derecha. La misma firma repetida en la misma pantalla. Queda el
+ *   global, que es el que comparten los cuatro sistemas.
+ */
 export function Login() {
   const navigate = useNavigate();
   const { login, isAuthenticated, loading: authLoading } = useAuth();
-  
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -41,169 +66,131 @@ export function Login() {
     }
   };
 
+  // Los dos campos comparten una sola cadena de clases: separarlos es
+  // exactamente lo que le paso a esta pantalla frente a la del alta.
+  const campo =
+    'w-full rounded-xl border border-zen-borde bg-zen-superficie px-4 py-3 text-[15px] ' +
+    'text-zen-texto placeholder:text-zen-suave/60 outline-none transition ' +
+    'focus:border-transparent focus:ring-2 focus:ring-zen-turquesa ' +
+    'disabled:opacity-60';
+
   return (
-    <div className="min-h-screen flex">
-      {/* Left side - Image */}
-      <div 
-        className="hidden lg:flex lg:w-1/2 bg-cover bg-center relative"
-        style={{ 
-          backgroundImage: 'url(https://images.unsplash.com/photo-1768346564825-6f90c0b89e2e?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2Njd8MHwxfHNlYXJjaHwxfHxtb2Rlcm4lMjBob3RlbCUyMGxvYmJ5JTIwbHV4dXJ5fGVufDB8fHx8MTc3MDk2MTI0MHww&ixlib=rb-4.1.0&q=85)'
-        }}
-      >
-        <div className="absolute inset-0 bg-gradient-to-r from-slate-900/90 to-slate-900/50" />
-        <div className="relative z-10 flex flex-col justify-end p-12">
-          <div className="mb-8">
-            {/* El logotipo registrado, no un icono genérico sobre azul: el
-                azul no aparece en ninguna parte de la identidad de ZenStay. */}
-            <div className="flex items-center gap-3 mb-4">
-              <img src="/logo-zenstay.png" alt="ZenStay" className="w-14 h-14 object-contain" />
-              <span className="text-3xl font-bold text-white tracking-tight">ZenStay</span>
+    <div className="min-h-screen bg-zen-fondo text-zen-texto">
+      {/* Cabecera identica a la del alta: misma altura, mismo logotipo, y el
+          enlace cruzado al otro lado del flujo. */}
+      <header className="mx-auto flex w-full max-w-[1120px] items-center justify-between px-7 py-4">
+        <a href="/" className="flex items-center gap-3">
+          <img src="/logo-zenstay.png" alt="ZenStay" className="h-10 w-10 object-contain" />
+          <span className="text-[1.4rem] font-bold tracking-[-0.03em]">ZenStay</span>
+        </a>
+        <a href="/registro" className="text-[.95rem] text-zen-suave transition hover:text-zen-turquesa">
+          Crear cuenta
+        </a>
+      </header>
+
+      <main className="mx-auto w-full max-w-[470px] px-7 pb-24 pt-10 sm:pt-16">
+        <p className="text-[.76rem] font-bold uppercase tracking-[.16em] text-zen-turquesa">
+          Acceso al sistema
+        </p>
+        <h1 className="mt-2.5 text-[2.1rem] font-bold leading-[1.05] tracking-[-0.035em]">
+          Entra a tu hotel
+        </h1>
+        <p className="mt-2 text-[.96rem] text-zen-suave">
+          Con el correo que registraste al crear la cuenta.
+        </p>
+
+        <form onSubmit={handleSubmit} className="mt-7 space-y-5" noValidate>
+          {error && (
+            <div
+              role="alert"
+              className="flex items-start gap-2.5 rounded-xl border border-zen-fucsia/35 bg-zen-fucsia/10 px-4 py-3 text-[.91rem] text-[#ff8fae]"
+            >
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>{error}</span>
             </div>
-            <p className="text-slate-300 text-lg max-w-md">
-              De la reserva a la boleta, sin cuadernos. Recepción, limpieza, caja
-              y comprobantes SUNAT en un solo sitio.
-            </p>
+          )}
+
+          <div>
+            <label htmlFor="email" className="mb-1.5 block text-[.86rem] font-bold">
+              Correo
+            </label>
+            <input
+              id="email"
+              type="email"
+              autoComplete="email"
+              placeholder="maria@mihotel.pe"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className={campo}
+              required
+              disabled={loading}
+              data-testid="login-email-input"
+            />
           </div>
-          <div className="flex gap-6 text-sm text-slate-400">
-            <div>
-              <p className="text-2xl font-bold text-white">100%</p>
-              <p>Automatizado</p>
-            </div>
-            <div>
-              <p className="text-2xl font-bold text-white">24/7</p>
-              <p>Disponible</p>
-            </div>
-            <div>
-              <p className="text-2xl font-bold text-white">SUNAT</p>
-              <p>Integrado</p>
+
+          <div>
+            <label htmlFor="password" className="mb-1.5 block text-[.86rem] font-bold">
+              Contraseña
+            </label>
+            <div className="relative">
+              <input
+                id="password"
+                type={showPassword ? 'text' : 'password'}
+                autoComplete="current-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className={`${campo} pr-12`}
+                required
+                disabled={loading}
+                data-testid="login-password-input"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((v) => !v)}
+                aria-label={showPassword ? 'Ocultar la contraseña' : 'Mostrar la contraseña'}
+                className="absolute right-3 top-1/2 -translate-y-1/2 rounded-md p-1 text-zen-suave transition hover:text-zen-texto focus-visible:outline focus-visible:outline-2 focus-visible:outline-zen-turquesa"
+              >
+                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
             </div>
           </div>
-          <a href="https://sisac.pe" target="_blank" rel="noopener noreferrer"
-             className="mt-10 inline-flex items-center gap-2.5 rounded-full border border-white/15 bg-white/5 px-4 py-2 transition-colors hover:border-teal-400/50">
-            <img src="/logo-zenstay.png" alt="" className="h-6 w-6 object-contain" />
-            <span className="leading-tight">
-              <span className="block text-[9px] font-bold uppercase tracking-[0.16em] text-slate-400">Hecho por</span>
-              <span className="block text-xs font-semibold text-slate-200">Star Insights IT by SISAC</span>
-            </span>
-            <span className="ml-1 h-2 w-2 rounded-full bg-teal-400" />
+
+          {/* Mismo boton que el del alta: pastilla, fucsia, ancho completo. */}
+          <button
+            type="submit"
+            disabled={loading || authLoading}
+            data-testid="login-submit-button"
+            className="w-full rounded-full bg-zen-fucsia px-7 py-3.5 text-base font-bold text-white transition
+                       hover:-translate-y-px hover:shadow-[0_6px_26px_-6px_rgba(252,60,120,.6)]
+                       focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zen-fucsia
+                       disabled:cursor-wait disabled:opacity-60 disabled:hover:translate-y-0"
+          >
+            {loading ? (
+              <span className="flex items-center justify-center gap-2">
+                <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                Entrando…
+              </span>
+            ) : (
+              'Entrar'
+            )}
+          </button>
+        </form>
+
+        <p className="mt-6 text-[.9rem] text-zen-suave">
+          ¿Todavía no tienes cuenta?{' '}
+          <a href="/registro" className="font-semibold text-zen-turquesa hover:underline">
+            Pruébalo 14 días gratis
           </a>
-        </div>
-      </div>
+        </p>
 
-      {/* Right side - Login form */}
-      <div className="flex-1 flex items-center justify-center p-8 bg-slate-50">
-        <div className="w-full max-w-md">
-          {/* Mobile logo */}
-          <div className="lg:hidden flex items-center justify-center gap-3 mb-8">
-            <img src="/logo-zenstay.png" alt="ZenStay" className="w-11 h-11 object-contain" />
-            <span className="text-2xl font-bold text-slate-900 tracking-tight">ZenStay</span>
-          </div>
-
-          <Card className="border-0 shadow-xl">
-            <CardHeader className="space-y-1 pb-6">
-              <CardTitle className="text-2xl font-bold tracking-tight">Iniciar Sesión</CardTitle>
-              <CardDescription>
-                Ingresa tus credenciales para acceder al sistema
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <form onSubmit={handleSubmit} className="space-y-4">
-                {error && (
-                  <Alert variant="destructive" className="animate-fade-in">
-                    <AlertCircle className="h-4 w-4" />
-                    <AlertDescription>{error}</AlertDescription>
-                  </Alert>
-                )}
-
-                <div className="space-y-2">
-                  <Label htmlFor="email">Correo Electrónico</Label>
-                  <div className="relative">
-                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                    <Input
-                      id="email"
-                      type="email"
-                      placeholder="correo@hotel.com"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      className="pl-10"
-                      required
-                      disabled={loading}
-                      data-testid="login-email-input"
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="password">Contraseña</Label>
-                  <div className="relative">
-                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                    <Input
-                      id="password"
-                      type={showPassword ? 'text' : 'password'}
-                      placeholder="••••••••"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      className="pl-10 pr-10"
-                      required
-                      disabled={loading}
-                      data-testid="login-password-input"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                    >
-                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </button>
-                  </div>
-                </div>
-
-                <Button 
-                  type="submit" 
-                  className="w-full h-11 text-base font-semibold"
-                  disabled={loading || authLoading}
-                  data-testid="login-submit-button"
-                >
-                  {loading ? (
-                    <span className="flex items-center gap-2">
-                      <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                      Ingresando...
-                    </span>
-                  ) : (
-                    'Ingresar'
-                  )}
-                </Button>
-              </form>
-
-              {/*
-                Aquí había un recuadro con las credenciales del hotel demo
-                (admin@demo.com / admin123, y las de recepción y limpieza),
-                visible en la pantalla de entrada de PRODUCCIÓN.
-
-                Se quita por dos motivos. El primero es de seguridad: publicar
-                usuarios y contraseñas en la portada del sistema invita a
-                probarlos, y hasta hace poco esas claves estaban de verdad en
-                el código. El segundo es que ya ni siquiera servían —
-                /api/seed toma ahora la clave de SEED_DEMO_PASSWORD — así que
-                además de peligroso era un cartel que mentía.
-
-                En su lugar, la puerta de entrada para quien todavía no tiene
-                cuenta: la prueba gratuita.
-              */}
-              <p className="mt-6 text-center text-sm text-slate-500">
-                ¿Aún no tienes cuenta?{' '}
-                <a href="/registro" className="font-semibold text-slate-900 hover:underline">
-                  Prueba ZenStay 14 días gratis
-                </a>
-              </p>
-            </CardContent>
-          </Card>
-
-          <p className="text-center text-sm text-slate-500 mt-6">
-            Sistema de Gestión Hotelera &copy; {new Date().getFullYear()}
-          </p>
-        </div>
-      </div>
+        <p className="mt-10 text-center text-[.82rem] text-zen-suave">
+          <a href="/terminos" className="hover:text-zen-turquesa">Términos</a>
+          {' · '}
+          <a href="/privacidad" className="hover:text-zen-turquesa">Privacidad</a>
+          {' · '}
+          <a href="/reclamaciones" className="hover:text-zen-turquesa">Libro de Reclamaciones</a>
+        </p>
+      </main>
     </div>
   );
 }
