@@ -206,19 +206,19 @@ export function Rooms() {
         </Card>
         <Card className="p-4">
           <p className="text-sm text-zen-500">Disponibles</p>
-          <p className="text-2xl font-bold text-emerald-600">{stats.available}</p>
+          <p className="text-2xl font-bold text-[hsl(var(--acento-turquesa))]">{stats.available}</p>
         </Card>
         <Card className="p-4">
           <p className="text-sm text-zen-500">Ocupadas</p>
-          <p className="text-2xl font-bold text-blue-600">{stats.occupied}</p>
+          <p className="text-2xl font-bold text-[hsl(var(--acento-fucsia))]">{stats.occupied}</p>
         </Card>
         <Card className="p-4">
           <p className="text-sm text-zen-500">Sucias</p>
-          <p className="text-2xl font-bold text-amber-600">{stats.dirty}</p>
+          <p className="text-2xl font-bold text-[hsl(var(--acento-lima))]">{stats.dirty}</p>
         </Card>
         <Card className="p-4">
           <p className="text-sm text-zen-500">Fuera Servicio</p>
-          <p className="text-2xl font-bold text-rose-600">{stats.ooo}</p>
+          <p className="text-2xl font-bold text-[hsl(var(--status-ooo))]">{stats.ooo}</p>
         </Card>
       </div>
 
@@ -264,8 +264,9 @@ export function Rooms() {
       <Card className="p-4">
         <div className="flex flex-col sm:flex-row gap-4">
           <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zen-400" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zen-500" />
             <Input
+              aria-label="Buscar habitación por número"
               placeholder="Buscar por número..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}

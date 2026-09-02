@@ -122,7 +122,7 @@ export function Invoices() {
       case 'ACCEPTED': return <Check className="w-4 h-4 text-emerald-500" />;
       case 'REJECTED': return <XCircle className="w-4 h-4 text-rose-500" />;
       case 'PENDING': return <RefreshCw className="w-4 h-4 text-amber-500" />;
-      default: return <AlertCircle className="w-4 h-4 text-zen-400" />;
+      default: return <AlertCircle className="w-4 h-4 text-zen-500" />;
     }
   };
 
@@ -182,8 +182,9 @@ export function Invoices() {
       <Card className="p-4">
         <div className="flex flex-col sm:flex-row gap-4">
           <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zen-400" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zen-500" />
             <Input
+              aria-label="Buscar comprobante por número o cliente"
               placeholder="Buscar por número, cliente..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
@@ -254,7 +255,9 @@ export function Invoices() {
                     <div className="flex items-center gap-3">
                       <div className={cn(
                         "w-10 h-10 rounded-lg flex items-center justify-center text-white font-bold text-xs",
-                        invoice.type === 'BOLETA' ? 'bg-blue-500' : 'bg-violet-500'
+                        invoice.type === 'BOLETA'
+                          ? 'bg-[hsl(var(--acento-turquesa))]'
+                          : 'bg-[hsl(var(--acento-oliva))]'
                       )}>
                         {invoice.type === 'BOLETA' ? 'B' : 'F'}
                       </div>

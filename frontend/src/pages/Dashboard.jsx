@@ -21,20 +21,40 @@ import { dashboardAPI } from '../lib/api';
 import { formatCurrency, formatDate, getStatusLabel } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
 
+/* LOS COLORES DE LOS GRAFICOS SALEN DE LOS MISMOS TOKENS QUE EL RESTO
+ *
+ *   Estaban escritos a mano con hexadecimales de Tailwind: azul #3B82F6 para
+ *   las habitaciones, verde #10B981 para los extras. En una marca cuyo
+ *   logotipo es turquesa, fucsia, lima y oliva -y en la que no hay azul por
+ *   ningun lado-, el grafico principal del panel era lo unico que seguia
+ *   pintando de azul. Y el estado de una habitacion salia de un color en el
+ *   tablero y de otro distinto en la tarta de al lado.
+ *
+ *   Ahora los dos leen `--chart-*` y `--status-*`, que ya estaban definidos
+ *   en index.css con los colores del logotipo. SVG resuelve var() igual que
+ *   cualquier otra propiedad, asi que Recharts los acepta tal cual y hay una
+ *   sola fuente de verdad: si cambia la marca, cambia el grafico.
+ */
 const COLORS = {
-  rooms: '#3B82F6',
-  extras: '#10B981',
-  occupied: '#3B82F6',
-  vacant_clean: '#10B981',
-  vacant_dirty: '#F59E0B',
-  out_of_order: '#F43F5E',
-  accepted: '#10B981',
-  rejected: '#F43F5E',
+  rooms: 'hsl(var(--chart-1))',
+  extras: 'hsl(var(--chart-4))',
+  occupied: 'hsl(var(--status-occupied))',
+  vacant_clean: 'hsl(var(--status-vacant-clean))',
+  vacant_dirty: 'hsl(var(--status-dirty))',
+  out_of_order: 'hsl(var(--status-ooo))',
+  accepted: 'hsl(var(--chart-1))',
+  rejected: 'hsl(var(--status-occupied))',
   pending: '#F59E0B',
   voided: '#64748B'
 };
 
-const PAYMENT_COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#8B5CF6', '#F43F5E'];
+const PAYMENT_COLORS = [
+  'hsl(var(--chart-1))',
+  'hsl(var(--chart-4))',
+  'hsl(var(--chart-2))',
+  'hsl(var(--chart-5))',
+  'hsl(var(--chart-3))',
+];
 
 export function Dashboard() {
   const { user } = useAuth();
@@ -94,48 +114,69 @@ export function Dashboard() {
     );
   }
 
+  /* LOS SEIS ICONOS, CON LOS COLORES DE LA MARCA Y CON UN CRITERIO
+   *
+   *   Eran azul, esmeralda, ambar y rosa: los colores por defecto de Tailwind,
+   *   en un sistema cuyo logotipo es turquesa, fucsia, lima y oliva. El primer
+   *   dato del panel -la ocupacion- se pintaba de AZUL, que es el unico color
+   *   que la marca no tiene.
+   *
+   *   Y no seguian ninguna regla: llegadas y ingresos compartian verde, salidas
+   *   y saldo compartian ambar, sin que eso quisiera decir nada. Ahora el color
+   *   dice lo mismo que en el tablero de habitaciones, que es donde el
+   *   recepcionista ya aprendio a leerlo:
+   *
+   *     fucsia   = ocupado, o algo que reclama atencion
+   *     turquesa = entra gente, entra dinero
+   *     lima     = pendiente de limpieza
+   *     verde    = en calma, nada que hacer
+   */
   const todayKpis = [
     { 
       label: 'Ocupación', 
       value: `${kpis?.today?.occupancy_rate || 0}%`, 
       subtext: `${kpis?.today?.rooms_occupied || 0}/${kpis?.today?.rooms_total || 0} hab.`,
       icon: BedDouble,
-      color: 'text-blue-600'
+      color: 'text-[hsl(var(--acento-fucsia))]'
     },
     { 
       label: 'Llegadas Hoy', 
       value: kpis?.today?.arrivals || 0, 
       subtext: 'Check-ins esperados',
       icon: UserCheck,
-      color: 'text-emerald-600'
+      color: 'text-[hsl(var(--acento-turquesa))]'
     },
     { 
       label: 'Salidas Hoy', 
       value: kpis?.today?.departures || 0, 
       subtext: 'Check-outs esperados',
       icon: UserMinus,
-      color: 'text-amber-600'
+      color: 'text-[hsl(var(--acento-oliva))]'
     },
     { 
       label: 'Hab. Sucias', 
       value: kpis?.today?.rooms_dirty || 0, 
       subtext: 'Pendientes limpieza',
       icon: SprayCan,
-      color: kpis?.today?.rooms_dirty > 5 ? 'text-rose-600' : 'text-zen-600'
+      color: kpis?.today?.rooms_dirty > 5
+        ? 'text-[hsl(var(--acento-fucsia))]'
+        : 'text-[hsl(var(--acento-lima))]'
     },
     { 
       label: 'Ingresos Hoy', 
       value: formatCurrency(kpis?.today?.revenue || 0), 
       subtext: 'Pagos recibidos',
       icon: Wallet,
-      color: 'text-emerald-600'
+      color: 'text-[hsl(var(--acento-turquesa))]'
     },
     { 
       label: 'Saldo Pendiente', 
       value: formatCurrency(kpis?.today?.outstanding || 0), 
       subtext: 'En folios abiertos',
       icon: AlertTriangle,
-      color: kpis?.today?.outstanding > 0 ? 'text-amber-600' : 'text-zen-600'
+      color: kpis?.today?.outstanding > 0
+        ? 'text-[hsl(var(--acento-fucsia))]'
+        : 'text-zen-600'
     },
   ];
 
@@ -175,7 +216,7 @@ export function Dashboard() {
                       mantienen la misma anchura por digito, asi que la tarjeta no
                       cambia de tamano al pasar de 0.00 a 1234.00. */}
                   <p className="mt-1 whitespace-nowrap text-2xl font-bold tabular-nums text-zen-900">{kpi.value}</p>
-                  <p className="text-xs text-zen-400 mt-1">{kpi.subtext}</p>
+                  <p className="text-xs text-zen-500 mt-1">{kpi.subtext}</p>
                 </div>
                 <div className={`p-2 rounded-lg bg-zen-100 ${kpi.color}`}>
                   <Icon className="w-5 h-5" />
@@ -220,7 +261,7 @@ export function Dashboard() {
           <CardContent>
             <ResponsiveContainer width="100%" height={250}>
               <LineChart data={revenueData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                 <XAxis 
                   dataKey="date" 
                   tick={{ fontSize: 11 }} 
@@ -231,7 +272,11 @@ export function Dashboard() {
                   formatter={(value) => formatCurrency(value)}
                   labelFormatter={(label) => formatDate(label)}
                 />
-                <Legend />
+                <Legend
+                  formatter={(valor) => (
+                    <span className="text-[13px] text-zen-700">{valor}</span>
+                  )}
+                />
                 <Line 
                   type="monotone" 
                   dataKey="rooms" 
@@ -261,7 +306,7 @@ export function Dashboard() {
           <CardContent>
             <ResponsiveContainer width="100%" height={250}>
               <LineChart data={occupancyData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                 <XAxis 
                   dataKey="date" 
                   tick={{ fontSize: 11 }} 
@@ -370,7 +415,7 @@ export function Dashboard() {
           <CardContent>
             <ResponsiveContainer width="100%" height={200}>
               <BarChart data={invoicingData} layout="vertical">
-                <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                 <XAxis type="number" tick={{ fontSize: 11 }} />
                 <YAxis 
                   type="category" 
@@ -395,7 +440,7 @@ export function Dashboard() {
         <CardContent>
           <ResponsiveContainer width="100%" height={300}>
             <BarChart data={topProductsData} layout="vertical">
-              <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
+              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
               <XAxis type="number" tick={{ fontSize: 11 }} tickFormatter={(val) => formatCurrency(val)} />
               <YAxis 
                 type="category" 

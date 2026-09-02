@@ -252,7 +252,7 @@ export function GroupReservations() {
                   <TableCell className="font-mono font-medium">{group.code}</TableCell>
                   <TableCell>
                     <div className="flex items-center gap-2">
-                      <Building className="w-4 h-4 text-zen-400" />
+                      <Building className="w-4 h-4 text-zen-500" />
                       <span className="font-medium">{group.group_name}</span>
                     </div>
                   </TableCell>

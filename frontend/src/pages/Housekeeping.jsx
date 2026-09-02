@@ -152,19 +152,19 @@ export function Housekeeping() {
       {/* Legend */}
       <div className="flex items-center gap-4 text-sm">
         <div className="flex items-center gap-2">
-          <div className="w-4 h-4 rounded bg-amber-400" />
+          <div className="w-4 h-4 rounded bg-[hsl(var(--status-dirty))]" />
           <span>Sucia</span>
         </div>
         <div className="flex items-center gap-2">
-          <div className="w-4 h-4 rounded bg-blue-400" />
+          <div className="w-4 h-4 rounded bg-[hsl(var(--status-reserved))]" />
           <span>Limpiando</span>
         </div>
         <div className="flex items-center gap-2">
-          <div className="w-4 h-4 rounded bg-emerald-400" />
+          <div className="w-4 h-4 rounded bg-[hsl(var(--status-vacant-clean))]" />
           <span>Limpia</span>
         </div>
         <div className="flex items-center gap-2">
-          <div className="w-4 h-4 rounded bg-rose-400" />
+          <div className="w-4 h-4 rounded bg-[hsl(var(--status-ooo))]" />
           <span>Fuera de Servicio</span>
         </div>
       </div>
@@ -179,7 +179,7 @@ export function Housekeeping() {
             return (
               <div key={floor} className="hk-floor-section">
                 <h2 className="hk-floor-title">
-                  <SprayCan className="w-5 h-5 text-zen-400" />
+                  <SprayCan className="w-5 h-5 text-zen-500" />
                   Piso {floor}
                   <Badge variant="secondary" className="ml-2">
                     {rooms.filter(r => r.housekeeping_status === 'DIRTY').length} sucias

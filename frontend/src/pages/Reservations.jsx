@@ -391,8 +391,9 @@ export function Reservations() {
       <Card className="p-4">
         <div className="flex flex-col sm:flex-row gap-4">
           <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zen-400" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zen-500" />
             <Input
+              aria-label="Buscar reserva por código o huésped"
               placeholder="Buscar por código, huésped..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
@@ -460,7 +461,7 @@ export function Reservations() {
                     <div className="text-sm">
                       <p>{formatDate(reservation.checkin_date)}</p>
                       <p className="text-zen-500">{formatDate(reservation.checkout_date)}</p>
-                      <p className="text-xs text-zen-400">
+                      <p className="text-xs text-zen-500">
                         {calculateNights(reservation.checkin_date, reservation.checkout_date)} noches
                       </p>
                     </div>
@@ -545,8 +546,9 @@ export function Reservations() {
               {!showNewGuestForm ? (
                 <div className="space-y-3">
                   <div className="relative">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zen-400" />
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zen-500" />
                     <Input
+                      aria-label="Buscar huésped por nombre o documento"
                       placeholder="Buscar huésped por nombre o documento..."
                       className="pl-10"
                       onChange={(e) => searchGuests(e.target.value)}
@@ -560,7 +562,7 @@ export function Reservations() {
                           key={guest.id}
                           className={cn(
                             "w-full text-left p-3 hover:bg-zen-50 border-b last:border-0",
-                            formData.guest_id === guest.id && "bg-blue-50"
+                            formData.guest_id === guest.id && "bg-[hsl(var(--acento-turquesa)/0.10)]"
                           )}
                           onClick={() => setFormData(prev => ({ ...prev, guest_id: guest.id }))}
                         >

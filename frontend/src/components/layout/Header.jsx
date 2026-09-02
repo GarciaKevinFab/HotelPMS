@@ -99,9 +99,14 @@ export function Header({ onMenuClick }) {
 
       {/* Search */}
       <div className="relative flex-1 max-w-md">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zen-400" />
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zen-500" />
+        {/* El placeholder no es un nombre: desaparece en cuanto se escribe y
+            no todos los lectores de pantalla lo anuncian. Sin aria-label este
+            campo se oia como "cuadro de edicion" a secas, y esta en las quince
+            pantallas del sistema. */}
         <Input
           type="text"
+          aria-label="Buscar huésped, reserva o habitación"
           placeholder="Buscar huésped, reserva, habitación..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}

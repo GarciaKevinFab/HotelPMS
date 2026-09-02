@@ -65,12 +65,18 @@ export function Alerts() {
     }
   };
 
+  /* EL AZUL DE "INFORMACION" SE QUEDA, Y ES A PROPOSITO
+     En el resto del sistema no queda ni un azul: la marca es turquesa,
+     fucsia, lima y oliva. Aqui si, porque informacion-aviso-error es un
+     codigo que la gente trae aprendido de fuera, como el rojo de "borrar".
+     Cambiarlo por un color de la marca haria mas bonita la pantalla y menos
+     legible la alerta, que es justo lo contrario de lo que se busca. */
   const getSeverityIcon = (severity) => {
     switch (severity) {
       case 'CRITICAL': return <XCircle className="w-5 h-5 text-rose-500" />;
       case 'WARN': return <AlertTriangle className="w-5 h-5 text-amber-500" />;
       case 'INFO': return <Info className="w-5 h-5 text-blue-500" />;
-      default: return <Bell className="w-5 h-5 text-zen-400" />;
+      default: return <Bell className="w-5 h-5 text-zen-500" />;
     }
   };
 
@@ -211,7 +217,7 @@ export function Alerts() {
                       )}
                     </div>
                     <p className="text-sm text-zen-600">{alert.message}</p>
-                    <p className="text-xs text-zen-400 mt-2">
+                    <p className="text-xs text-zen-500 mt-2">
                       {formatDateTime(alert.created_at)}
                       {alert.resolved_at && ` • Resuelta: ${formatDateTime(alert.resolved_at)}`}
                     </p>

@@ -178,9 +178,9 @@ export function Rates() {
                 <p className="font-medium">{rt.name}</p>
                 <p className="text-sm text-zen-500">Tarifa Base</p>
               </div>
-              <p className="text-2xl font-bold text-blue-600">{formatCurrency(rt.base_price)}</p>
+              <p className="text-2xl font-bold text-[hsl(var(--acento-turquesa))]">{formatCurrency(rt.base_price)}</p>
             </div>
-            <p className="text-xs text-zen-400 mt-2">
+            <p className="text-xs text-zen-500 mt-2">
               {ratesByType[rt.id]?.length || 0} tarifas especiales configuradas
             </p>
           </Card>
@@ -255,13 +255,13 @@ export function Rates() {
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-2">
-                          <Tag className="w-4 h-4 text-zen-400" />
+                          <Tag className="w-4 h-4 text-zen-500" />
                           {rate.name || 'Sin nombre'}
                         </div>
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-2 text-sm">
-                          <Calendar className="w-4 h-4 text-zen-400" />
+                          <Calendar className="w-4 h-4 text-zen-500" />
                           {formatDate(rate.date_from)} - {formatDate(rate.date_to)}
                         </div>
                       </TableCell>
