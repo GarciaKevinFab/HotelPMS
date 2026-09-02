@@ -27,7 +27,7 @@ const navItems = [
   { 
     path: '/dashboard', 
     icon: LayoutDashboard, 
-    label: 'Dashboard',
+    label: 'Panel',
     roles: ['SUPER_ADMIN', 'ADMIN', 'RECEPTIONIST']
   },
   { 
@@ -81,7 +81,7 @@ const navItems = [
   { 
     path: '/housekeeping', 
     icon: SprayCan, 
-    label: 'Housekeeping',
+    label: 'Limpieza',
     roles: ['SUPER_ADMIN', 'ADMIN', 'RECEPTIONIST', 'HOUSEKEEPING']
   },
   { 
