@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Outlet, Navigate } from 'react-router-dom';
+import React, { useEffect, useState } from 'react';
+import { Outlet, Navigate, useLocation } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
 import { Header } from './Header';
 import { useAuth } from '../../contexts/AuthContext';
@@ -8,15 +8,34 @@ import { Toaster } from '../ui/sonner';
 
 export function AppLayout() {
   const { isAuthenticated, loading } = useAuth();
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const location = useLocation();
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    try { return localStorage.getItem('zen.menu') === 'plegado'; } catch { return false; }
+  });
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  // El cajon del telefono se cierra solo al cambiar de pantalla y con Escape.
+  useEffect(() => { setMobileMenuOpen(false); }, [location.pathname]);
+  useEffect(() => {
+    if (!mobileMenuOpen) return undefined;
+    const alTeclear = (e) => { if (e.key === 'Escape') setMobileMenuOpen(false); };
+    window.addEventListener('keydown', alTeclear);
+    return () => window.removeEventListener('keydown', alTeclear);
+  }, [mobileMenuOpen]);
+
+  const alternarMenu = () => {
+    setSidebarCollapsed((v) => {
+      try { localStorage.setItem('zen.menu', v ? 'abierto' : 'plegado'); } catch { /* sin almacenamiento */ }
+      return !v;
+    });
+  };
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-zen-50">
-        <div className="text-center">
-          <div className="w-12 h-12 border-4 border-zen-200 border-t-zen-turquesa rounded-full animate-spin mx-auto"></div>
-          <p className="mt-4 text-zen-600">Cargando...</p>
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <div className="text-center" role="status" aria-live="polite">
+          <div className="mx-auto h-10 w-10 animate-spin rounded-full border-[3px] border-zen-200 border-t-[hsl(var(--accent))]" />
+          <p className="mt-4 text-sm text-muted-foreground">Cargando...</p>
         </div>
       </div>
     );
@@ -27,48 +46,40 @@ export function AppLayout() {
   }
 
   return (
-    <div className="min-h-screen bg-zen-50">
-      {/* Sidebar */}
+    <div className="min-h-screen bg-background">
       {/* `abierto` faltaba, y con el la navegacion entera en movil.
-          El CSS ya traia la regla `.sidebar.open { translate-x-0 }` y este
-          componente ya guardaba el estado... pero no se lo pasaba al Sidebar.
-          Resultado: al tocar la hamburguesa se encendia el velo oscuro y el
-          menu se quedaba en left:-256, fuera de la pantalla. Desde un telefono
-          no habia forma de cambiar de pantalla: se quedaba uno donde estuviera.
-
-          `onNavegar` lo cierra al elegir destino, que es lo que se espera de
-          un menu que tapa la pagina entera. */}
-      <Sidebar 
+          El CSS ya traia la regla `.sidebar.open` y este componente ya
+          guardaba el estado... pero no se lo pasaba al Sidebar. Resultado: al
+          tocar la hamburguesa se encendia el velo oscuro y el menu se quedaba
+          fuera de la pantalla. `onNavegar` lo cierra al elegir destino. */}
+      <Sidebar
         collapsed={sidebarCollapsed}
-        onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
+        onToggle={alternarMenu}
         abierto={mobileMenuOpen}
         onNavegar={() => setMobileMenuOpen(false)}
       />
-      
-      {/* Mobile overlay */}
-      {mobileMenuOpen && (
-        <div 
-          className="fixed inset-0 z-30 bg-black/50 md:hidden"
-          onClick={() => setMobileMenuOpen(false)}
-        />
-      )}
 
-      {/* Main content */}
-      <div className={cn(
-        "main-content",
-        sidebarCollapsed && "sidebar-collapsed"
-      )}>
+      {/* Velo del telefono: siempre en el DOM para poder fundirse. */}
+      <div
+        className={cn('velo md:hidden', mobileMenuOpen && 'visible')}
+        onClick={() => setMobileMenuOpen(false)}
+        aria-hidden="true"
+      />
+
+      <div className={cn('main-content', sidebarCollapsed && 'sidebar-collapsed')}>
         <Header onMenuClick={() => setMobileMenuOpen(true)} />
-        
-        <main className="p-6">
-          <div className="page-transition">
+
+        <main className="p-4 sm:p-6">
+          {/* La `key` reinicia la animacion de entrada en cada cambio de ruta. */}
+          <div key={location.pathname} className="page-transition mx-auto w-full max-w-[1400px]">
             <Outlet />
           </div>
         </main>
       </div>
 
-      {/* Toast notifications */}
-      <Toaster position="top-right" richColors />
+      {/* Avisos: abajo a la derecha, lejos de la cabecera y de los botones de
+          accion de cada pantalla, que estan arriba. */}
+      <Toaster position="bottom-right" richColors closeButton />
     </div>
   );
 }

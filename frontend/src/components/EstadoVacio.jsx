@@ -1,5 +1,6 @@
 import React from 'react';
 import { Button } from './ui/button';
+import { cn } from '../lib/utils';
 
 /**
  * Lo que se ve cuando una pantalla no tiene nada que mostrar.
@@ -19,6 +20,8 @@ import { Button } from './ui/button';
  *   mira: el primero necesita un boton para empezar, el segundo necesita saber
  *   que el filtro esta puesto y como quitarlo. Por eso `filtrado` cambia el
  *   texto y la accion, en vez de repetir el mismo cartel.
+ *
+ * `compacto` es la version que cabe dentro de una tarjeta de grafico.
  */
 export function EstadoVacio({
   icono: Icono,
@@ -28,24 +31,40 @@ export function EstadoVacio({
   onAccion,
   filtrado = false,
   onLimpiar,
+  compacto = false,
+  className,
 }) {
   return (
-    <div className="flex flex-col items-center justify-center px-6 py-14 text-center">
+    <div
+      className={cn(
+        'flex flex-col items-center justify-center text-center',
+        compacto ? 'px-4 py-8' : 'px-6 py-14',
+        className,
+      )}
+      role="status"
+    >
       {Icono && (
-        <span className="mb-4 grid h-12 w-12 place-items-center rounded-2xl bg-zen-100 text-zen-500">
-          <Icono className="h-6 w-6" aria-hidden="true" />
+        <span
+          className={cn(
+            'mb-4 grid place-items-center rounded-xl bg-[hsl(var(--accent)/.10)] text-[hsl(var(--accent))]',
+            compacto ? 'h-10 w-10' : 'h-12 w-12',
+          )}
+        >
+          <Icono className={compacto ? 'h-5 w-5' : 'h-6 w-6'} aria-hidden="true" />
         </span>
       )}
 
-      <h3 className="text-base font-semibold text-zen-900">
+      <h3 className={cn('font-heading font-semibold text-foreground', compacto ? 'text-sm' : 'text-base')}>
         {filtrado ? 'Nada coincide con ese filtro' : titulo}
       </h3>
 
-      <p className="mt-1.5 max-w-sm text-sm leading-relaxed text-zen-500">
-        {filtrado
-          ? 'Prueba a quitar el filtro o a buscar otra cosa.'
-          : descripcion}
-      </p>
+      {(filtrado || descripcion) && (
+        <p className={cn('mt-1.5 max-w-sm leading-relaxed text-muted-foreground', compacto ? 'text-xs' : 'text-sm')}>
+          {filtrado
+            ? 'Prueba a quitar el filtro o a buscar otra cosa.'
+            : descripcion}
+        </p>
+      )}
 
       {filtrado && onLimpiar ? (
         <Button variant="outline" className="mt-5" onClick={onLimpiar}>
@@ -53,7 +72,7 @@ export function EstadoVacio({
         </Button>
       ) : (
         accion && onAccion && (
-          <Button className="mt-5" onClick={onAccion}>
+          <Button className={compacto ? 'mt-4' : 'mt-5'} size={compacto ? 'sm' : 'default'} onClick={onAccion}>
             {accion}
           </Button>
         )

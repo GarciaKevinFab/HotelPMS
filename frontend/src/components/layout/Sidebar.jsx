@@ -1,10 +1,10 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
-import { 
-  LayoutDashboard, 
-  CalendarDays, 
-  Users, 
-  BedDouble, 
+import {
+  LayoutDashboard,
+  CalendarDays,
+  Users,
+  BedDouble,
   ClipboardList,
   Receipt,
   Wallet,
@@ -17,221 +17,221 @@ import {
   LogOut,
   ChevronLeft,
   ChevronRight,
-  DollarSign,
-  UsersRound
+  Tag,
+  UsersRound,
+  UserCog,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { cn } from '../../lib/utils';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '../ui/tooltip';
 
-const navItems = [
-  { 
-    path: '/dashboard', 
-    icon: LayoutDashboard, 
-    label: 'Panel',
-    roles: ['SUPER_ADMIN', 'ADMIN', 'RECEPTIONIST']
-  },
-  { 
-    path: '/calendar', 
-    icon: CalendarDays, 
-    label: 'Calendario',
-    roles: ['SUPER_ADMIN', 'ADMIN', 'RECEPTIONIST']
-  },
-  { 
-    path: '/reservations', 
-    icon: ClipboardList, 
-    label: 'Reservas',
-    roles: ['SUPER_ADMIN', 'ADMIN', 'RECEPTIONIST']
-  },
-  { 
-    path: '/reservations/groups', 
-    icon: UsersRound, 
-    label: 'Grupos',
-    roles: ['SUPER_ADMIN', 'ADMIN', 'RECEPTIONIST']
-  },
-  { 
-    path: '/guests', 
-    icon: Users, 
-    label: 'Huéspedes',
-    roles: ['SUPER_ADMIN', 'ADMIN', 'RECEPTIONIST']
-  },
-  { 
-    path: '/rooms', 
-    icon: BedDouble, 
-    label: 'Habitaciones',
-    roles: ['SUPER_ADMIN', 'ADMIN', 'RECEPTIONIST']
-  },
-  { 
-    path: '/rates', 
-    icon: DollarSign, 
-    label: 'Tarifas',
-    roles: ['SUPER_ADMIN', 'ADMIN']
-  },
-  { 
-    path: '/cash-shift', 
-    icon: Wallet, 
-    label: 'Caja',
-    roles: ['SUPER_ADMIN', 'ADMIN', 'RECEPTIONIST']
-  },
-  { 
-    path: '/invoices', 
-    icon: Receipt, 
-    label: 'Facturación',
-    roles: ['SUPER_ADMIN', 'ADMIN', 'RECEPTIONIST']
-  },
-  { 
-    path: '/housekeeping', 
-    icon: SprayCan, 
-    label: 'Limpieza',
-    roles: ['SUPER_ADMIN', 'ADMIN', 'RECEPTIONIST', 'HOUSEKEEPING']
-  },
-  { 
-    path: '/maintenance', 
-    icon: Wrench, 
-    label: 'Mantenimiento',
-    roles: ['SUPER_ADMIN', 'ADMIN', 'RECEPTIONIST']
-  },
-  { 
-    path: '/alerts', 
-    icon: Bell, 
-    label: 'Alertas',
-    roles: ['SUPER_ADMIN', 'ADMIN', 'RECEPTIONIST', 'HOUSEKEEPING']
-  },
-  { 
-    path: '/reports', 
-    icon: BarChart3, 
-    label: 'Reportes',
-    roles: ['SUPER_ADMIN', 'ADMIN', 'RECEPTIONIST']
+/* EL MENU, EN CUATRO GRUPOS
+ *
+ *   Eran dieciseis entradas seguidas, del panel a la configuracion, sin nada
+ *   que las separara. El recepcionista que busca "Caja" tenia que leerlas
+ *   todas. Agrupadas por quien las usa -recepcion, el hotel como inventario,
+ *   el dinero, la administracion-, la vista salta al grupo y de ahi al item.
+ *
+ *   Los roles se conservan tal cual: lo que cambia es el orden y los rotulos,
+ *   no quien ve que. Un grupo que se queda sin entradas para un rol no se
+ *   pinta.
+ */
+const secciones = [
+  {
+    rotulo: 'Recepción',
+    items: [
+      { path: '/dashboard', icon: LayoutDashboard, label: 'Panel', roles: ['SUPER_ADMIN', 'ADMIN', 'RECEPTIONIST'] },
+      { path: '/calendar', icon: CalendarDays, label: 'Calendario', roles: ['SUPER_ADMIN', 'ADMIN', 'RECEPTIONIST'] },
+      { path: '/reservations', icon: ClipboardList, label: 'Reservas', roles: ['SUPER_ADMIN', 'ADMIN', 'RECEPTIONIST'], exacto: true },
+      { path: '/reservations/groups', icon: UsersRound, label: 'Grupos', roles: ['SUPER_ADMIN', 'ADMIN', 'RECEPTIONIST'] },
+      { path: '/guests', icon: Users, label: 'Huéspedes', roles: ['SUPER_ADMIN', 'ADMIN', 'RECEPTIONIST'] },
+    ],
   },
   {
-    path: '/employees',
-    icon: Users,
-    label: 'Empleados',
-    roles: ['SUPER_ADMIN', 'ADMIN']
+    rotulo: 'Hotel',
+    items: [
+      { path: '/rooms', icon: BedDouble, label: 'Habitaciones', roles: ['SUPER_ADMIN', 'ADMIN', 'RECEPTIONIST'] },
+      { path: '/rates', icon: Tag, label: 'Tarifas', roles: ['SUPER_ADMIN', 'ADMIN'] },
+      { path: '/housekeeping', icon: SprayCan, label: 'Limpieza', roles: ['SUPER_ADMIN', 'ADMIN', 'RECEPTIONIST', 'HOUSEKEEPING'] },
+      { path: '/maintenance', icon: Wrench, label: 'Mantenimiento', roles: ['SUPER_ADMIN', 'ADMIN', 'RECEPTIONIST'] },
+    ],
   },
   {
-    path: '/settings',
-    icon: Settings,
-    label: 'Configuración',
-    roles: ['SUPER_ADMIN', 'ADMIN']
+    rotulo: 'Dinero',
+    items: [
+      { path: '/cash-shift', icon: Wallet, label: 'Caja', roles: ['SUPER_ADMIN', 'ADMIN', 'RECEPTIONIST'] },
+      { path: '/invoices', icon: Receipt, label: 'Facturación', roles: ['SUPER_ADMIN', 'ADMIN', 'RECEPTIONIST'] },
+      { path: '/reports', icon: BarChart3, label: 'Reportes', roles: ['SUPER_ADMIN', 'ADMIN', 'RECEPTIONIST'] },
+    ],
   },
-  { 
-    path: '/tenants', 
-    icon: Building2, 
-    label: 'Hoteles',
-    roles: ['SUPER_ADMIN']
+  {
+    rotulo: 'Administración',
+    items: [
+      { path: '/alerts', icon: Bell, label: 'Alertas', roles: ['SUPER_ADMIN', 'ADMIN', 'RECEPTIONIST', 'HOUSEKEEPING'] },
+      { path: '/employees', icon: UserCog, label: 'Empleados', roles: ['SUPER_ADMIN', 'ADMIN'] },
+      { path: '/settings', icon: Settings, label: 'Configuración', roles: ['SUPER_ADMIN', 'ADMIN'] },
+      { path: '/tenants', icon: Building2, label: 'Hoteles', roles: ['SUPER_ADMIN'] },
+    ],
   },
 ];
+
+function useMediaQuery(consulta) {
+  const [coincide, setCoincide] = useState(() =>
+    typeof window !== 'undefined' ? window.matchMedia(consulta).matches : false,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia(consulta);
+    const alCambiar = (e) => setCoincide(e.matches);
+    mq.addEventListener('change', alCambiar);
+    setCoincide(mq.matches);
+    return () => mq.removeEventListener('change', alCambiar);
+  }, [consulta]);
+  return coincide;
+}
 
 export function Sidebar({ collapsed, onToggle, abierto = false, onNavegar }) {
   const { user, logout } = useAuth();
   const location = useLocation();
 
-  const filteredNav = navItems.filter(item => 
-    item.roles.includes(user?.role)
-  );
+  // Plegar solo existe en escritorio: en el telefono el menu es un cajon
+  // que se abre entero, aunque el usuario lo hubiera plegado en su PC.
+  const esEscritorio = useMediaQuery('(min-width: 1024px)');
+  const plegado = collapsed && esEscritorio;
+
+  const visibles = secciones
+    .map((s) => ({ ...s, items: s.items.filter((i) => i.roles.includes(user?.role)) }))
+    .filter((s) => s.items.length > 0);
+
+  const estaActivo = (item) => {
+    if (item.exacto) {
+      // "Reservas" no debe encenderse cuando estamos en "Grupos".
+      return location.pathname === item.path ||
+        (location.pathname.startsWith(item.path + '/') && !location.pathname.startsWith(item.path + '/groups'));
+    }
+    return location.pathname === item.path || location.pathname.startsWith(item.path + '/');
+  };
+
+  const Enlace = ({ item }) => {
+    const Icon = item.icon;
+    const activo = estaActivo(item);
+    const enlace = (
+      <NavLink
+        onClick={onNavegar}
+        to={item.path}
+        aria-current={activo ? 'page' : undefined}
+        className={cn('sidebar-nav-item', activo && 'active')}
+      >
+        <Icon className="h-[18px] w-[18px] shrink-0" strokeWidth={2} aria-hidden="true" />
+        {!plegado && <span className="truncate">{item.label}</span>}
+        {plegado && <span className="sr-only">{item.label}</span>}
+      </NavLink>
+    );
+
+    if (!plegado) return enlace;
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>{enlace}</TooltipTrigger>
+        <TooltipContent side="right" sideOffset={10} className="bg-zen-900 text-white border-zen-800">
+          {item.label}
+        </TooltipContent>
+      </Tooltip>
+    );
+  };
+
+  const inicial = user?.full_name?.trim()?.charAt(0)?.toUpperCase() || 'U';
 
   return (
-    <aside className={cn(
-      "sidebar flex flex-col",
-      collapsed && "collapsed",
-      abierto && "open"
-    )}>
-      {/*
-        Marca. Antes era un icono genérico de edificio sobre un cuadrado azul
-        y el rótulo "HotelPMS" — ni el logotipo registrado ni el nombre del
-        producto. El azul además no aparece en ninguna parte de la identidad:
-        la marca es fucsia, turquesa, lima y oliva.
-      */}
-      <div className="h-16 flex items-center px-4 border-b border-zen-800">
-        {!collapsed ? (
-          <div className="flex items-center gap-2.5">
-            <img src="/logo-zenstay.png" alt="ZenStay" className="h-9 w-9 object-contain" />
-            <h1 className="text-white font-bold text-lg tracking-tight">ZenStay</h1>
-          </div>
-        ) : (
-          <img src="/logo-zenstay.png" alt="ZenStay" className="h-9 w-9 object-contain mx-auto" />
-        )}
-      </div>
-
-      {/* Navigation */}
-      <nav className="flex-1 py-4 px-3 overflow-y-auto">
-        <ul className="space-y-1">
-          {filteredNav.map((item) => {
-            const Icon = item.icon;
-            const isActive = location.pathname === item.path || 
-                           location.pathname.startsWith(item.path + '/');
-            
-            return (
-              <li key={item.path}>
-                <NavLink onClick={onNavegar}
-                  to={item.path}
-                  className={cn(
-                    "sidebar-nav-item",
-                    isActive && "active",
-                    collapsed && "justify-center px-0"
-                  )}
-                  title={collapsed ? item.label : undefined}
-                >
-                  <Icon className="w-5 h-5 flex-shrink-0" />
-                  {!collapsed && <span>{item.label}</span>}
-                </NavLink>
-              </li>
-            );
-          })}
-        </ul>
-      </nav>
-
-      {/* User section */}
-      <div className="p-3 border-t border-zen-800">
-        {!collapsed ? (
-          <div className="flex items-center gap-3 px-3 py-2">
-            <div className="w-8 h-8 bg-zen-700 rounded-full flex items-center justify-center text-sm font-medium text-white">
-              {user?.full_name?.charAt(0) || 'U'}
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-white truncate">{user?.full_name}</p>
-              <p className="text-xs text-zen-400 truncate">{user?.email}</p>
-            </div>
-          </div>
-        ) : null}
-        
-        <button
-          onClick={logout}
-          className={cn(
-            "sidebar-nav-item w-full text-red-400 hover:text-red-300 hover:bg-red-900/20",
-            collapsed && "justify-center px-0"
-          )}
-          title={collapsed ? "Cerrar Sesión" : undefined}
-        >
-          <LogOut className="w-5 h-5" />
-          {!collapsed && <span>Cerrar Sesión</span>}
-        </button>
-
-        {/*
-          Aquí llegué a poner una firma de Star Insights, hasta darme cuenta de
-          que ya existe uno flotante en frontend/public/index.html, visible en
-          todas las pantallas del sistema. Dos firmas en la misma vista es
-          ruido, así que se queda la que ya estaba — solo hubo que corregirle
-          el nombre: decía "Confort Inn", que es el cliente, no el producto.
-        */}
-      </div>
-
-      {/* Contraer o desplegar el menu.
-          `hidden lg:flex`: en movil el menu no se contrae, se abre y se cierra
-          con la hamburguesa. Este boton estaba SIEMPRE, y como el menu vive
-          fuera de la pantalla, asomaba 12 px por el borde izquierdo del panel:
-          medio circulo oscuro flotando junto al titulo, sin funcion.
-
-          Y llevaba solo un icono sin nombre: para un lector de pantalla era un
-          boton mudo. */}
-      <button
-        onClick={onToggle}
-        aria-label={collapsed ? 'Desplegar el menú' : 'Contraer el menú'}
-        className="absolute -right-3 top-20 hidden h-6 w-6 items-center justify-center rounded-full border border-zen-700 bg-zen-800 text-zen-400 transition-colors hover:bg-zen-700 hover:text-white lg:flex"
+    <TooltipProvider delayDuration={0}>
+      <aside
+        className={cn('sidebar flex flex-col', collapsed && 'collapsed', abierto && 'open')}
+        aria-label="Menú principal"
       >
-        {collapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
-      </button>
-    </aside>
+        {/* Marca: el logotipo real. Si el archivo no llega, se oculta la
+            imagen en vez de dejar el texto alternativo suelto junto al nombre. */}
+        <div className={cn('flex h-16 shrink-0 items-center border-b border-zen-800', plegado ? 'justify-center px-0' : 'px-4')}>
+          <NavLink to="/dashboard" className="flex items-center gap-2.5 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zen-turquesa" onClick={onNavegar}>
+            <img
+              src="/logo-zenstay.png"
+              alt=""
+              width={36}
+              height={36}
+              className="h-9 w-9 object-contain"
+              onError={(e) => { e.currentTarget.style.display = 'none'; }}
+            />
+            {!plegado && (
+              <span className="font-heading text-lg font-bold tracking-tight text-white">ZenStay</span>
+            )}
+            <span className="sr-only">ZenStay, ir al panel</span>
+          </NavLink>
+        </div>
+
+        {/* Navegacion por grupos */}
+        <nav className="flex-1 overflow-y-auto overflow-x-hidden px-3 py-2">
+          {visibles.map((seccion) => (
+            <div key={seccion.rotulo}>
+              <div className="sidebar-seccion" aria-hidden={plegado ? 'true' : undefined}>
+                {seccion.rotulo}
+              </div>
+              <ul className="space-y-0.5">
+                {seccion.items.map((item) => (
+                  <li key={item.path}>
+                    <Enlace item={item} />
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </nav>
+
+        {/* Usuario y salida */}
+        <div className="shrink-0 border-t border-zen-800 p-3">
+          {!plegado && (
+            <div className="mb-1 flex items-center gap-3 px-2 py-2">
+              <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-zen-800 text-sm font-semibold text-zen-turquesa ring-1 ring-zen-700">
+                {inicial}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium text-white">{user?.full_name}</p>
+                <p className="truncate text-xs text-zen-400">{user?.email}</p>
+              </div>
+            </div>
+          )}
+
+          {plegado ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button onClick={logout} className="sidebar-nav-item w-full text-zen-400 hover:text-white" aria-label="Cerrar Sesión">
+                  <LogOut className="h-[18px] w-[18px]" aria-hidden="true" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="right" sideOffset={10} className="bg-zen-900 text-white border-zen-800">
+                Cerrar Sesión
+              </TooltipContent>
+            </Tooltip>
+          ) : (
+            <button onClick={logout} className="sidebar-nav-item w-full text-zen-400 hover:text-white">
+              <LogOut className="h-[18px] w-[18px]" aria-hidden="true" />
+              <span>Cerrar Sesión</span>
+            </button>
+          )}
+        </div>
+
+        {/* Contraer o desplegar. Solo en escritorio: en el telefono el menu se
+            abre y se cierra con la hamburguesa. */}
+        <button
+          onClick={onToggle}
+          aria-label={collapsed ? 'Desplegar el menú' : 'Contraer el menú'}
+          className="absolute -right-3 top-[4.5rem] hidden h-6 w-6 items-center justify-center rounded-full border border-zen-700 bg-zen-800 text-zen-400 shadow-sm transition-colors duration-150 hover:bg-zen-700 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zen-turquesa lg:flex"
+        >
+          {collapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronLeft className="h-3.5 w-3.5" />}
+        </button>
+      </aside>
+    </TooltipProvider>
   );
 }
 

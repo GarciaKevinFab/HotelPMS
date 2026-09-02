@@ -1,42 +1,186 @@
-/* App-specific styles */
+/* Estilos del shell y de las piezas que se repiten entre pantallas.
+   Los tokens (colores, curva, duraciones, sombras) viven en index.css. */
 
-/* Sidebar */
+/* ------------------------------------------------------------------ */
+/* MENU LATERAL                                                        */
+/* ------------------------------------------------------------------ */
+/* Ancho en variables para que el menu y el margen del contenido no puedan
+   desincronizarse: los dos leen el mismo numero. La transicion es de ancho
+   y de transform -nunca de `left`-, que son las dos propiedades que el
+   navegador anima sin recalcular el resto de la pagina. */
+:root {
+  --sidebar-ancho: 15rem;
+  --sidebar-ancho-plegado: 4rem;
+}
+
 .sidebar {
-  @apply fixed left-0 top-0 h-screen w-64 bg-zen-900 text-zen-300 z-40 transition-all duration-300;
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  z-index: 40;
+  width: var(--sidebar-ancho);
+  background: theme('colors.zen.900');
+  color: theme('colors.zen.300');
+  transition:
+    width var(--dur-3) var(--ease-out),
+    transform var(--dur-3) var(--ease-out);
+  will-change: width, transform;
 }
 
 .sidebar.collapsed {
-  @apply w-16;
+  width: var(--sidebar-ancho-plegado);
+}
+
+/* Rotulo de cada seccion: pequeno, en mayusculas, en el gris del menu. */
+.sidebar-seccion {
+  padding: 1.125rem 0.75rem 0.375rem;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: theme('colors.zen.500');
+  white-space: nowrap;
+  overflow: hidden;
+}
+.sidebar-seccion:first-child {
+  padding-top: 0.5rem;
+}
+
+/* Plegado, el rotulo se convierte en una linea de 1 px: sigue habiendo una
+   separacion entre grupos pero ya no hay texto que no cabe. */
+.sidebar.collapsed .sidebar-seccion {
+  height: 0;
+  padding: 0;
+  margin: 0.625rem 0.75rem;
+  border-top: 1px solid theme('colors.zen.800');
+  overflow: hidden;
+  color: transparent;
+}
+.sidebar.collapsed .sidebar-seccion:first-child {
+  display: none;
 }
 
 .sidebar-nav-item {
-  @apply flex items-center gap-3 px-4 py-3 text-sm font-medium rounded-lg transition-all duration-200;
-  @apply hover:bg-zen-800 hover:text-white;
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  height: 2.5rem;
+  padding: 0 0.75rem;
+  border-radius: 0.5rem;
+  font-size: 13.5px;
+  font-weight: 500;
+  line-height: 1;
+  color: theme('colors.zen.300');
+  white-space: nowrap;
+  transition:
+    background-color 150ms var(--ease-out),
+    color 150ms var(--ease-out);
+}
+
+.sidebar-nav-item:hover {
+  background: rgb(255 255 255 / .05);
+  color: #fff;
 }
 
 .sidebar-nav-item.active {
-  @apply bg-zen-800 text-white;
+  background: rgb(255 255 255 / .07);
+  color: #fff;
 }
 
-/* Main content */
+.sidebar-nav-item.active svg {
+  color: theme('colors.zen.turquesa');
+}
+
+/* La barra de 2 px pegada al borde del menu: es lo unico que marca la
+   pantalla activa cuando el menu esta plegado y solo se ven iconos. */
+.sidebar-nav-item.active::before {
+  content: '';
+  position: absolute;
+  left: -0.75rem;
+  top: 0.5rem;
+  bottom: 0.5rem;
+  width: 2px;
+  border-radius: 0 2px 2px 0;
+  background: theme('colors.zen.turquesa');
+}
+
+.sidebar.collapsed .sidebar-nav-item {
+  justify-content: center;
+  padding: 0;
+}
+
+.sidebar-nav-item:focus-visible {
+  outline: 2px solid theme('colors.zen.turquesa');
+  outline-offset: -2px;
+}
+
+/* Velo del menu en el telefono. Siempre esta en el DOM; solo cambia la
+   opacidad, para que pueda fundirse al abrir y al cerrar. */
+.velo {
+  position: fixed;
+  inset: 0;
+  z-index: 35;
+  background: hsl(156 30% 8% / .55);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--dur-3) var(--ease-out);
+}
+.velo.visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* ------------------------------------------------------------------ */
+/* CONTENIDO                                                           */
+/* ------------------------------------------------------------------ */
 .main-content {
-  @apply ml-64 min-h-screen bg-zen-50 transition-all duration-300;
+  margin-left: var(--sidebar-ancho);
+  min-height: 100vh;
+  background: hsl(var(--background));
+  transition: margin-left var(--dur-3) var(--ease-out);
 }
 
 .main-content.sidebar-collapsed {
-  @apply ml-16;
+  margin-left: var(--sidebar-ancho-plegado);
 }
 
-/* Header */
+/* Cabecera pegajosa, de vidrio. El `saturate` devuelve el color que el
+   desenfoque apaga; sin el, la barra se ve gris. */
 .header {
-  @apply sticky top-0 z-30 h-16 bg-white/90 backdrop-blur-md border-b border-zen-200;
-  @apply flex items-center justify-between px-6;
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  height: 4rem;
+  padding: 0 1rem;
+  background: hsl(var(--background) / .82);
+  -webkit-backdrop-filter: blur(12px) saturate(1.4);
+  backdrop-filter: blur(12px) saturate(1.4);
+  border-bottom: 1px solid hsl(var(--border));
+}
+@media (min-width: 640px) {
+  .header { padding: 0 1.5rem; gap: 1rem; }
 }
 
-/* KPI Cards */
+/* Entrada de cada pantalla: un fundido con 6 px de subida. */
+.page-transition {
+  animation: aparecer 220ms var(--ease-out) both;
+}
+
+/* ------------------------------------------------------------------ */
+/* PIEZAS DE PANEL                                                     */
+/* ------------------------------------------------------------------ */
 .kpi-card {
-  @apply bg-white rounded-xl border border-zen-200 p-5 shadow-sm;
-  @apply hover:shadow-md transition-all duration-200;
+  @apply bg-card rounded-xl border border-border p-5;
+  box-shadow: var(--sombra-1);
+  transition: box-shadow var(--dur-2) var(--ease-out), transform var(--dur-2) var(--ease-out);
+}
+.kpi-card:hover {
+  box-shadow: var(--sombra-2);
 }
 
 .kpi-card-value {
@@ -52,23 +196,25 @@
 }
 
 .kpi-card-trend.positive {
-  @apply text-emerald-600;
+  color: hsl(var(--acento-turquesa));
 }
 
 .kpi-card-trend.negative {
-  @apply text-rose-600;
+  color: hsl(var(--acento-fucsia));
 }
 
-/* Charts */
 .chart-container {
-  @apply bg-white rounded-xl border border-zen-200 p-5 shadow-sm;
+  @apply bg-card rounded-xl border border-border p-5;
+  box-shadow: var(--sombra-1);
 }
 
 .chart-title {
   @apply text-base font-semibold text-zen-900 mb-4;
 }
 
-/* Data tables */
+/* ------------------------------------------------------------------ */
+/* TABLAS E INSIGNIAS                                                  */
+/* ------------------------------------------------------------------ */
 .data-table {
   @apply w-full text-sm;
 }
@@ -85,7 +231,6 @@
   @apply bg-zen-50;
 }
 
-/* Status badges */
 .badge {
   @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border;
 }
@@ -94,10 +239,13 @@
   @apply px-2 py-0.5 text-[10px];
 }
 
-/* Room grid cell */
+/* Celda del tablero de habitaciones */
 .room-cell {
-  @apply w-28 h-20 p-2 cursor-pointer transition-all duration-150;
-  @apply hover:ring-2 hover:ring-blue-400 hover:ring-inset;
+  @apply w-28 h-20 p-2 cursor-pointer;
+  transition: box-shadow var(--dur-1) var(--ease-out);
+}
+.room-cell:hover {
+  box-shadow: inset 0 0 0 2px hsl(var(--ring));
 }
 
 .room-cell-number {
@@ -108,65 +256,77 @@
   @apply text-xs mt-1 opacity-80;
 }
 
-/* Calendar reservation block */
+/* Bloque de reserva en el calendario */
 .reservation-block {
   @apply absolute top-1 bottom-1 rounded-md text-xs font-medium px-2 py-1;
-  @apply overflow-hidden whitespace-nowrap text-ellipsis;
-  @apply cursor-pointer transition-all duration-150;
-  @apply hover:ring-2 hover:ring-offset-1;
+  @apply overflow-hidden whitespace-nowrap text-ellipsis cursor-pointer;
+  transition: box-shadow var(--dur-1) var(--ease-out);
+}
+.reservation-block:hover {
+  box-shadow: 0 0 0 2px hsl(var(--card)), 0 0 0 4px hsl(var(--ring) / .6);
 }
 
 .reservation-block.confirmed {
-  @apply bg-blue-500 text-white hover:ring-blue-300;
+  background: hsl(var(--status-reserved));
+  color: #fff;
 }
 
 .reservation-block.checked-in {
-  @apply bg-emerald-500 text-white hover:ring-emerald-300;
+  background: hsl(var(--status-occupied));
+  color: #fff;
 }
 
 .reservation-block.checked-out {
-  @apply bg-zen-400 text-white hover:ring-zen-300;
+  background: hsl(var(--status-checkout));
+  color: #fff;
 }
 
 .reservation-block.cancelled {
-  @apply bg-rose-500 text-white hover:ring-rose-300;
+  background: hsl(var(--muted));
+  color: hsl(var(--muted-foreground));
+  text-decoration: line-through;
 }
 
-/* Form sections */
+/* Secciones de formulario */
 .form-section {
-  @apply space-y-4 p-6 bg-white rounded-xl border border-zen-200;
+  @apply space-y-4 p-6 bg-card rounded-xl border border-border;
 }
 
 .form-section-title {
   @apply text-lg font-semibold text-zen-900 mb-4 pb-2 border-b border-zen-100;
 }
 
-/* Modal overlay */
 .modal-overlay {
   @apply fixed inset-0 bg-black/50 backdrop-blur-sm z-50;
   @apply flex items-center justify-center p-4;
 }
 
-/* Loading states */
 .skeleton {
   @apply animate-pulse bg-zen-200 rounded;
 }
 
-/* Alert card */
+/* Tarjetas de alerta: informacion en el turquesa de la marca, aviso en
+   ambar, critico en fucsia. Antes "informacion" era azul. */
 .alert-card {
   @apply p-4 rounded-lg border;
 }
 
 .alert-card.info {
-  @apply bg-blue-50 border-blue-200 text-blue-800;
+  background: hsl(var(--status-vacant-clean) / .08);
+  border-color: hsl(var(--status-vacant-clean) / .3);
+  color: hsl(var(--insignia-turquesa));
 }
 
 .alert-card.warn {
-  @apply bg-amber-50 border-amber-200 text-amber-800;
+  background: hsl(var(--chart-3) / .1);
+  border-color: hsl(var(--chart-3) / .35);
+  color: hsl(38 92% 26%);
 }
 
 .alert-card.critical {
-  @apply bg-rose-50 border-rose-200 text-rose-800;
+  background: hsl(var(--status-occupied) / .1);
+  border-color: hsl(var(--status-occupied) / .35);
+  color: hsl(var(--insignia-fucsia));
 }
 
 /* Folio */
@@ -182,9 +342,10 @@
   @apply flex justify-between py-3 text-lg font-bold border-t-2 border-zen-300 mt-2;
 }
 
-/* Invoice preview */
+/* Vista previa de comprobante */
 .invoice-preview {
-  @apply bg-white p-8 shadow-lg rounded-lg max-w-2xl mx-auto;
+  @apply bg-card p-8 rounded-lg max-w-2xl mx-auto;
+  box-shadow: var(--sombra-3);
 }
 
 .invoice-header {
@@ -203,7 +364,7 @@
   @apply px-4 py-2 border-t border-zen-100;
 }
 
-/* Housekeeping board */
+/* Tablero de limpieza */
 .hk-floor-section {
   @apply mb-6;
 }
@@ -216,62 +377,83 @@
   @apply grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3;
 }
 
+/* Un solo borde de 1 px; el estado lo dice el fondo tenido y el texto. */
 .hk-room-card {
-  @apply p-4 rounded-lg border-2 cursor-pointer transition-all duration-200;
-  @apply hover:shadow-md;
+  @apply p-4 rounded-lg border cursor-pointer;
+  border-color: hsl(var(--border));
+  transition: box-shadow var(--dur-2) var(--ease-out), transform var(--dur-2) var(--ease-out);
+}
+.hk-room-card:hover {
+  box-shadow: var(--sombra-2);
+  transform: translateY(-1px);
+}
+.hk-room-card:active {
+  transform: scale(.98);
 }
 
 .hk-room-card.dirty {
-  @apply bg-amber-50 border-amber-300;
+  background: hsl(var(--status-dirty) / .14);
+  border-color: hsl(var(--status-dirty) / .45);
 }
 
 .hk-room-card.cleaning {
-  @apply bg-blue-50 border-blue-300;
+  background: hsl(var(--status-vacant-clean) / .08);
+  border-color: hsl(var(--status-vacant-clean) / .35);
 }
 
 .hk-room-card.clean {
-  @apply bg-emerald-50 border-emerald-300;
+  background: hsl(var(--card));
 }
 
 .hk-room-card.ooo {
-  @apply bg-rose-50 border-rose-300;
+  background: hsl(var(--status-ooo) / .1);
+  border-color: hsl(var(--status-ooo) / .35);
 }
 
-/* Cash shift */
+/* Caja */
 .cash-shift-card {
-  @apply bg-gradient-to-br from-zen-800 to-zen-900 text-white rounded-xl p-6;
+  @apply text-white rounded-xl p-6;
+  background: theme('colors.zen.900');
+  box-shadow: var(--sombra-2);
 }
 
 .cash-shift-stat {
   @apply bg-white/10 rounded-lg p-4;
 }
 
-/* Reports */
+/* Reportes */
 .report-tab {
-  @apply px-4 py-2 text-sm font-medium rounded-lg transition-all;
-  @apply hover:bg-zen-100;
+  @apply px-4 py-2 text-sm font-medium rounded-lg;
+  transition: background-color var(--dur-2) var(--ease-out), color var(--dur-2) var(--ease-out);
+}
+.report-tab:hover {
+  @apply bg-zen-100;
 }
 
 .report-tab.active {
   @apply bg-zen-900 text-white;
 }
 
-/* Transitions */
-.page-transition {
-  animation: slide-in-up 0.4s ease-out;
-}
+/* ------------------------------------------------------------------ */
+/* TELEFONO                                                            */
+/* ------------------------------------------------------------------ */
+@media (max-width: 767.98px) {
+  /* El menu es un cajon: fuera de la pantalla con transform, y entra con
+     la hamburguesa. Nunca se pliega. */
+  .sidebar,
+  .sidebar.collapsed {
+    width: var(--sidebar-ancho);
+    transform: translateX(-100%);
+    box-shadow: none;
+  }
 
-/* Responsive adjustments */
-@media (max-width: 768px) {
-  .sidebar {
-    @apply -translate-x-full;
-  }
-  
   .sidebar.open {
-    @apply translate-x-0;
+    transform: translateX(0);
+    box-shadow: var(--sombra-3);
   }
-  
-  .main-content {
-    @apply ml-0;
+
+  .main-content,
+  .main-content.sidebar-collapsed {
+    margin-left: 0;
   }
 }
