@@ -57,6 +57,17 @@
 
 *, *::before, *::after { box-sizing: border-box; }
 
+/* Anillo de foco en TODO lo que se puede enfocar.
+   Medido antes: 17 de 21 elementos focables no mostraban ninguna senal al
+   recibir el foco. Con el teclado la pagina era intransitable -no habia forma
+   de saber donde estabas-, y eso afecta tanto a quien navega por teclado por
+   necesidad como a cualquiera que use el tabulador en un formulario. */
+:focus-visible {
+  outline: 2px solid var(--turquesa);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
 body {
   margin: 0;
   background: var(--fondo);
@@ -130,7 +141,20 @@ p  { margin: 0 0 1rem; }
 .marca img { width: 40px; height: 40px; object-fit: contain; }
 .marca span { font-family: var(--display); font-size: 1.4rem; font-weight: 700; letter-spacing: -.03em; }
 .cabecera nav { display: flex; align-items: center; gap: 24px; }
-.cabecera nav a { color: var(--texto-suave); text-decoration: none; font-size: .95rem; transition: color .18s; }
+/* padding vertical para llegar a los 44 px de alto que pide la guia tactil:
+   los enlaces median 17 px, y en un movil eso es un objetivo que se falla. */
+.cabecera nav a {
+  color: var(--texto-suave); text-decoration: none; font-size: .95rem;
+  transition: color .18s; display: inline-flex; align-items: center;
+  min-height: 44px; padding: 0 2px;
+}
+/* El boton del final de la barra NO es un enlace de navegacion mas.
+   `.cabecera nav a` gana en especificidad a `.boton-lleno`, asi que le estaba
+   imponiendo el gris del menu: el CTA principal salia con texto gris sobre
+   fucsia, 1.37:1 de contraste. Se le devuelve aqui su tinta, con la misma
+   especificidad. */
+.cabecera nav a.boton-lleno { color: #1a0a10; }
+.cabecera nav a.boton-linea { color: var(--texto); }
 .cabecera nav a:hover { color: var(--turquesa); }
 
 /* --- Botones ----------------------------------------------------------- */
@@ -157,7 +181,12 @@ p  { margin: 0 0 1rem; }
 .enlace-flecha:hover::after { transform: translateX(3px); }
 .boton:active { transform: translateY(1px); }
 .boton-lleno {
-  background: var(--fucsia); color: #fff;
+  /* Texto OSCURO sobre el fucsia, no blanco.
+     Medido: blanco sobre #fc3c78 da 3.47:1 y no llega al minimo de 4.5 que
+     pide la norma para texto normal. El mismo fucsia con tinta oscura da
+     5.53:1. Se conserva el color EXACTO del logotipo y se gana legibilidad;
+     es lo que ya hacia LicitaPro con su menta (9.86:1). */
+  background: var(--fucsia); color: #1a0a10;
   box-shadow: 0 0 0 0 rgba(252,60,120,.45);
 }
 .boton-lleno:hover { box-shadow: 0 6px 26px -6px rgba(252,60,120,.6); }
@@ -305,7 +334,10 @@ p  { margin: 0 0 1rem; }
    Reclamaciones. En Peru ese sello se busca CON LA VISTA: un enlace de texto
    perdido en una columna no lo sustituye. */
 .pie { border-top: 1px solid var(--borde); padding: 56px 0 40px; font-size: .9rem; color: var(--texto-suave); }
-.pie a { color: var(--texto-suave); text-decoration: none; transition: color .18s; }
+.pie a {
+  color: var(--texto-suave); text-decoration: none; transition: color .18s;
+  display: inline-flex; align-items: center; min-height: 44px;
+}
 .pie a:hover { color: var(--turquesa); }
 
 .pie-rejilla { display: grid; gap: 40px; grid-template-columns: 1.4fr 1fr 1fr 1fr; }

@@ -166,7 +166,7 @@ export function Login() {
             type="submit"
             disabled={loading || authLoading}
             data-testid="login-submit-button"
-            className="w-full rounded-full bg-zen-fucsia px-7 py-3.5 text-base font-bold text-white transition
+            className="w-full rounded-full bg-zen-fucsia px-7 py-3.5 text-base font-bold text-[#1a0a10] transition
                        hover:-translate-y-px hover:shadow-[0_6px_26px_-6px_rgba(252,60,120,.6)]
                        focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zen-fucsia
                        disabled:cursor-wait disabled:opacity-60 disabled:hover:translate-y-0"
