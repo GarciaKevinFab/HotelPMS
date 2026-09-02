@@ -26,6 +26,7 @@ import base64
 import json
 import io
 import asyncio
+import plantillas_correo
 import secrets
 import hashlib
 
@@ -3526,133 +3527,162 @@ async def create_walkin(
     }
 
 # ============== EMAIL NOTIFICATIONS ==============
-async def send_email_async(to_email: str, subject: str, html_content: str):
-    """Send email using Resend (async wrapper)"""
+async def send_email_async(to_email: str, subject: str, html_content: str,
+                           texto: str = ""):
+    """Envia un correo por SMTP.
+
+    Antes usaba la API de Resend, pero nunca llego a funcionar: RESEND_API_KEY
+    no estaba definida y la funcion devolvia "skipped", asi que los correos se
+    perdian en silencio. El correo de la casa es soporte@sisac.pe en cPanel, el
+    mismo que usan FletePro y LicitaPro, de modo que los tres salen ahora por
+    un solo buzon y una sola clave.
+    """
+    import smtplib
+    from email.message import EmailMessage
+
+    host = os.environ.get("SMTP_HOST")
+    puerto = int(os.environ.get("SMTP_PORT", "465"))
+    usuario = os.environ.get("SMTP_USER")
+    cifrada = os.environ.get("SMTP_PASSWORD_B64")
+    clave = base64.b64decode(cifrada).decode() if cifrada else os.environ.get("SMTP_PASSWORD", "")
+    remitente = os.environ.get("SMTP_REMITENTE") or usuario
+
+    if not (host and usuario and clave):
+        # Ruidoso a proposito. La version anterior devolvia "skipped" cuando le
+        # faltaba configuracion, o sea que respondia como si todo estuviera bien
+        # y el correo no salia. Un fallo de envio tiene que verse en el log.
+        logger.error(
+            "SMTP sin configurar (faltan SMTP_HOST / SMTP_USER / SMTP_PASSWORD_B64): "
+            "correo NO enviado a %s", to_email
+        )
+        return {"status": "error", "error": "SMTP no configurado"}
+
+    def _enviar():
+        msg = EmailMessage()
+        msg["Subject"] = subject
+        msg["From"] = remitente
+        msg["To"] = to_email
+        # El texto plano va PRIMERO: en multipart/alternative el cliente elige
+        # la ULTIMA parte que sabe pintar, asi que el HTML tiene que ir al
+        # final. Sin la parte de texto, ademas, los filtros puntuan peor.
+        msg.set_content(texto or "Este mensaje necesita un lector de correo con HTML.")
+        msg.add_alternative(html_content, subtype="html")
+        if puerto == 465:
+            with smtplib.SMTP_SSL(host, puerto, timeout=30) as s:
+                s.login(usuario, clave)
+                s.send_message(msg)
+        else:
+            with smtplib.SMTP(host, puerto, timeout=30) as s:
+                s.starttls()
+                s.login(usuario, clave)
+                s.send_message(msg)
+
     try:
-        import resend
-        resend.api_key = os.environ.get("RESEND_API_KEY")
-        sender = os.environ.get("SENDER_EMAIL", "noreply@hotelpms.com")
-        
-        if not resend.api_key:
-            logger.warning("RESEND_API_KEY not configured, email not sent")
-            return {"status": "skipped", "reason": "API key not configured"}
-        
-        params = {
-            "from": sender,
-            "to": [to_email],
-            "subject": subject,
-            "html": html_content
-        }
-        
-        result = await asyncio.to_thread(resend.Emails.send, params)
-        return {"status": "sent", "email_id": result.get("id")}
+        # En un hilo aparte: smtplib es bloqueante y esto corre dentro del loop.
+        await asyncio.to_thread(_enviar)
+        return {"status": "sent"}
     except Exception as e:
-        logger.error(f"Failed to send email: {str(e)}")
+        logger.error("Fallo el envio de correo a %s: %s", to_email, e)
         return {"status": "error", "error": str(e)}
 
 def generate_email_template(template_type: str, data: dict) -> tuple:
-    """Generate email subject and HTML content"""
-    tenant_name = data.get("tenant_name", "Hotel")
-    
+    """Arma (asunto, html, texto) de un correo a partir de su plantilla.
+
+    Devuelve tambien la version en texto plano, no solo el HTML: hay clientes
+    que no pintan HTML y los filtros de spam penalizan los mensajes que llegan
+    en un solo formato.
+
+    El diseno vive entero en plantillas_correo. Aqui solo se decide QUE dice
+    cada correo; COMO se ve es cosa de alli, para que los cuatro cambien a la
+    vez cuando cambie la marca.
+    """
+    hotel = data.get("tenant_name") or "Hotel"
+    huesped = data.get("guest_name") or "Huésped"
+
+    def soles(v):
+        # El total puede llegar como Decimal, str o None segun quien llame.
+        try:
+            return "S/ %.2f" % float(v or 0)
+        except (TypeError, ValueError):
+            return "S/ —"
+
     if template_type == "RESERVATION_CONFIRMATION":
-        subject = f"Confirmación de Reserva - {data.get('code', '')}"
-        html = f"""
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-            <div style="background: #1E3A5F; color: white; padding: 20px; text-align: center;">
-                <h1 style="margin: 0;">{tenant_name}</h1>
-            </div>
-            <div style="padding: 20px; background: #f9f9f9;">
-                <h2 style="color: #1E3A5F;">¡Reserva Confirmada!</h2>
-                <p>Estimado/a <strong>{data.get('guest_name', 'Huésped')}</strong>,</p>
-                <p>Su reserva ha sido confirmada exitosamente.</p>
-                
-                <div style="background: white; padding: 15px; border-radius: 8px; margin: 20px 0;">
-                    <p><strong>Código de Reserva:</strong> {data.get('code', '')}</p>
-                    <p><strong>Check-in:</strong> {data.get('checkin_date', '')} (14:00 hrs)</p>
-                    <p><strong>Check-out:</strong> {data.get('checkout_date', '')} (12:00 hrs)</p>
-                    <p><strong>Tipo de Habitación:</strong> {data.get('room_type', '')}</p>
-                    <p><strong>Total Estimado:</strong> S/ {data.get('total', 0):.2f}</p>
-                </div>
-                
-                <p>¡Le esperamos!</p>
-            </div>
-            <div style="text-align: center; padding: 20px; color: #666; font-size: 12px;">
-                <p>{tenant_name} - Sistema de Reservas</p>
-            </div>
-        </div>
-        """
-    
+        asunto = "Confirmación de reserva %s — %s" % (data.get("code", ""), hotel)
+        kw = dict(
+            titulo="Tu reserva está confirmada",
+            hotel=hotel,
+            preencabezado="Código %s · Entrada %s" % (data.get("code", ""),
+                                                      data.get("checkin_date", "")),
+            intro=["Estimado/a %s," % huesped,
+                   "Confirmamos tu reserva. Estos son los datos; guárdalos "
+                   "para el día de la llegada."],
+            filas=[
+                ("Código de reserva", data.get("code") or "—"),
+                ("Entrada", "%s · desde las 14:00" % (data.get("checkin_date") or "—")),
+                ("Salida", "%s · hasta las 12:00" % (data.get("checkout_date") or "—")),
+                ("Habitación", data.get("room_type") or "—"),
+                ("Total estimado", soles(data.get("total"))),
+            ],
+            cierre=["Si necesitas cambiar algo, responde a este correo antes "
+                    "de la fecha de entrada."],
+            aviso="El total es estimado: no incluye consumos ni servicios "
+                  "adicionales que se registren durante la estadía.",
+        )
+
     elif template_type == "CHECKIN_CONFIRMATION":
-        subject = f"Bienvenido - Check-in Confirmado"
-        html = f"""
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-            <div style="background: #10B981; color: white; padding: 20px; text-align: center;">
-                <h1 style="margin: 0;">¡Bienvenido!</h1>
-            </div>
-            <div style="padding: 20px; background: #f9f9f9;">
-                <h2 style="color: #1E3A5F;">Check-in Realizado</h2>
-                <p>Estimado/a <strong>{data.get('guest_name', 'Huésped')}</strong>,</p>
-                <p>Su check-in ha sido registrado exitosamente.</p>
-                
-                <div style="background: white; padding: 15px; border-radius: 8px; margin: 20px 0;">
-                    <p><strong>Habitación:</strong> {data.get('room_number', '')}</p>
-                    <p><strong>Piso:</strong> {data.get('floor', '')}</p>
-                    <p><strong>Check-out:</strong> {data.get('checkout_date', '')} (12:00 hrs)</p>
-                    <p><strong>WiFi:</strong> {tenant_name}_Guest / password123</p>
-                </div>
-                
-                <p>Disfrute su estadía. Para cualquier necesidad, contacte a recepción.</p>
-            </div>
-        </div>
-        """
-    
+        asunto = "Bienvenido a %s — check-in confirmado" % hotel
+        kw = dict(
+            titulo="Bienvenido, ya estás registrado",
+            hotel=hotel,
+            preencabezado="Habitación %s · Salida %s" % (
+                data.get("room_number", ""), data.get("checkout_date", "")),
+            intro=["Estimado/a %s," % huesped,
+                   "Tu check-in quedó registrado. Que disfrutes la estadía."],
+            filas=[
+                ("Habitación", data.get("room_number") or "—"),
+                ("Piso", data.get("floor") or "—"),
+                ("Salida", "%s · hasta las 12:00" % (data.get("checkout_date") or "—")),
+            ],
+            cierre=["Cualquier cosa que necesites, recepción está a tu "
+                    "disposición."],
+        )
+
     elif template_type == "CHECKOUT_REMINDER":
-        subject = f"Recordatorio de Check-out"
-        html = f"""
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-            <div style="background: #F59E0B; color: white; padding: 20px; text-align: center;">
-                <h1 style="margin: 0;">Recordatorio</h1>
-            </div>
-            <div style="padding: 20px; background: #f9f9f9;">
-                <h2 style="color: #1E3A5F;">Check-out Mañana</h2>
-                <p>Estimado/a <strong>{data.get('guest_name', 'Huésped')}</strong>,</p>
-                <p>Le recordamos que su check-out está programado para mañana.</p>
-                
-                <div style="background: white; padding: 15px; border-radius: 8px; margin: 20px 0;">
-                    <p><strong>Fecha:</strong> {data.get('checkout_date', '')}</p>
-                    <p><strong>Hora límite:</strong> 12:00 hrs</p>
-                    <p><strong>Habitación:</strong> {data.get('room_number', '')}</p>
-                </div>
-                
-                <p>Por favor, acérquese a recepción antes de su salida para realizar el check-out.</p>
-            </div>
-        </div>
-        """
-    
+        asunto = "Recordatorio de salida — %s" % hotel
+        kw = dict(
+            titulo="Se acerca tu salida",
+            hotel=hotel,
+            preencabezado="Salida %s hasta las 12:00" % data.get("checkout_date", ""),
+            intro=["Estimado/a %s," % huesped,
+                   "Te recordamos la hora de salida para que organices el día."],
+            filas=[
+                ("Salida", "%s · hasta las 12:00" % (data.get("checkout_date") or "—")),
+                ("Habitación", data.get("room_number") or "—"),
+            ],
+            cierre=["Si necesitas salida tardía, consúltalo en recepción: "
+                    "depende de la disponibilidad del día."],
+        )
+
     else:  # PAYMENT_RECEIPT
-        subject = f"Comprobante de Pago - {data.get('invoice_number', '')}"
-        html = f"""
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-            <div style="background: #1E3A5F; color: white; padding: 20px; text-align: center;">
-                <h1 style="margin: 0;">{tenant_name}</h1>
-            </div>
-            <div style="padding: 20px; background: #f9f9f9;">
-                <h2 style="color: #1E3A5F;">Comprobante de Pago</h2>
-                <p>Estimado/a <strong>{data.get('client_name', 'Cliente')}</strong>,</p>
-                
-                <div style="background: white; padding: 15px; border-radius: 8px; margin: 20px 0;">
-                    <p><strong>Número:</strong> {data.get('invoice_number', '')}</p>
-                    <p><strong>Tipo:</strong> {data.get('invoice_type', 'Boleta')}</p>
-                    <p><strong>Fecha:</strong> {data.get('date', '')}</p>
-                    <p><strong>Total:</strong> S/ {data.get('total', 0):.2f}</p>
-                </div>
-                
-                <p>Gracias por su preferencia.</p>
-            </div>
-        </div>
-        """
-    
-    return subject, html
+        asunto = "Comprobante %s — %s" % (data.get("invoice_number", ""), hotel)
+        kw = dict(
+            titulo="Comprobante de pago",
+            hotel=hotel,
+            preencabezado="%s %s" % (data.get("invoice_type") or "Comprobante",
+                                     data.get("invoice_number", "")),
+            intro=["Estimado/a %s," % (data.get("client_name") or huesped),
+                   "Registramos tu pago. Este es el detalle."],
+            filas=[
+                ("Comprobante", data.get("invoice_number") or "—"),
+                ("Tipo", data.get("invoice_type") or "—"),
+                ("Fecha", data.get("date") or "—"),
+                ("Total pagado", soles(data.get("total"))),
+            ],
+            cierre=["Gracias por tu preferencia."],
+        )
+
+    texto, html = plantillas_correo.componer(**kw)
+    return asunto, html, texto
 
 class NotificationRequest(BaseModel):
     template: EmailTemplate
@@ -3675,10 +3705,10 @@ async def send_notification(
     data = request.data.copy()
     data["tenant_name"] = (tenant.get("nombre_comercial") or tenant.get("name") or "Hotel") if tenant else "Hotel"
 
-    subject, html = generate_email_template(request.template.value, data)
+    subject, html, texto = generate_email_template(request.template.value, data)
     # El envio va FUERA de la transaccion: mandar un correo no se puede
     # deshacer, asi que no tiene sentido tener la base bloqueada esperandolo.
-    result = await send_email_async(request.recipient_email, subject, html)
+    result = await send_email_async(request.recipient_email, subject, html, texto)
 
     async with db_pg.tx(user) as conn:
         await conn.execute(
