@@ -285,7 +285,7 @@ export function Employees() {
           justify-between no caben en 375 px y desbordaban la pagina. */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-zen-900">Gestion de Empleados</h1>
+          <h1 className="text-2xl font-bold text-zen-900">Gestión de Empleados</h1>
           <p className="text-zen-500">Administra el personal del hotel</p>
         </div>
         <Button onClick={() => setShowCreateDialog(true)} data-testid="create-employee-btn">
