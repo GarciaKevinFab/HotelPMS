@@ -56,7 +56,6 @@ LO QUE ESTAS PAGINAS **NO** HACEN, Y POR QUE NO ES UN ENGANO
 """
 import hashlib
 import html
-import json
 import logging
 from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
@@ -258,11 +257,6 @@ _ESTILOS = """
      una linea de 0.9 rem dejaba las palabras pegadas ("14dias,sintarjeta"). */
   display: block; margin-top: 8px; letter-spacing: normal; line-height: 1.5;
 }
-.co-segundo {
-  display: block; text-align: center; margin-top: 12px; font-size: .88rem;
-  color: var(--texto-suave); text-decoration: none; padding: 11px 4px; min-height: 44px;
-}
-.co-segundo:hover { color: var(--turquesa); }
 @media (min-width: 900px) {
   .co-rejilla { grid-template-columns: 1.1fr .9fr; }
   /* El resumen va PRIMERO en el HTML -- para que quien lea la pagina sin
@@ -273,10 +267,6 @@ _ESTILOS = """
 }
 @media (min-width: 1080px) { .co-planes { grid-template-columns: repeat(4, 1fr); } }
 @media (max-width: 620px) { .co-planes { grid-template-columns: 1fr; } }
-/* estilo.css esconde "Precios" de la barra a 560 px por el href="#planes" de
-   la portada; aqui el enlace es /precios y necesita la misma regla o la
-   cabecera se desborda en un telefono. */
-@media (max-width: 560px) { .cabecera nav a[href="/precios"] { display: none; } }
 </style>
 """
 
@@ -418,7 +408,7 @@ def pagina_precios(planes: list, comercio: dict) -> str:
                 f'<a href="/comprar/{_e(codigo)}" class="boton '
                 f'{"boton-lleno" if recomendado else "boton-linea"}">'
                 f'Contratar · S/&nbsp;{precio:,.0f}/mes</a>'
-                f'<a href="/registro?plan={_e(codigo)}" class="co-segundo">'
+                f'<a href="/registro?plan={_e(codigo)}" class="plan-segundo">'
                 f'Probar 14 días gratis</a>'
             )
             extra = ""
@@ -676,7 +666,7 @@ def pagina_pedido(pedido: dict, plan: dict, comercio: dict, modo: str) -> str:
         </p>
         <a href="/login" class="boton boton-lleno" style="width:100%;text-align:center;margin-top:8px">
           Entrar al sistema</a>
-        <a href="/precios" class="co-segundo">Ver los otros planes</a>
+        <a href="/precios" class="plan-segundo">Ver los otros planes</a>
       </div>"""
     elif pedido.get("token_pasarela") and pedido.get("url_pasarela"):
         # Hay credenciales, token de sesion y destino confirmado: el boton
@@ -699,7 +689,7 @@ def pagina_pedido(pedido: dict, plan: dict, comercio: dict, modo: str) -> str:
           <button type="submit" class="boton boton-lleno" style="width:100%">
             Continuar a Izipay · {_soles(pedido.get('monto') or 0)}</button>
         </form>
-        <a href="/login" class="co-segundo">Entrar al sistema</a>
+        <a href="/login" class="plan-segundo">Entrar al sistema</a>
       </div>"""
     else:
         # Hay credenciales pero la pasarela no dio token, o todavia falta
@@ -793,14 +783,21 @@ def _sin_cache(cuerpo: str, codigo: int = 200) -> HTMLResponse:
 # ---------------------------------------------------------------------------
 # Rutas
 # ---------------------------------------------------------------------------
+# GET **y HEAD**. FastAPI no anade HEAD sola cuando declaras @router.get (a
+# diferencia de Starlette a pelo), asi que un HEAD devolvia 405 -- medido, en
+# todo el sitio, landing incluida. Muchos rastreadores sondean con HEAD antes
+# de descargar, y un 405 en /precios es exactamente el tipo de "esta web no
+# tiene checkout" que ya costo una validacion. Responder a HEAD no cuesta nada:
+# es la misma respuesta sin cuerpo.
 
-@router.get("/precios", response_class=HTMLResponse)
+@router.api_route("/precios", methods=["GET", "HEAD"], response_class=HTMLResponse)
 async def precios():
     """Catalogo publico. Sustituye al 307 que llevaba al ancla /#planes."""
     return _sin_cache(pagina_precios(await _planes(), COMERCIO))
 
 
-@router.get("/comprar/{plan_codigo}", response_class=HTMLResponse)
+@router.api_route("/comprar/{plan_codigo}", methods=["GET", "HEAD"],
+                  response_class=HTMLResponse)
 async def checkout(plan_codigo: str, periodo: str = "mensual", error: str = ""):
     """Resumen del pedido y formulario. Publica: no exige sesion.
 
@@ -971,13 +968,21 @@ async def confirmar(
     return RedirectResponse(f"/comprar/pedido/{quote(numero)}", status_code=303)
 
 
-def _json_pedido(correo: str, request: Request) -> str:
+def _json_pedido(correo: str, request: Request) -> dict:
     """Lo que se sabe del pedido antes de que exista la pasarela.
 
     Se guarda en `respuesta` porque es la columna que acaba teniendo el rastro
     completo del cobro: primero lo nuestro, luego lo que conteste Izipay.
+
+    DEVUELVE UN dict, NO UN str, Y ESO IMPORTA
+
+      db_pg._init_connection registra un codec jsonb con encoder=json.dumps.
+      Pasarle una cadena ya serializada la serializa OTRA VEZ: la columna
+      guarda una cadena JSON en vez de un objeto. Se vio contra Postgres --
+      jsonb_typeof(respuesta) devolvia 'string' -- y ademas rompia el `||` del
+      IPN, que con dos escalares produce un ARRAY en lugar de fusionar.
     """
-    return json.dumps({
+    return ({
         "origen": "checkout_publico",
         "email": correo,
         "ip": request.client.host if request.client else None,
@@ -985,7 +990,8 @@ def _json_pedido(correo: str, request: Request) -> str:
     })
 
 
-@router.get("/comprar/pedido/{numero}", response_class=HTMLResponse)
+@router.api_route("/comprar/pedido/{numero}", methods=["GET", "HEAD"],
+                  response_class=HTMLResponse)
 async def pedido(numero: str):
     """El pedido, su total y su estado.
 

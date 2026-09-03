@@ -24,7 +24,7 @@
       </a>
       <nav>
         <a href="#como-funciona" class="oculta-movil">Cómo funciona</a>
-        <a href="#planes">Precios</a>
+        <a href="/precios">Precios</a>
         <a href="/login">Entrar</a>
         <a href="/registro" class="boton boton-lleno">Probar gratis</a>
       </nav>
@@ -144,7 +144,10 @@
       <p>Sin costo de instalación ni permanencia. Cancelas cuando quieras.</p>
     </div>
     <div class="planes" id="lista-planes">
-      <p style="color:var(--texto-suave)">Cargando planes…</p>
+      <p style="color:var(--texto-suave)">
+        Cargando planes… Si no se cargan, están todos en
+        <a href="/precios" style="color:var(--turquesa)">la página de precios</a>.
+      </p>
     </div>
     <p style="margin-top:28px;font-size:.9rem;color:var(--texto-suave)">
       ¿Más de un hotel o necesitas algo a medida?
@@ -242,8 +245,14 @@
         '<div class="precio">S/ ' + Number(p.precio_mensual).toFixed(0) + '<small> /mes</small></div>' +
         '<p style="font-size:.9rem;color:var(--texto-suave);margin:0">' + (p.descripcion || '') + '</p>' +
         '<ul>' + puntos.map(function (t) { return '<li>' + t + '</li>'; }).join('') + '</ul>' +
-        '<a href="/registro?plan=' + encodeURIComponent(p.codigo) + '" class="boton ' +
-        (destacado ? 'boton-lleno' : 'boton-linea') + '">Probar 14 días</a>' +
+        // Contratar primero y probar despues: el que ya decidio comprar no
+        // tiene por que pasar por una prueba, y hasta ahora los tres botones
+        // de esta seccion llevaban al mismo formulario de registro.
+        '<a href="/comprar/' + encodeURIComponent(p.codigo) + '" class="boton ' +
+        (destacado ? 'boton-lleno' : 'boton-linea') + '">Contratar · S/&nbsp;' +
+        Number(p.precio_mensual).toFixed(0) + '/mes</a>' +
+        '<a href="/registro?plan=' + encodeURIComponent(p.codigo) +
+        '" class="plan-segundo">Probar 14 días gratis</a>' +
       '</div>';
     }).join('');
   } catch (e) {

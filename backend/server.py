@@ -912,7 +912,11 @@ async def izipay_ipn(request: Request):
                       respuesta = coalesce(respuesta, '{}'::jsonb) || $3::jsonb
                 where izipay_order_number = $1 and estado <> 'pagado'
             returning id, tenant_id, plan_codigo, periodo, monto""",
-            numero, transaction_id, json.dumps({"ipn": datos}),
+            # dict y no json.dumps: el codec jsonb de db_pg ya serializa, y
+            # una cadena ya serializada se guardaria como cadena JSON --
+            # ademas de convertir el `||` de arriba en un array en vez de una
+            # fusion de objetos.
+            numero, transaction_id, {"ipn": datos},
         )
         if not pago:
             # O ya estaba confirmado, o el numero no existe. En los dos casos
@@ -4780,7 +4784,12 @@ def _cache_del_build(ruta: Path) -> str:
     return f"public, max-age={_UN_DIA_SPA}, stale-while-revalidate={_UN_DIA_SPA * 7}"
 
 
-@app.get("/{ruta:path}")
+# HEAD ademas de GET: FastAPI no la anade sola, y sin ella un HEAD sobre la
+# portada o sobre /terminos devolvia 405. Se comprobo con una peticion real.
+# Es la misma respuesta sin cuerpo, y a un rastreador que sondea antes de
+# descargar -- el validador de una pasarela, por ejemplo -- un 405 le dice
+# que la pagina no existe.
+@app.api_route("/{ruta:path}", methods=["GET", "HEAD"])
 async def servir_web(ruta: str, request: Request):
     """Reparte entre la landing y la aplicacion.
 
