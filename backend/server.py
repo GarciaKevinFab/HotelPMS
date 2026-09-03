@@ -32,6 +32,8 @@ import secrets
 import hashlib
 
 import db_pg
+import checkout
+import izipay
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -4491,6 +4493,16 @@ async def health_check():
 # Include router
 app.include_router(api_router)
 
+# La compra publica: /precios, /comprar/{plan} y /comprar/pedido/{numero}.
+#
+# Va DESPUES de api_router y ANTES del catch-all de abajo, y el orden es lo
+# unico que hace que funcione: el catch-all `@app.get("/{ruta:path}")` atrapa
+# cualquier cosa, asi que un router montado despues de el no recibiria nunca
+# una peticion. Estas paginas se construyen enteras en el servidor porque el
+# validador de Izipay descarga el HTML y puede no ejecutar JavaScript (ver la
+# cabecera de backend/checkout.py).
+app.include_router(checkout.router)
+
 # CORS. Los origenes se validan al arrancar (ver arriba): la lista nunca es '*',
 # porque las peticiones van con credenciales y esa combinacion la rechazan los
 # navegadores ademas de ser insegura.
@@ -4539,11 +4551,13 @@ def _version_css() -> str:
     Se calcula al vuelo y no una vez al arrancar: el contenedor se reconstruye
     en cada despliegue, asi que da igual en cuanto a coste, y en desarrollo
     permite editar el CSS sin reiniciar.
+
+    Delega en checkout.version_css() y no calcula lo suyo: las paginas de la
+    compra cargan ESE MISMO archivo, y si cada modulo sacara su propia huella
+    un despliegue podria dejar el checkout apuntando a una version y la landing
+    a otra.
     """
-    archivo = LANDING / "estilo.css"
-    if not archivo.is_file():
-        return "0"
-    return hashlib.md5(archivo.read_bytes()).hexdigest()[:10]
+    return checkout.version_css()
 
 
 def _pagina_landing(archivo: Path) -> HTMLResponse:
@@ -4606,7 +4620,6 @@ async def servir_web(ruta: str, request: Request):
     """Reparte entre la landing y la aplicacion.
 
         /            -> landing (comercial)
-        /precios     -> landing (ancla de planes)
         /privacidad, /terminos, /reclamaciones -> landing
         /app/...     -> 301 a la misma ruta sin /app (enlaces y marcadores viejos)
         /algo.ext    -> archivo del build si existe (favicon, logos, manifest)
@@ -4624,10 +4637,14 @@ async def servir_web(ruta: str, request: Request):
             destino += "?" + request.url.query
         return RedirectResponse(destino, status_code=301)
 
-    # 1. Paginas de la landing. Los precios NO son una pagina aparte: van en la
-    #    misma portada, porque partir "que es esto" de "cuanto cuesta" en dos
-    #    cargas pierde gente por el camino. /precios existe igual y lleva al
-    #    ancla, para que el enlace se pueda compartir.
+    # 1. Paginas de la landing.
+    #
+    #    /precios YA NO esta aqui ni redirige al ancla /#planes: ahora es una
+    #    pagina de verdad, construida en el servidor por backend/checkout.py y
+    #    montada antes que este catch-all. El ancla no servia como catalogo
+    #    para nadie de fuera -- ni para la pasarela, ni para un buscador, ni
+    #    para un enlace por WhatsApp -- porque los precios de la portada los
+    #    pinta un fetch desde el navegador.
     if LANDING.exists():
         # /registro ya NO esta aqui: el alta es una pantalla de la SPA, con la
         # misma concha que el login, y la resuelve React.
@@ -4641,8 +4658,6 @@ async def servir_web(ruta: str, request: Request):
             archivo = LANDING / paginas[ruta]
             if archivo.is_file():
                 return _pagina_landing(archivo)
-        if ruta == "precios":
-            return RedirectResponse("/#planes", status_code=307)
 
     if not FRONTEND_BUILD.exists():
         raise HTTPException(status_code=404, detail="No encontrado")

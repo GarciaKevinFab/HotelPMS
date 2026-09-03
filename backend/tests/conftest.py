@@ -41,11 +41,40 @@ HOTEL_TEST_ADMIN_EMAIL = "admin@hoteltest.com"
 HOTEL_TEST_ADMIN_PASSWORD = "admin123test"
 
 
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers",
+        "no_necesita_servidor: prueba que corre sin instancia levantada ni base "
+        "de datos (las paginas puras de backend/checkout.py).",
+    )
+
+
+def pytest_collection_modifyitems(config, items):
+    """Sin instancia levantada se salta lo que la necesita, y solo eso.
+
+    Antes el fixture de abajo llamaba a pytest.skip() y, por ser autouse de
+    sesion, se llevaba por delante TODA la bateria. Las pruebas de las paginas
+    del checkout no tocan red ni base: no hay motivo para saltarselas cuando lo
+    unico que falta es REACT_APP_BACKEND_URL, y saltarselas significaria que en
+    la practica nunca corren.
+    """
+    if BASE_URL:
+        return
+    saltar = pytest.mark.skip(
+        reason="REACT_APP_BACKEND_URL sin definir: hace falta una instancia "
+               "efimera levantada (nunca produccion).")
+    for item in items:
+        if "no_necesita_servidor" not in item.keywords:
+            item.add_marker(saltar)
+
+
 @pytest.fixture(scope="session", autouse=True)
 def preparar_escenario():
     """Deja el sistema con un superadmin, el hotel demo y un segundo hotel."""
     if not BASE_URL:
-        pytest.skip("REACT_APP_BACKEND_URL sin definir")
+        # Las que necesitan servidor ya quedaron saltadas en la coleccion.
+        yield
+        return
 
     # 1. El superadmin. Si ya existe, /setup responde 400 y seguimos: es
     #    idempotente a proposito.
