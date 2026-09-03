@@ -45,11 +45,9 @@ api.interceptors.response.use(
     if (error.response?.status === 401) {
       localStorage.removeItem('token');
       localStorage.removeItem('user');
-      // La SPA vive bajo /app (ver el basename en App.js). window.location.href
-      // se salta el router, y con el el basename: apuntar a '/login' dejaba al
-      // usuario en una URL que el router no reconoce. Pasaba al caducar el
-      // token a las 24 h, justo cuando hay que volver a entrar.
-      window.location.href = '/app/login';
+      // window.location.href se salta el router a proposito: al caducar el
+      // token (24 h) hay que descartar todo el estado en memoria.
+      window.location.href = '/login';
     }
     return Promise.reject(error);
   }
@@ -59,6 +57,8 @@ api.interceptors.response.use(
 export const authAPI = {
   login: (email, password) => api.post('/auth/login', { email, password }),
   me: () => api.get('/auth/me'),
+  // Alta publica de un hotel y su administrador (POST /api/registro).
+  registro: (data) => api.post('/registro', data),
 };
 
 // Tenants
