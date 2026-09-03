@@ -488,7 +488,7 @@
   animation: acceso-flotar 8s ease-in-out infinite alternate;
 }
 .acceso-forma-3 {
-  bottom: 21%; right: 30%;
+  bottom: 12%; right: 14%;
   width: 3.75rem; height: 3.75rem;
   border-radius: 1rem;
   border-color: rgb(255 255 255 / .15);

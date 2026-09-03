@@ -42,7 +42,11 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
+    // Un 401 del PROPIO login no es una sesion caducada: es una contraseña
+    // mal escrita, y la pantalla tiene que poder mostrarlo. Recargar aqui
+    // borraba el aviso antes de que nadie lo leyera.
+    const esLogin = String(error.config?.url || '').includes('/auth/login');
+    if (error.response?.status === 401 && !esLogin) {
       localStorage.removeItem('token');
       localStorage.removeItem('user');
       // window.location.href se salta el router a proposito: al caducar el
