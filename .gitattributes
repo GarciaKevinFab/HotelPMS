@@ -1,0 +1,14 @@
+# Los scripts se escriben en Windows pero se ejecutan en el contenedor Linux del
+# VPS. Sin esto viajan con CRLF y el interprete falla con un `$'': command not
+# found` en la primera linea util: fue exactamente lo que dejo inservible a
+# tools/respaldar.sh en el servidor, y un respaldo que no corre no se nota hasta
+# el dia que hace falta.
+* text=auto eol=lf
+
+*.sh text eol=lf
+*.sql text eol=lf
+
+*.png binary
+*.ico binary
+*.woff2 binary
+*.dump binary
