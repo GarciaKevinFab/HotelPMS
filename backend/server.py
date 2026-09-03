@@ -842,6 +842,124 @@ async def ver_suscripcion(user: dict = Depends(get_current_user)):
     return susc
 
 
+# ============== CONFIRMACION DEL PAGO (IPN DE IZIPAY) ==============
+# Cuantos dias suma cada periodo. Van aqui y no en la consulta para que el
+# numero se lea una sola vez y no haya un 30 escondido dentro de un SQL.
+DIAS_POR_PERIODO = {"mensual": 30, "anual": 365}
+
+
+@api_router.post("/checkout/izipay/ipn")
+async def izipay_ipn(request: Request):
+    """Confirmacion servidor-a-servidor de Izipay. Publica y sin sesion.
+
+    LA AUTENTICIDAD LA DA LA FIRMA, NO LA COOKIE
+
+      Este aviso llega desde los servidores de la pasarela, sin navegador y sin
+      sesion. Lo unico que distingue uno legitimo de uno que mande cualquiera
+      desde internet es el HMAC, asi que sin firma valida se responde 401 y no
+      se toca nada. izipay.verificar_firma() devuelve False cuando falta la
+      clave: falla cerrado a proposito.
+
+    ES IDEMPOTENTE, Y ESO NO ES UN DETALLE
+
+      Las pasarelas reenvian. El `and estado <> 'pagado'` del UPDATE es lo que
+      hace que la segunda notificacion del mismo pedido no encuentre fila que
+      actualizar y, por tanto, no vuelva a extender el periodo. Sin eso el bug
+      seria "a algunos hoteles se les regalan meses" y nadie lo reportaria.
+
+    Va con tx_global porque no hay usuario del que heredar el hotel: el numero
+    de orden es lo unico que dice a que hotel pertenece este pago.
+    """
+    crudo = await request.body()
+    # POR_CONFIRMAR: el nombre de la cabecera que trae la firma. Se aceptan las
+    # dos formas que aparecen en la documentacion.
+    firma = (request.headers.get("x-izipay-signature")
+             or request.headers.get("signature") or "")
+
+    if not izipay.verificar_firma(crudo, firma):
+        logger.warning("IPN de Izipay con firma invalida desde %s",
+                       request.client.host if request.client else "?")
+        raise HTTPException(status_code=401, detail="Firma inválida")
+
+    try:
+        datos = json.loads(crudo)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="El cuerpo no es JSON")
+
+    # POR_CONFIRMAR: los nombres exactos de los campos del aviso.
+    respuesta = datos.get("response") if isinstance(datos.get("response"), dict) else {}
+    numero = (datos.get("orderNumber") or datos.get("order_number")
+              or respuesta.get("orderNumber"))
+    if not numero:
+        raise HTTPException(status_code=400, detail="Sin número de orden")
+
+    aprobado = (str(datos.get("code")) == "00"
+                or datos.get("status") in ("PAID", "AUTHORIZED"))
+    if not aprobado:
+        logger.info("IPN de %s indica pago no aprobado: %s", numero, datos.get("message"))
+        # 200 igualmente: el aviso se recibio y se entendio. Un 4xx haria que
+        # Izipay lo reintentara para siempre.
+        return {"ok": True, "aplicado": False, "motivo": "pago no aprobado"}
+
+    transaction_id = datos.get("transactionId") or respuesta.get("transactionId")
+
+    async with db_pg.tx_global("IPN de Izipay: llega sin sesion y sin hotel conocido") as conn:
+        pago = await db_pg.uno(
+            conn,
+            """update pagos_suscripcion
+                  set estado = 'pagado', confirmado_en = now(),
+                      izipay_transaction_id = $2,
+                      respuesta = coalesce(respuesta, '{}'::jsonb) || $3::jsonb
+                where izipay_order_number = $1 and estado <> 'pagado'
+            returning id, tenant_id, plan_codigo, periodo, monto""",
+            numero, transaction_id, json.dumps({"ipn": datos}),
+        )
+        if not pago:
+            # O ya estaba confirmado, o el numero no existe. En los dos casos
+            # se responde 200: no hay nada que reintentar.
+            logger.info("IPN %s ya aplicado o pedido inexistente: no se repite", numero)
+            return {"ok": True, "aplicado": False, "motivo": "ya aplicado o desconocido"}
+
+        dias = DIAS_POR_PERIODO.get(pago["periodo"], 30)
+        # greatest(...) para que renovar antes de tiempo SUME al periodo que
+        # queda en vez de recortarlo, y coalesce por los hoteles que nunca
+        # pagaron (subscription_ends_at NULL).
+        # db_pg.uno() ya convirtio el uuid a texto al salir; para volver a
+        # consultar por el hay que devolverlo a uuid o asyncpg no lo acepta.
+        tid = db_pg.a_uuid(pago["tenant_id"], "tenant_id")
+        antes = await db_pg.uno(
+            conn,
+            "select plan_codigo, subscription_status, subscription_ends_at "
+            "from tenants where id = $1", tid)
+        await conn.execute(
+            """update tenants
+                  set plan_codigo = $2,
+                      subscription_status = 'activa',
+                      subscription_ends_at =
+                          greatest(coalesce(subscription_ends_at, now()), now())
+                          + ($3 || ' days')::interval
+                where id = $1""",
+            tid, pago["plan_codigo"], str(dias),
+        )
+        despues = await db_pg.uno(
+            conn,
+            "select plan_codigo, subscription_status, subscription_ends_at "
+            "from tenants where id = $1", tid)
+
+        # user_id None: no lo hizo una persona de este sistema, lo hizo la
+        # pasarela. Dejarlo en blanco es mas honesto que atribuirselo a alguien.
+        await create_audit_log(
+            conn, tid, None, "suscripcion_pago", "confirm",
+            before=antes,
+            after={**despues, "numero_orden": numero, "monto": pago["monto"],
+                   "izipay_transaction_id": transaction_id},
+        )
+
+    logger.info("IPN: pago %s confirmado, hotel %s activo hasta %s",
+                numero, pago["tenant_id"], despues.get("subscription_ends_at"))
+    return {"ok": True, "aplicado": True}
+
+
 # ============== TENANT ENDPOINTS ==============
 @api_router.post("/tenants")
 async def create_tenant(data: TenantCreate, user: dict = Depends(require_roles(Role.SUPER_ADMIN))):
@@ -1122,9 +1240,11 @@ class TenantSuscripcion(BaseModel):
     """
     plan_codigo: str
     subscription_status: Literal["prueba", "activa", "vencida", "suspendida", "cancelada"]
-    # Hasta cuando esta pagado (o hasta cuando dura la prueba). Es informativo
-    # para el SUPER_ADMIN: hoy nadie corta el acceso solo; se corta cambiando
-    # el estado aqui mismo.
+    # Hasta cuando esta pagado (o hasta cuando dura la prueba). Se guarda en
+    # tenants.subscription_ends_at, la MISMA columna que escribe el IPN de
+    # Izipay: las dos vias de cobro -- la pasarela y el efectivo/Yape que
+    # registra el dueno a mano -- tienen que dejar el hotel en el mismo estado,
+    # o "hasta cuando ha pagado este hotel" dependeria de por donde pago.
     vence: Optional[date] = None
     nota: Optional[str] = Field(default=None, max_length=300)
 
@@ -1140,7 +1260,8 @@ async def update_tenant_suscripcion(
             raise HTTPException(status_code=400, detail="Ese plan no existe o no esta activo")
         antes = await db_pg.uno(
             conn,
-            "select plan_codigo, subscription_status, trial_ends_at from tenants where id = $1",
+            "select plan_codigo, subscription_status, trial_ends_at, "
+            "subscription_ends_at from tenants where id = $1",
             tid,
         )
         if not antes:
@@ -1154,6 +1275,19 @@ async def update_tenant_suscripcion(
             "por": user.get("email"),
             "en": datetime.now(timezone.utc).isoformat(),
         }
+        # `vence` alimenta DOS columnas y no una:
+        #
+        #   trial_ends_at         solo cuando el estado es 'prueba'
+        #   subscription_ends_at  siempre que se indique, porque es la columna
+        #                         que consulta el sistema para saber hasta
+        #                         cuando esta pagado -- la misma que escribe el
+        #                         IPN de Izipay.
+        #
+        # Sin la segunda, un hotel al que el dueno le activa el plan a mano
+        # (efectivo, Yape, transferencia) quedaba 'activa' con
+        # subscription_ends_at en NULL, es decir: indistinguible de uno que
+        # nunca pago. La nota en settings.suscripcion_manual se conserva igual,
+        # pero es una nota, no un dato comparable.
         await conn.execute(
             """update tenants
                   set plan_codigo = $2,
@@ -1161,6 +1295,9 @@ async def update_tenant_suscripcion(
                       trial_ends_at = case when $3 = 'prueba' and $4::date is not null
                                            then ($4::date + interval '23 hours 59 minutes')
                                            else trial_ends_at end,
+                      subscription_ends_at = case when $4::date is not null
+                                                  then ($4::date + interval '23 hours 59 minutes')
+                                                  else subscription_ends_at end,
                       settings = coalesce(settings, '{}'::jsonb)
                                  || jsonb_build_object('suscripcion_manual', $5::jsonb)
                 where id = $1""",
@@ -1171,11 +1308,39 @@ async def update_tenant_suscripcion(
         # transaccion revertia). El plan a mano nunca llegaba a guardarse.
         await create_audit_log(
             conn, tid, user["user_id"], "tenant_suscripcion", "update",
-            before={"plan_codigo": antes["plan_codigo"], "subscription_status": antes["subscription_status"]},
+            before={"plan_codigo": antes["plan_codigo"],
+                    "subscription_status": antes["subscription_status"],
+                    "subscription_ends_at": antes["subscription_ends_at"]},
             after={"plan_codigo": data.plan_codigo, "subscription_status": data.subscription_status,
                    "vence": manual["vence"], "nota": manual["nota"]},
         )
     return {"message": "Suscripcion actualizada", "suscripcion_manual": manual}
+
+
+@api_router.get("/tenants/{tenant_id}/pagos")
+async def listar_pagos_tenant(
+    tenant_id: str, user: dict = Depends(require_roles(Role.SUPER_ADMIN)),
+):
+    """Historial de pagos de un hotel, para el detalle de la consola.
+
+    Solo SUPER_ADMIN: son los cobros que el dueno del producto le hizo a ese
+    hotel, no datos del hotel. Se limita a 50 -- una suscripcion mensual tarda
+    cuatro anos en llegar ahi -- porque esto se pinta dentro de un dialogo y
+    nadie va a leer mas.
+    """
+    tid = id_valido(tenant_id, "tenant_id")
+    async with db_pg.tx(user) as conn:
+        return await db_pg.varias(
+            conn,
+            """select id, plan_codigo, periodo, monto, moneda, estado, metodo,
+                      izipay_order_number, izipay_transaction_id,
+                      created_at, confirmado_en
+                 from pagos_suscripcion
+                where tenant_id = $1
+                order by created_at desc
+                limit 50""",
+            tid,
+        )
 
 
 @api_router.put("/tenants/{tenant_id}/invoicing")

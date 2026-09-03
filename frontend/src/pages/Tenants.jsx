@@ -70,7 +70,7 @@ import { EstadoVacio } from '../components/EstadoVacio';
 import { EsqueletoFilas } from '../components/Esqueleto';
 import { GestionUsuarios } from '../components/GestionUsuarios';
 import { tenantsAPI } from '../lib/api';
-import { formatDate, formatDateTime, cn } from '../lib/utils';
+import { formatDate, formatDateTime, formatCurrency, cn } from '../lib/utils';
 import { toast } from 'sonner';
 import { useAuth } from '../contexts/AuthContext';
 import { Navigate } from 'react-router-dom';
@@ -112,6 +112,40 @@ function Metrica({ rotulo, valor, tono }) {
   );
 }
 
+/* Estado de un cobro. Mismos tokens que el resto del panel: pagado turquesa,
+   pendiente lima, fallido fucsia, anulado neutro. */
+const ESTADOS_PAGO = {
+  pagado: ['Pagado', 'status-vacant-clean'],
+  pendiente: ['Pendiente', 'status-dirty'],
+  fallido: ['Fallido', 'status-occupied'],
+  anulado: ['Anulado', 'status-ooo'],
+};
+function InsigniaPago({ estado }) {
+  const [texto, clase] = ESTADOS_PAGO[estado] || [estado || '—', 'status-ooo'];
+  return <Badge variant="outline" className={cn('whitespace-nowrap', clase)}>{texto}</Badge>;
+}
+
+/* Hasta cuando esta pagado. Solo aparece si la fecha existe: en NULL significa
+   "nunca pago" (esta en prueba, o es de los hoteles de antes), y pintar un
+   guion ahi haria pensar que se perdio el dato. */
+function PagadoHasta({ fecha, className }) {
+  if (!fecha) return null;
+  const vencido = new Date(fecha) < new Date();
+  return (
+    <span
+      className={cn('inline-flex items-center gap-1 text-xs tabular-nums',
+        vencido ? 'text-destructive' : 'text-muted-foreground', className)}
+      title={vencido ? 'El periodo pagado ya venció' : 'Periodo pagado'}
+    >
+      <CalendarDays className="h-3.5 w-3.5" aria-hidden="true" />
+      Pagado hasta {formatDate(fecha)}
+    </span>
+  );
+}
+
+/* La parte de fecha de un timestamptz, para un <input type="date">. */
+const soloFecha = (valor) => (valor ? String(valor).slice(0, 10) : '');
+
 /* Cifra del detalle del hotel: icono chico, numero grande, rotulo debajo. */
 function Cifra({ icono: Icono, valor, rotulo }) {
   return (
@@ -151,6 +185,8 @@ export function Tenants() {
   // Dialogs
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [showDetailDialog, setShowDetailDialog] = useState(false);
+  // Los pagos del hotel abierto. null = todavia cargando o sin pedir.
+  const [pagos, setPagos] = useState(null);
   const [selectedTenant, setSelectedTenant] = useState(null);
   const [stats, setStats] = useState(null);
 
@@ -180,7 +216,12 @@ export function Tenants() {
     setPlanForm({
       plan_codigo: tenant.plan_codigo || 'prueba',
       subscription_status: tenant.subscription_status || 'prueba',
-      vence: manual.vence || (tenant.trial_ends_at ? String(tenant.trial_ends_at).slice(0, 10) : ''),
+      // subscription_ends_at primero: es la columna que escriben las DOS vias
+      // (la pasarela y este mismo formulario), asi que es la unica que refleja
+      // un pago hecho con tarjeta. La nota manual solo dice lo que se tecleo
+      // aqui la ultima vez.
+      vence: soloFecha(tenant.subscription_ends_at) || manual.vence
+        || soloFecha(tenant.trial_ends_at) || '',
       nota: manual.nota || '',
     });
     setShowPlanDialog(true);
@@ -277,6 +318,7 @@ export function Tenants() {
   const handleViewDetail = async (tenant) => {
     setSelectedTenant(tenant);
     setStats(null);
+    setPagos(null);
     setShowDetailDialog(true);
     try {
       const [detalle, cifras] = await Promise.all([tenantsAPI.get(tenant.id), tenantsAPI.stats(tenant.id)]);
@@ -284,6 +326,14 @@ export function Tenants() {
       setStats(cifras.data);
     } catch (err) {
       toast.error('Error al cargar detalle');
+    }
+    // El historial va aparte y sin toast: es informacion secundaria, y que no
+    // cargue no puede tumbar la ficha entera del hotel.
+    try {
+      const historial = await tenantsAPI.pagos(tenant.id);
+      setPagos(historial.data || []);
+    } catch (err) {
+      setPagos([]);
     }
   };
 
@@ -514,6 +564,7 @@ export function Tenants() {
                     <InsigniaEstado activo={tenant.is_active !== false} />
                     <InsigniaSuscripcion estado={tenant.subscription_status} />
                     <span className="text-xs capitalize text-muted-foreground">{tenant.plan_codigo || 'prueba'}</span>
+                    <PagadoHasta fecha={tenant.subscription_ends_at} />
                   </div>
                   <p className="mt-1.5 flex items-center gap-3 text-xs text-muted-foreground tabular-nums">
                     <span className="inline-flex items-center gap-1"><BedDouble className="h-3.5 w-3.5" aria-hidden="true" /> {tenant.habitaciones ?? 0} hab.</span>
@@ -585,6 +636,7 @@ export function Tenants() {
                     >
                       <span className="text-sm font-medium capitalize group-hover:text-accent">{tenant.plan_codigo || 'prueba'}</span>
                       <InsigniaSuscripcion estado={tenant.subscription_status} />
+                      <PagadoHasta fecha={tenant.subscription_ends_at} />
                     </button>
                   </TableCell>
                   <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
@@ -640,7 +692,10 @@ export function Tenants() {
             <div className="space-y-2">
               <Label htmlFor="plan-vence">Pagado o en prueba hasta</Label>
               <Input id="plan-vence" type="date" value={planForm.vence} onChange={(e) => setPlanForm({ ...planForm, vence: e.target.value })} />
-              <p className="text-xs text-muted-foreground">Solo informativo: el acceso lo decide el estado.</p>
+              <p className="text-xs text-muted-foreground">
+                Se guarda en la misma fecha que escribe la pasarela al confirmar un pago.
+                El acceso lo sigue decidiendo el estado.
+              </p>
             </div>
             <div className="space-y-2 sm:col-span-2">
               <Label htmlFor="plan-nota">Nota</Label>
@@ -968,9 +1023,10 @@ export function Tenants() {
                 </div>
                 <div>
                   <dt className="text-xs font-medium text-muted-foreground">Plan</dt>
-                  <dd className="mt-1 flex items-center gap-2 text-sm capitalize">
+                  <dd className="mt-1 flex flex-wrap items-center gap-2 text-sm capitalize">
                     {selectedTenant.plan_codigo || 'prueba'} <InsigniaSuscripcion estado={selectedTenant.subscription_status} />
                   </dd>
+                  <dd className="mt-1"><PagadoHasta fecha={selectedTenant.subscription_ends_at} /></dd>
                 </div>
                 <div>
                   <dt className="text-xs font-medium text-muted-foreground">Check-in / check-out</dt>
@@ -995,6 +1051,42 @@ export function Tenants() {
                   </div>
                 )}
               </dl>
+
+              {/* Historial de pagos. Es la otra mitad de "Plan y pago": el
+                  dialogo de al lado deja poner el plan a mano, y aqui se ve
+                  lo que de verdad se cobro. */}
+              <div className="border-t pt-5">
+                <h4 className="font-heading text-base font-semibold">Pagos</h4>
+                {pagos === null ? (
+                  <p className="mt-2 text-sm text-muted-foreground">Cargando…</p>
+                ) : pagos.length === 0 ? (
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    Todavía no hay cobros registrados para este hotel.
+                  </p>
+                ) : (
+                  <ul className="mt-3 divide-y divide-border rounded-lg border">
+                    {pagos.map((pago) => (
+                      <li key={pago.id} className="flex flex-wrap items-center justify-between gap-2 p-3">
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium capitalize">
+                            {pago.plan_codigo} · {pago.periodo}
+                          </p>
+                          <p className="truncate font-mono text-xs text-muted-foreground">
+                            {pago.izipay_order_number || pago.metodo || '—'}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-sm font-semibold tabular-nums">{formatCurrency(pago.monto)}</p>
+                          <p className="mt-1 flex items-center justify-end gap-2 text-xs text-muted-foreground tabular-nums">
+                            <InsigniaPago estado={pago.estado} />
+                            {formatDate(pago.confirmado_en || pago.created_at)}
+                          </p>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
 
               {/* Invoicing Config */}
               <div className="border-t pt-5">
