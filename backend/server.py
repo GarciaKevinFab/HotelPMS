@@ -7,7 +7,7 @@ MongoDB Atlas; se migro porque el cluster dejo de existir y porque los importes
 en float no sirven para un sistema que emite comprobantes y cuadra caja.
 """
 
-from fastapi import FastAPI, APIRouter, Depends, HTTPException, Header, Query, Body
+from fastapi import FastAPI, APIRouter, Depends, HTTPException, Header, Query, Body, Request
 from fastapi.responses import StreamingResponse, FileResponse, RedirectResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
@@ -4056,7 +4056,7 @@ LANDING = ROOT_DIR / "landing"
 # La landing es HTML estatico y no parte de la SPA a proposito. Es la pagina
 # que tiene que vender: carga al instante, la lee un buscador, y no obliga a
 # descargar el megabyte de JavaScript del sistema a alguien que todavia no sabe
-# si le interesa. El sistema vive en /app.
+# si le interesa. El sistema vive en la raiz: /login, /dashboard, /reservations...
 if LANDING.exists():
     app.mount("/landing-assets", StaticFiles(directory=LANDING), name="landing_assets")
 
@@ -4093,15 +4093,8 @@ def _pagina_landing(archivo: Path) -> HTMLResponse:
     return HTMLResponse(html, headers={"Cache-Control": "no-cache, must-revalidate"})
 
 if FRONTEND_BUILD.exists():
-    # Los assets con hash en el nombre (JS, CSS).
-    #
-    # Se montan DOS veces sobre el mismo directorio, y hace falta:
-    # package.json declara homepage="/app", asi que el index.html generado pide
-    # /app/static/js/main.<hash>.js. Con un unico mount en /static, esa ruta
-    # caia en el catch-all, no encontraba el archivo y devolvia el index.html
-    # -- el navegador recibia HTML donde esperaba JavaScript y la aplicacion no
-    # arrancaba nunca, sin un solo error en el log del servidor.
-    app.mount("/app/static", StaticFiles(directory=FRONTEND_BUILD / "static"), name="app_static")
+    # Los assets con hash en el nombre (JS, CSS). package.json declara
+    # homepage="/", asi que el index.html pide /static/js/main.<hash>.js.
     app.mount("/static", StaticFiles(directory=FRONTEND_BUILD / "static"), name="static")
 
 
@@ -4143,26 +4136,37 @@ def _cache_del_build(ruta: Path) -> str:
 
 
 @app.get("/{ruta:path}")
-async def servir_web(ruta: str):
+async def servir_web(ruta: str, request: Request):
     """Reparte entre la landing y la aplicacion.
 
         /            -> landing (comercial)
-        /precios     -> landing
-        /registro    -> landing
-        /app/...     -> la SPA
+        /precios     -> landing (ancla de planes)
+        /privacidad, /terminos, /reclamaciones -> landing
+        /app/...     -> 301 a la misma ruta sin /app (enlaces y marcadores viejos)
         /algo.ext    -> archivo del build si existe (favicon, logos, manifest)
+        lo demas     -> la SPA (/login, /registro, /dashboard, /reservations...)
 
     El catch-all va DESPUES de include_router, asi que /api ya esta resuelto y
     no pasa por aqui.
     """
+    # 0. La aplicacion vivio bajo /app hasta septiembre de 2026. Los
+    #    recepcionistas tienen /app/dashboard en marcadores y hay enlaces por
+    #    correo: un 301 los lleva a la ruta nueva conservando la consulta.
+    if ruta == "app" or ruta.startswith("app/"):
+        destino = "/" + ruta[4:]
+        if request.url.query:
+            destino += "?" + request.url.query
+        return RedirectResponse(destino, status_code=301)
+
     # 1. Paginas de la landing. Los precios NO son una pagina aparte: van en la
     #    misma portada, porque partir "que es esto" de "cuanto cuesta" en dos
     #    cargas pierde gente por el camino. /precios existe igual y lleva al
     #    ancla, para que el enlace se pueda compartir.
     if LANDING.exists():
+        # /registro ya NO esta aqui: el alta es una pantalla de la SPA, con la
+        # misma concha que el login, y la resuelve React.
         paginas = {
             "": "index.html",
-            "registro": "registro.html",
             "terminos": "terminos.html",
             "privacidad": "privacidad.html",
             "reclamaciones": "reclamaciones.html",
@@ -4179,20 +4183,10 @@ async def servir_web(ruta: str):
 
     # 2. Un archivo real del build (logo.png, manifest.json, favicon...).
     #
-    #    Se prueba la ruta tal cual Y sin el prefijo "app/": el package.json
-    #    declara homepage="/app", asi que CRA reescribe %PUBLIC_URL% y el HTML
-    #    pide /app/logo-zenstay.png, /app/manifest.json... pero esos archivos
-    #    viven en la RAIZ del build, no en un subdirectorio app/. Sin esta
-    #    equivalencia, el logotipo salia roto en todo el sistema y el manifest
-    #    de la PWA no cargaba -- devolvian el index.html con un 200, asi que no
-    #    aparecia como error en ningun sitio.
-    #
     #    resolve() y el chequeo de prefijo evitan que una ruta con ../ se escape
     #    del directorio del build y sirva archivos del contenedor.
-    for candidata in (ruta, ruta[4:] if ruta.startswith("app/") else None):
-        if not candidata:
-            continue
-        candidato = FRONTEND_BUILD / candidata
+    if ruta:
+        candidato = FRONTEND_BUILD / ruta
         if candidato.is_file() and str(candidato.resolve()).startswith(str(FRONTEND_BUILD.resolve())):
             return FileResponse(
                 candidato, headers={"Cache-Control": _cache_del_build(candidato)}
@@ -4211,7 +4205,7 @@ async def servir_web(ruta: str):
 
     # 4. Cualquier otra cosa es una ruta de la SPA. Se devuelve el index.html y
     #    React resuelve el enrutado: es lo que hace falta para que recargar
-    #    /app/reservations o entrar por un enlace directo no de 404.
+    #    /reservations o entrar por un enlace directo no de 404.
     indice = FRONTEND_BUILD / "index.html"
     return FileResponse(indice, headers={"Cache-Control": _cache_del_build(indice)})
 

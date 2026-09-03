@@ -435,6 +435,159 @@
 }
 
 /* ------------------------------------------------------------------ */
+/* PANTALLAS DE ACCESO (login y registro)                              */
+/* ------------------------------------------------------------------ */
+/* Panel de marca: el verde profundo de la landing, con una trama de
+   puntos, dos resplandores y tres formas que flotan despacio. Todo
+   decorativo y todo detras del texto. */
+.acceso-panel {
+  background:
+    linear-gradient(150deg, #0c1210 0%, #10201a 52%, #143329 100%);
+}
+.acceso-trama {
+  background-image: radial-gradient(circle at 1px 1px, rgb(255 255 255 / .55) 1px, transparent 0);
+  background-size: 24px 24px;
+  opacity: .07;
+}
+.acceso-resplandor {
+  position: absolute;
+  border-radius: 999px;
+  filter: blur(70px);
+  pointer-events: none;
+}
+.acceso-resplandor-turquesa {
+  top: -12rem; right: -10rem;
+  width: 30rem; height: 30rem;
+  background: theme('colors.zen.turquesa');
+  opacity: .16;
+  animation: acceso-flotar 9s var(--ease-out) infinite alternate;
+}
+.acceso-resplandor-fucsia {
+  bottom: -14rem; left: -8rem;
+  width: 26rem; height: 26rem;
+  background: theme('colors.zen.fucsia');
+  opacity: .10;
+  animation: acceso-flotar 11s var(--ease-out) infinite alternate-reverse;
+}
+.acceso-forma {
+  position: absolute;
+  border: 1px solid rgb(255 255 255 / .10);
+  background-image: linear-gradient(135deg, rgb(255 255 255 / .06), transparent 70%);
+}
+.acceso-forma-1 {
+  top: 17%; right: 13%;
+  width: 8.5rem; height: 8.5rem;
+  border-radius: 1.75rem;
+  animation: acceso-girar 60s linear infinite;
+}
+.acceso-forma-2 {
+  top: 56%; right: 8%;
+  width: 5.5rem; height: 5.5rem;
+  border-radius: 999px;
+  background-image: linear-gradient(135deg, rgb(0 192 168 / .18), transparent 70%);
+  animation: acceso-flotar 8s ease-in-out infinite alternate;
+}
+.acceso-forma-3 {
+  bottom: 12%; right: 14%;
+  width: 3.75rem; height: 3.75rem;
+  border-radius: 1rem;
+  border-color: rgb(255 255 255 / .15);
+  animation: acceso-derivar 7s ease-in-out infinite alternate;
+}
+@keyframes acceso-flotar {
+  from { transform: translateY(0); }
+  to   { transform: translateY(-14px); }
+}
+@keyframes acceso-derivar {
+  from { transform: translateY(0) rotate(0deg); }
+  to   { transform: translateY(-10px) rotate(8deg); }
+}
+@keyframes acceso-girar {
+  to { transform: rotate(360deg); }
+}
+
+/* Columna del formulario: casi negro-verde, con un eco muy tenue del
+   resplandor turquesa (en el telefono es lo unico que queda del panel). */
+.acceso-formulario {
+  background:
+    radial-gradient(60rem 40rem at 100% -10%, rgb(0 192 168 / .07), transparent 60%),
+    #090e0c;
+}
+
+/* La tarjeta: borde de 1 px, radio 20 px, sombra tenida al verde. */
+.acceso-tarjeta {
+  border-radius: 20px;
+  border: 1px solid theme('colors.zen.borde');
+  background: theme('colors.zen.superficie');
+  padding: 1.75rem;
+  box-shadow:
+    0 40px 90px -40px rgb(0 0 0 / .85),
+    0 0 0 1px rgb(0 192 168 / .04);
+}
+@media (min-width: 640px) {
+  .acceso-tarjeta { padding: 2.25rem; }
+}
+
+/* Boton principal: fucsia, pastilla, ancho completo, tinta oscura (5.53:1). */
+.acceso-boton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: .5rem;
+  width: 100%;
+  height: 3rem;
+  border-radius: 999px;
+  background: theme('colors.zen.fucsia');
+  color: #1a0a10;
+  font-size: 1rem;
+  font-weight: 700;
+  transition:
+    transform var(--dur-1) var(--ease-out),
+    box-shadow var(--dur-2) var(--ease-out),
+    opacity var(--dur-2) var(--ease-out);
+}
+.acceso-boton:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 26px -6px rgb(252 60 120 / .6);
+}
+.acceso-boton:active {
+  transform: scale(.97);
+  box-shadow: none;
+}
+.acceso-boton:focus-visible {
+  outline: 2px solid theme('colors.zen.fucsia');
+  outline-offset: 3px;
+}
+.acceso-boton:disabled {
+  opacity: .6;
+  cursor: wait;
+  transform: none;
+  box-shadow: none;
+}
+
+/* Entrada escalonada: marca, tarjeta, enlaces. */
+.acceso-entra {
+  animation: aparecer 320ms var(--ease-out) both;
+}
+.acceso-entra-2 { animation-delay: 90ms; }
+.acceso-entra-3 { animation-delay: 180ms; }
+
+@media (prefers-reduced-motion: reduce) {
+  .acceso-resplandor,
+  .acceso-forma {
+    animation: none !important;
+  }
+  .acceso-entra {
+    animation-name: fade-in !important;
+    animation-delay: 0ms !important;
+  }
+  .acceso-boton:hover,
+  .acceso-boton:active {
+    transform: none;
+  }
+}
+
+/* ------------------------------------------------------------------ */
 /* TELEFONO                                                            */
 /* ------------------------------------------------------------------ */
 @media (max-width: 767.98px) {
