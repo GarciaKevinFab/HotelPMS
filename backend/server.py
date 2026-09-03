@@ -352,7 +352,7 @@ def hash_password(password: str) -> str:
 def verify_password(password: str, hashed: str) -> bool:
     return bcrypt.checkpw(password.encode(), hashed.encode())
 
-def create_token(user_id: str, email: str, role: str, tenant_id: str = None) -> str:
+def create_token(user_id: str, email: str, role: str, tenant_id: str = None, extra: dict = None) -> str:
     payload = {
         "user_id": user_id,
         "email": email,
@@ -360,7 +360,24 @@ def create_token(user_id: str, email: str, role: str, tenant_id: str = None) -> 
         "tenant_id": tenant_id,
         "exp": datetime.now(timezone.utc) + timedelta(hours=JWT_EXPIRATION_HOURS)
     }
+    # `extra` lleva las marcas de "SUPER_ADMIN dentro de un hotel" (ver
+    # POST /tenants/{id}/entrar): en_otro_hotel y hotel_nombre. Van en el
+    # token y no en la base porque describen ESTA sesion, no al usuario.
+    if extra:
+        payload.update(extra)
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+
+def es_superadmin(user: dict) -> bool:
+    """SUPER_ADMIN de verdad, este o no dentro de un hotel.
+
+    Cuando entra a un hotel (POST /tenants/{id}/entrar) su token lleva rol
+    ADMIN para que RLS y los permisos lo traten como uno mas del hotel; pero
+    las cosas que un SUPER_ADMIN nunca sufre -la suscripcion suspendida, el
+    cupo de habitaciones- tampoco tienen que frenarlo ahi dentro: entro
+    justamente a arreglarlas.
+    """
+    return user.get("role") == Role.SUPER_ADMIN.value or bool(user.get("en_otro_hotel"))
 
 async def get_current_user(authorization: str = Header(None)) -> dict:
     if not authorization or not authorization.startswith("Bearer "):
@@ -425,7 +442,7 @@ async def exigir_suscripcion(user: dict = Depends(get_current_user)):
     El SUPER_ADMIN nunca se bloquea: es quien tiene que poder entrar a
     arreglarlo.
     """
-    if user.get("role") == Role.SUPER_ADMIN.value:
+    if es_superadmin(user):
         return user
 
     async with db_pg.tx(user) as conn:
@@ -451,7 +468,7 @@ async def exigir_cupo_habitaciones(conn, user: dict, cuantas: int = 1):
     baja y volver a crear seria una forma tonta de saltarse el plan... al reves,
     seria injusto cobrar por habitaciones que el hotel ya no usa.
     """
-    if user.get("role") == Role.SUPER_ADMIN.value:
+    if es_superadmin(user):
         return
 
     limite = await db_pg.uno(
@@ -601,6 +618,22 @@ async def login(credentials: UserLogin):
     if not verify_password(credentials.password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Credenciales inválidas")
 
+    # Un hotel desactivado por el SUPER_ADMIN no entra, con ninguna cuenta.
+    # Se comprueba DESPUES de la contrasena para no revelar el estado del
+    # hotel a quien no la sabe. El SUPER_ADMIN no tiene hotel y nunca se
+    # bloquea: es quien tiene que poder entrar a reactivarlo.
+    if user.get("tenant_id") and user["role"] != Role.SUPER_ADMIN.value:
+        async with db_pg.tx(user) as conn:
+            hotel_activo = await db_pg.valor(
+                conn, "select is_active from tenants where id = $1",
+                db_pg.a_uuid(user["tenant_id"], "tenant_id"),
+            )
+        if hotel_activo is False:
+            raise HTTPException(
+                status_code=403,
+                detail="Este hotel está desactivado. Escribe a soporte@sisac.pe",
+            )
+
     token = create_token(user["id"], user["email"], user["role"], user.get("tenant_id"))
 
     return TokenResponse(
@@ -616,7 +649,16 @@ async def login(credentials: UserLogin):
 
 @api_router.get("/auth/me")
 async def get_me(user: dict = Depends(get_current_user)):
-    async with db_pg.tx(user) as conn:
+    en_otro_hotel = bool(user.get("en_otro_hotel"))
+    # Dentro de un hotel el token lleva el tenant del hotel, pero la fila del
+    # SUPER_ADMIN tiene tenant_id NULL: bajo el aislamiento del hotel no se ve.
+    # Se lee con la puerta global, acotada a UN id que ya viene firmado en el
+    # token.
+    contexto = (
+        db_pg.tx_global("superadmin dentro de un hotel: su propia fila no tiene tenant")
+        if en_otro_hotel else db_pg.tx(user)
+    )
+    async with contexto as conn:
         db_user = await db_pg.uno(
             conn,
             """select id, tenant_id, email, full_name, role, is_active, created_at
@@ -635,7 +677,91 @@ async def get_me(user: dict = Depends(get_current_user)):
                 id_valido(user["tenant_id"], "tenant_id"),
             )
 
+    if en_otro_hotel:
+        # La UI se comporta como la de un ADMIN del hotel, y ademas sabe que
+        # en realidad es el SUPER_ADMIN de visita (para la franja de aviso).
+        db_user["rol_real"] = db_user["role"]
+        db_user["role"] = Role.ADMIN.value
+        db_user["tenant_id"] = user.get("tenant_id")
+        db_user["en_otro_hotel"] = True
+        db_user["hotel_nombre"] = user.get("hotel_nombre")
+
     return db_user
+
+
+class CambioPassword(BaseModel):
+    actual: str
+    nueva: str = Field(min_length=8, max_length=128)
+
+
+@api_router.put("/auth/password")
+async def cambiar_mi_password(data: CambioPassword, user: dict = Depends(get_current_user)):
+    """Cualquier usuario cambia SU contrasena sabiendo la actual.
+
+    Hasta ahora solo existia el restablecimiento por un ADMIN, y el
+    SUPER_ADMIN -que no tiene ningun ADMIN por encima- no tenia forma de
+    cambiar la suya sin tocar la base.
+    """
+    if user.get("en_otro_hotel"):
+        raise HTTPException(status_code=400, detail="Sal del hotel antes de cambiar tu contraseña")
+
+    uid = id_valido(user["user_id"], "user_id")
+    # Puerta global a proposito: el usuario se identifica por el id firmado en
+    # su token, y el SUPER_ADMIN no tiene tenant con el que abrir tx().
+    async with db_pg.tx_global("cambiar la propia contrasena: fila unica por id del token") as conn:
+        fila = await db_pg.uno(conn, "select id, tenant_id, password_hash from users where id = $1", uid)
+        if not fila:
+            raise HTTPException(status_code=404, detail="Usuario no encontrado")
+        if not verify_password(data.actual, fila["password_hash"]):
+            raise HTTPException(status_code=400, detail="La contraseña actual no es correcta")
+        await conn.execute("update users set password_hash = $2 where id = $1", uid, hash_password(data.nueva))
+        if fila.get("tenant_id"):
+            await create_audit_log(conn, fila["tenant_id"], uid, "user", "PASSWORD_CHANGED_SELF",
+                                   None, {"user_id": str(uid)})
+    return {"message": "Contraseña actualizada"}
+
+
+class PerfilPropio(BaseModel):
+    full_name: str = Field(min_length=2, max_length=120)
+
+
+@api_router.put("/auth/perfil")
+async def actualizar_mi_perfil(data: PerfilPropio, user: dict = Depends(get_current_user)):
+    """El nombre con el que uno aparece en la app. Solo eso: el correo es la
+    identidad de acceso y lo cambia un ADMIN; el rol, ni hablar."""
+    if user.get("en_otro_hotel"):
+        raise HTTPException(status_code=400, detail="Sal del hotel antes de editar tu cuenta")
+    uid = id_valido(user["user_id"], "user_id")
+    async with db_pg.tx_global("editar el propio nombre: fila unica por id del token") as conn:
+        actualizado = await conn.fetchval(
+            "update users set full_name = $2 where id = $1 returning id", uid, data.full_name.strip()
+        )
+        if not actualizado:
+            raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    return {"message": "Nombre actualizado", "full_name": data.full_name.strip()}
+
+
+@api_router.post("/auth/salir-de-hotel")
+async def salir_de_hotel(user: dict = Depends(get_current_user)):
+    """Devuelve al SUPER_ADMIN su token global despues de visitar un hotel.
+
+    Es un endpoint propio, y no "entra a tu propio hotel", porque el camino
+    de vuelta tiene que funcionar aunque el hotel visitado se haya borrado o
+    desactivado mientras tanto.
+    """
+    if not user.get("en_otro_hotel"):
+        raise HTTPException(status_code=400, detail="No estás dentro de ningún hotel")
+
+    uid = id_valido(user["user_id"], "user_id")
+    async with db_pg.tx_global("salir de un hotel: comprobar que el id del token sigue siendo SUPER_ADMIN") as conn:
+        fila = await db_pg.uno(
+            conn, "select id, email, role, is_active from users where id = $1", uid
+        )
+    if not fila or fila["role"] != Role.SUPER_ADMIN.value or not fila.get("is_active", True):
+        raise HTTPException(status_code=403, detail="Esta sesión ya no pertenece a un Super Admin")
+
+    token = create_token(fila["id"], fila["email"], Role.SUPER_ADMIN.value, None)
+    return {"access_token": token, "token_type": "bearer", "message": "De vuelta en la consola"}
 
 # ============== PLANES Y ALTA PUBLICA ==============
 class RegistroHotel(BaseModel):
@@ -767,7 +893,16 @@ async def create_tenant(data: TenantCreate, user: dict = Depends(require_roles(R
 @api_router.get("/tenants")
 async def list_tenants(user: dict = Depends(require_roles(Role.SUPER_ADMIN))):
     async with db_pg.tx(user) as conn:
-        return await db_pg.varias(conn, "select * from tenants order by name")
+        # Dos conteos por hotel para la tabla de la consola. Son subconsultas
+        # correlacionadas sobre indices por tenant_id: con decenas de hoteles
+        # cuesta lo mismo que el select a secas.
+        return await db_pg.varias(
+            conn,
+            """select t.*,
+                      (select count(*) from rooms r where r.tenant_id = t.id and r.is_active) as habitaciones,
+                      (select count(*) from users u where u.tenant_id = t.id) as usuarios
+               from tenants t order by t.name""",
+        )
 
 @api_router.get("/tenants/{tenant_id}")
 async def get_tenant(tenant_id: str, user: dict = Depends(get_current_user)):
@@ -780,6 +915,200 @@ async def get_tenant(tenant_id: str, user: dict = Depends(get_current_user)):
     if not tenant:
         raise HTTPException(status_code=404, detail="Hotel no encontrado")
     return tenant
+
+
+class TenantUpdate(BaseModel):
+    """Datos editables de un hotel. Todo opcional: lo que no viene no cambia.
+
+    El plan, el estado de suscripcion y is_active NO estan aqui a proposito:
+    tienen sus propios endpoints, solo para SUPER_ADMIN, con su propia
+    auditoria. Asi un ADMIN puede editar la ficha de su hotel con este mismo
+    modelo sin que exista la tentacion de colar un campo de mas.
+    """
+    name: Optional[str] = Field(default=None, min_length=2, max_length=120)
+    razon_social: Optional[str] = Field(default=None, max_length=160)
+    nombre_comercial: Optional[str] = Field(default=None, max_length=120)
+    ruc: Optional[str] = Field(default=None, min_length=11, max_length=11)
+    address: Optional[str] = Field(default=None, max_length=200)
+    phone: Optional[str] = Field(default=None, max_length=40)
+    email: Optional[EmailStr] = None
+    checkin_time: Optional[str] = Field(default=None, pattern=r"^\d{2}:\d{2}$")
+    checkout_time: Optional[str] = Field(default=None, pattern=r"^\d{2}:\d{2}$")
+
+
+@api_router.put("/tenants/{tenant_id}")
+async def update_tenant(
+    tenant_id: str, data: TenantUpdate,
+    user: dict = Depends(require_roles(Role.SUPER_ADMIN, Role.ADMIN)),
+):
+    if user["role"] != Role.SUPER_ADMIN.value and user.get("tenant_id") != tenant_id:
+        raise HTTPException(status_code=403, detail="Acceso denegado")
+    if data.ruc is not None and not data.ruc.isdigit():
+        raise HTTPException(status_code=400, detail="El RUC debe ser numérico, de 11 dígitos")
+
+    cambios = {k: v for k, v in data.model_dump().items() if v is not None}
+    if not cambios:
+        raise HTTPException(status_code=400, detail="No hay campos válidos para actualizar")
+
+    tid = id_valido(tenant_id, "tenant_id")
+    # tx(user): para el ADMIN la politica RLS de `tenants` solo deja pasar su
+    # propia fila, asi que aunque el 403 de arriba fallara, el UPDATE no
+    # tocaria otro hotel. Para el SUPER_ADMIN pasa todo.
+    async with db_pg.tx(user) as conn:
+        antes = await db_pg.uno(
+            conn,
+            """select name, razon_social, nombre_comercial, ruc, address, phone, email,
+                      checkin_time, checkout_time from tenants where id = $1""",
+            tid,
+        )
+        if not antes:
+            raise HTTPException(status_code=404, detail="Hotel no encontrado")
+
+        # Las columnas salen de las claves del modelo (lista blanca), los
+        # valores viajan como parametros.
+        asignaciones = [f"{col} = ${i}" for i, col in enumerate(cambios, start=2)]
+        try:
+            await conn.execute(
+                f"update tenants set {', '.join(asignaciones)} where id = $1",
+                tid, *cambios.values(),
+            )
+        except db_pg.UniqueViolationError:
+            raise HTTPException(status_code=400, detail="Ya existe otro hotel con ese RUC")
+
+        await create_audit_log(
+            conn, tid, user["user_id"], "tenant", "UPDATE",
+            before={k: antes.get(k) for k in cambios}, after=cambios,
+        )
+    return {"message": "Hotel actualizado"}
+
+
+class TenantActivo(BaseModel):
+    is_active: bool
+
+
+@api_router.put("/tenants/{tenant_id}/activo")
+async def set_tenant_activo(
+    tenant_id: str, data: TenantActivo,
+    user: dict = Depends(require_roles(Role.SUPER_ADMIN)),
+):
+    """Apaga o enciende un hotel entero. Desactivado, nadie de ese hotel puede
+    iniciar sesion (ver POST /auth/login); sus datos se quedan intactos."""
+    tid = id_valido(tenant_id, "tenant_id")
+    async with db_pg.tx(user) as conn:
+        antes = await db_pg.valor(conn, "select is_active from tenants where id = $1", tid)
+        if antes is None:
+            raise HTTPException(status_code=404, detail="Hotel no encontrado")
+        await conn.execute("update tenants set is_active = $2 where id = $1", tid, data.is_active)
+        await create_audit_log(conn, tid, user["user_id"], "tenant",
+                               "ACTIVATE" if data.is_active else "DEACTIVATE",
+                               {"is_active": antes}, {"is_active": data.is_active})
+    return {"message": "Hotel activado" if data.is_active else "Hotel desactivado", "is_active": data.is_active}
+
+
+@api_router.delete("/tenants/{tenant_id}")
+async def delete_tenant(tenant_id: str, user: dict = Depends(require_roles(Role.SUPER_ADMIN))):
+    """Elimina un hotel con TODOS sus datos. No hay vuelta atras.
+
+    Mismo enfoque que CargoXprez: en vez de mantener a mano una lista ordenada
+    de tablas -que se desincroniza en cuanto alguien agrega una-, se recorren
+    todas las que tienen tenant_id y se reintentan las que fallan por clave
+    foranea. En cada vuelta caen las hojas y en la siguiente sus padres. Si una
+    vuelta entera no avanza, hay un ciclo y se aborta sin dejar el hotel a
+    medias (todo va en una transaccion).
+
+    La auditoria se escribe ANTES de borrar y en la propia bitacora del hotel
+    -audit_logs.tenant_id es NOT NULL con cascade-, asi que desaparece con el.
+    Queda ademas en el log del servidor, que es lo que sobrevive.
+    """
+    tid = id_valido(tenant_id, "tenant_id")
+    async with db_pg.tx_global("eliminar un hotel: hay que barrer todas sus tablas") as conn:
+        hotel = await db_pg.uno(conn, "select id, name, ruc from tenants where id = $1", tid)
+        if not hotel:
+            raise HTTPException(status_code=404, detail="Hotel no encontrado")
+
+        await create_audit_log(conn, tid, user["user_id"], "tenant", "DELETE",
+                               {"name": hotel["name"], "ruc": hotel["ruc"]}, None)
+        logger.warning("SUPER_ADMIN %s elimina el hotel %s (%s, RUC %s) con todos sus datos",
+                       user.get("email"), tid, hotel["name"], hotel["ruc"])
+
+        pendientes = [r["t"] for r in await conn.fetch(
+            "select table_name as t from information_schema.columns "
+            "where table_schema = 'public' and column_name = 'tenant_id'"
+        )]
+        while pendientes:
+            quedan = []
+            for tabla in pendientes:
+                try:
+                    async with conn.transaction():  # savepoint: el fallo no aborta todo
+                        await conn.execute(f'delete from "{tabla}" where tenant_id = $1', tid)
+                except db_pg.ForeignKeyViolationError:
+                    quedan.append(tabla)
+            if len(quedan) == len(pendientes):
+                raise HTTPException(
+                    status_code=500,
+                    detail="No se pudo eliminar el hotel: dependencias sin resolver en " + ", ".join(quedan),
+                )
+            pendientes = quedan
+
+        await conn.execute("delete from tenants where id = $1", tid)
+
+    return {"message": "Hotel y todos sus datos eliminados"}
+
+
+@api_router.get("/tenants/{tenant_id}/stats")
+async def get_tenant_stats(tenant_id: str, user: dict = Depends(require_roles(Role.SUPER_ADMIN, Role.ADMIN))):
+    if user["role"] != Role.SUPER_ADMIN.value and user.get("tenant_id") != tenant_id:
+        raise HTTPException(status_code=403, detail="Acceso denegado")
+    tid = id_valido(tenant_id, "tenant_id")
+    async with db_pg.tx(user) as conn:
+        if not await db_pg.valor(conn, "select 1 from tenants where id = $1", tid):
+            raise HTTPException(status_code=404, detail="Hotel no encontrado")
+        fila = await db_pg.uno(
+            conn,
+            """select
+                 (select count(*) from rooms where tenant_id = $1 and is_active) as habitaciones,
+                 (select count(*) from reservations where tenant_id = $1
+                     and created_at >= date_trunc('month', now())) as reservas_mes,
+                 (select count(*) from reservations where tenant_id = $1
+                     and status = 'CHECKED_IN') as estancias_activas,
+                 (select count(*) from guests where tenant_id = $1) as huespedes,
+                 (select count(*) from users where tenant_id = $1) as usuarios,
+                 (select count(*) from users where tenant_id = $1 and is_active) as usuarios_activos,
+                 greatest(
+                   (select max(created_at) from audit_logs where tenant_id = $1),
+                   (select max(created_at) from reservations where tenant_id = $1)
+                 ) as ultima_actividad""",
+            tid,
+        )
+    return fila
+
+
+@api_router.post("/tenants/{tenant_id}/entrar")
+async def entrar_en_hotel(tenant_id: str, user: dict = Depends(require_roles(Role.SUPER_ADMIN))):
+    """El SUPER_ADMIN entra a un hotel para dar soporte.
+
+    Devuelve un token con el tenant del hotel y rol ADMIN efectivo: dentro se
+    comporta como un administrador mas, RLS incluido, y todo lo que haga queda
+    en los datos y la bitacora de ESE hotel. La marca en_otro_hotel es lo que
+    permite volver con POST /auth/salir-de-hotel.
+    """
+    tid = id_valido(tenant_id, "tenant_id")
+    async with db_pg.tx(user) as conn:
+        hotel = await db_pg.uno(conn, "select id, name, nombre_comercial, is_active from tenants where id = $1", tid)
+        if not hotel:
+            raise HTTPException(status_code=404, detail="Hotel no encontrado")
+        # Que un SUPER_ADMIN entre en los datos de un cliente deja rastro, y
+        # el rastro va en la bitacora del hotel visitado.
+        await create_audit_log(conn, tid, user["user_id"], "tenant", "SUPERADMIN_ENTER",
+                               None, {"superadmin": user.get("email")})
+
+    nombre = hotel.get("nombre_comercial") or hotel["name"]
+    token = create_token(
+        user["user_id"], user["email"], Role.ADMIN.value, str(hotel["id"]),
+        extra={"en_otro_hotel": True, "hotel_nombre": nombre},
+    )
+    return {"access_token": token, "token_type": "bearer", "hotel_nombre": nombre,
+            "tenant_id": str(hotel["id"]), "message": f"Dentro de {nombre}"}
 
 class TenantSuscripcion(BaseModel):
     """Plan y estado puestos A MANO por el SUPER_ADMIN.
@@ -835,8 +1164,11 @@ async def update_tenant_suscripcion(
                 where id = $1""",
             tid, data.plan_codigo, data.subscription_status, data.vence, json.dumps(manual),
         )
+        # El token trae user_id, no id: con ["id"] esto levantaba KeyError y
+        # el endpoint respondia 500 despues de haber hecho el UPDATE (que la
+        # transaccion revertia). El plan a mano nunca llegaba a guardarse.
         await create_audit_log(
-            conn, tid, user["id"], "tenant_suscripcion", "update",
+            conn, tid, user["user_id"], "tenant_suscripcion", "update",
             before={"plan_codigo": antes["plan_codigo"], "subscription_status": antes["subscription_status"]},
             after={"plan_codigo": data.plan_codigo, "subscription_status": data.subscription_status,
                    "vence": manual["vence"], "nota": manual["nota"]},
@@ -887,23 +1219,61 @@ async def create_user(data: UserCreate, user: dict = Depends(require_roles(Role.
         data.tenant_id = user["tenant_id"]
         if data.role == Role.SUPER_ADMIN:
             raise HTTPException(status_code=403, detail="No puede crear Super Admins")
-    
+    if len(data.password) < 8:
+        raise HTTPException(status_code=400, detail="La contraseña necesita al menos 8 caracteres")
+
+    # La coherencia rol/hotel la exige tambien la tabla (users_tenant_coherente),
+    # pero un 400 con explicacion vale mas que un 500 de constraint.
+    if data.role == Role.SUPER_ADMIN:
+        data.tenant_id = None
+    elif not data.tenant_id:
+        raise HTTPException(status_code=400, detail="Indica el hotel al que pertenece el usuario")
+
     async with db_pg.tx_global("alta de usuario: el email es unico entre todos los hoteles") as conn:
         if await conn.fetchval("select 1 from users where email = $1", data.email):
             raise HTTPException(status_code=400, detail="Email ya registrado")
+        tid = db_pg.a_uuid(data.tenant_id, "tenant_id") if data.tenant_id else None
+        if tid and not await conn.fetchval("select 1 from tenants where id = $1", tid):
+            raise HTTPException(status_code=404, detail="Hotel no encontrado")
 
         nuevo_id = await conn.fetchval(
             """insert into users (tenant_id, email, password_hash, full_name, role)
                values ($1, $2, $3, $4, $5::user_role)
                returning id""",
-            db_pg.a_uuid(data.tenant_id, "tenant_id"), data.email,
+            tid, data.email,
             hash_password(data.password), data.full_name, data.role.value,
         )
+        if tid:
+            await create_audit_log(conn, tid, user["user_id"], "user", "CREATE", None,
+                                   {"user_id": str(nuevo_id), "email": data.email, "role": data.role.value})
     return {"id": str(nuevo_id), "message": "Usuario creado exitosamente"}
 
+
+async def _es_ultimo_admin(conn, objetivo: dict) -> bool:
+    """True si `objetivo` es el unico ADMIN activo de su hotel.
+
+    Borrarlo o desactivarlo dejaria al hotel sin nadie que pueda crear
+    usuarios, y la unica salida seria que el SUPER_ADMIN entrara a mano.
+    """
+    if objetivo.get("role") != Role.ADMIN.value or not objetivo.get("tenant_id"):
+        return False
+    otros = await conn.fetchval(
+        "select count(*) from users where tenant_id = $1 and role = 'ADMIN' and is_active and id <> $2",
+        db_pg.a_uuid(objetivo["tenant_id"], "tenant_id"), db_pg.a_uuid(objetivo["id"], "id"),
+    )
+    return otros == 0
+
+
 @api_router.get("/users")
-async def list_users(user: dict = Depends(require_roles(Role.SUPER_ADMIN, Role.ADMIN))):
+async def list_users(
+    tenant_id: Optional[str] = None,
+    user: dict = Depends(require_roles(Role.SUPER_ADMIN, Role.ADMIN)),
+):
     tid = tenant_de(user)
+    # El SUPER_ADMIN puede pedir los usuarios de UN hotel (consola de Hoteles).
+    # Para un ADMIN el parametro se ignora: su hotel es el del token, siempre.
+    if tid is None and tenant_id:
+        tid = id_valido(tenant_id, "tenant_id")
     async with db_pg.tx(user) as conn:
         # Nunca se selecciona password_hash: era la proyeccion {"password_hash": 0}
         # de Mongo, y aca se consigue simplemente no nombrando la columna.
@@ -944,16 +1314,38 @@ async def update_user(user_id: str, data: dict = Body(...), user: dict = Depends
     if not cambios:
         raise HTTPException(status_code=400, detail="No hay campos válidos para actualizar")
 
-    if "role" in cambios and cambios["role"] == Role.SUPER_ADMIN.value and user["role"] != Role.SUPER_ADMIN.value:
-        raise HTTPException(status_code=403, detail="No autorizado para asignar rol Super Admin")
+    if "role" in cambios and cambios["role"] not in [r.value for r in Role]:
+        raise HTTPException(status_code=400, detail="Rol no válido")
+    if "role" in cambios and cambios["role"] == Role.SUPER_ADMIN.value:
+        # Un SUPER_ADMIN no tiene hotel (users_tenant_coherente); convertir a
+        # alguien de un hotel en SUPER_ADMIN por aqui rompe la tabla. Se crea
+        # aparte, con POST /users y tenant_id nulo.
+        raise HTTPException(status_code=400, detail="El rol Super Admin no se asigna desde aquí")
+
+    es_uno_mismo = str(user_id) == str(user["user_id"])
+    if es_uno_mismo and (cambios.get("is_active") is False or "role" in cambios):
+        raise HTTPException(status_code=400, detail="No puedes desactivarte ni cambiar tu propio rol")
 
     async with db_pg.tx_global("editar usuario: el email es unico entre todos los hoteles") as conn:
-        objetivo = await db_pg.uno(conn, "select id, tenant_id, role from users where id = $1", uid)
+        objetivo = await db_pg.uno(conn, "select id, tenant_id, role, is_active from users where id = $1", uid)
         if not objetivo:
             raise HTTPException(status_code=404, detail="Usuario no encontrado")
 
         if user["role"] != Role.SUPER_ADMIN.value and str(objetivo.get("tenant_id")) != str(user.get("tenant_id")):
             raise HTTPException(status_code=403, detail="Sin permisos para modificar este usuario")
+        if objetivo.get("role") == Role.SUPER_ADMIN.value and user["role"] != Role.SUPER_ADMIN.value:
+            raise HTTPException(status_code=403, detail="No autorizado para modificar a un Super Admin")
+
+        # Que el hotel no se quede sin administrador: ni desactivando al
+        # ultimo ni bajandolo de rol.
+        pierde_admin = cambios.get("is_active") is False or (
+            "role" in cambios and cambios["role"] != Role.ADMIN.value
+        )
+        if pierde_admin and objetivo.get("is_active") and await _es_ultimo_admin(conn, objetivo):
+            raise HTTPException(
+                status_code=400,
+                detail="Es el único administrador activo del hotel. Nombra otro antes.",
+            )
 
         if "email" in cambios and await conn.fetchval(
             "select 1 from users where email = $1 and id <> $2", cambios["email"], uid
@@ -979,16 +1371,21 @@ async def update_user(user_id: str, data: dict = Body(...), user: dict = Depends
 async def reset_user_password(user_id: str, body: dict = Body(...), current_user: dict = Depends(get_current_user)):
     """Reset a user's password (admin only)"""
     new_password = body.get('password')
-    if not new_password or len(new_password) < 6:
-        raise HTTPException(status_code=400, detail="La contraseña debe tener al menos 6 caracteres")
+    if not new_password or len(new_password) < 8:
+        raise HTTPException(status_code=400, detail="La contraseña debe tener al menos 8 caracteres")
 
     uid = id_valido(user_id, "user_id")
     async with db_pg.tx(current_user) as conn:
-        objetivo = await db_pg.uno(conn, "select id, tenant_id from users where id = $1", uid)
+        objetivo = await db_pg.uno(conn, "select id, tenant_id, role from users where id = $1", uid)
         if not objetivo:
             raise HTTPException(status_code=404, detail="Usuario no encontrado")
 
         if current_user['role'] != Role.SUPER_ADMIN.value and str(objetivo.get('tenant_id')) != str(current_user.get('tenant_id')):
+            raise HTTPException(status_code=403, detail="No autorizado")
+        # Un ADMIN no le reescribe la clave a un SUPER_ADMIN (seria quedarse
+        # con la cuenta de la plataforma). Con RLS la fila ni se ve, pero que
+        # lo diga el codigo.
+        if objetivo.get('role') == Role.SUPER_ADMIN.value and current_user['role'] != Role.SUPER_ADMIN.value:
             raise HTTPException(status_code=403, detail="No autorizado")
 
         await conn.execute("update users set password_hash = $2 where id = $1",
@@ -1016,6 +1413,12 @@ async def delete_user(user_id: str, current_user: dict = Depends(get_current_use
 
         if objetivo.get('role') == Role.SUPER_ADMIN.value and current_user['role'] != Role.SUPER_ADMIN.value:
             raise HTTPException(status_code=403, detail="No autorizado para eliminar Super Administradores")
+
+        if await _es_ultimo_admin(conn, objetivo):
+            raise HTTPException(
+                status_code=400,
+                detail="Es el único administrador activo del hotel. Nombra otro antes de eliminarlo.",
+            )
 
         # La auditoria se escribe ANTES del borrado: las tablas que referencian
         # al usuario (created_by, opened_by...) tienen FK contra users, asi que
