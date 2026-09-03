@@ -308,6 +308,14 @@ p  { margin: 0 0 1rem; }
 .plan li { padding: 7px 0 7px 22px; position: relative; font-size: .92rem; color: var(--texto-suave); }
 .plan li::before { content: "·"; position: absolute; left: 5px; color: var(--turquesa); font-weight: 700; font-size: 1.4rem; line-height: .9; }
 .plan .boton { width: 100%; text-align: center; }
+/* La segunda accion de la tarjeta: probar en vez de contratar. Discreta a
+   proposito -- no compite con el boton -- pero con los 44 px de alto que hace
+   falta para tocarla con el pulgar. */
+.plan-segundo {
+  display: block; text-align: center; margin-top: 12px; font-size: .88rem;
+  color: var(--texto-suave); text-decoration: none; padding: 11px 4px; min-height: 44px;
+}
+.plan-segundo:hover { color: var(--turquesa); }
 
 /* --- Formulario -------------------------------------------------------- */
 .formulario { max-width: 470px; margin: 58px auto 84px; }
@@ -452,8 +460,13 @@ p  { margin: 0 0 1rem; }
   .cabecera { padding: 14px 0; gap: 10px; }
   .cabecera nav { gap: 14px; flex-shrink: 0; }
 
-  /* "Precios" fuera: el hero ya lleva su propio boton. */
-  .cabecera nav a[href="#planes"] { display: none; }
+  /* "Precios" fuera: el hero ya lleva su propio boton.
+     Va por los DOS destinos: la portada usa el ancla y las paginas de la
+     compra publica (backend/checkout.py) usan /precios, que ya es una pagina
+     de verdad. Con un solo selector, la cabecera se desbordaba en la que
+     quedara fuera. */
+  .cabecera nav a[href="#planes"],
+  .cabecera nav a[href="/precios"] { display: none; }
 
   .marca { min-width: 0; }
   .marca img { width: 32px; height: 32px; }

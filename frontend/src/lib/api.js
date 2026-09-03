@@ -82,6 +82,9 @@ export const tenantsAPI = {
   entrar: (id) => api.post(`/tenants/${id}/entrar`),
   updateInvoicing: (id, data) => api.put(`/tenants/${id}/invoicing`, data),
   updateSuscripcion: (id, data) => api.put(`/tenants/${id}/suscripcion`, data),
+  // Los cobros de ese hotel: los que entraron por la pasarela y los que el
+  // SUPER_ADMIN registro a mano. Solo se pide al abrir el detalle.
+  pagos: (id) => api.get(`/tenants/${id}/pagos`),
   planes: () => api.get('/planes'),
 };
 
