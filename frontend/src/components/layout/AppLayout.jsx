@@ -5,10 +5,24 @@ import { Header } from './Header';
 import { useAuth } from '../../contexts/AuthContext';
 import { cn } from '../../lib/utils';
 import { Toaster } from '../ui/sonner';
+import { Button } from '../ui/button';
+import { ShieldAlert, LogOut } from 'lucide-react';
+import { toast } from 'sonner';
 
 export function AppLayout() {
-  const { isAuthenticated, loading } = useAuth();
+  const { isAuthenticated, loading, enOtroHotel, hotelNombre, salirDeHotel } = useAuth();
   const location = useLocation();
+  const [saliendo, setSaliendo] = useState(false);
+
+  const alSalirDelHotel = async () => {
+    setSaliendo(true);
+    try {
+      await salirDeHotel();
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'No se pudo salir del hotel');
+      setSaliendo(false);
+    }
+  };
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     try { return localStorage.getItem('zen.menu') === 'plegado'; } catch { return false; }
   });
@@ -67,6 +81,33 @@ export function AppLayout() {
       />
 
       <div className={cn('main-content', sidebarCollapsed && 'sidebar-collapsed')}>
+        {/* SUPER_ADMIN dentro de un hotel: la franja va ENCIMA de la cabecera
+            y no se puede cerrar. Es la unica cosa ambar de toda la app, a
+            proposito: significa "no estas en tu casa, esto es de un cliente". */}
+        {enOtroHotel && (
+          <div
+            role="status"
+            className="flex flex-col gap-2 border-b border-[hsl(var(--chart-3)/.45)] bg-[hsl(var(--chart-3)/.14)] px-4 py-2.5 text-sm text-foreground sm:flex-row sm:items-center sm:gap-4 sm:px-6"
+            data-testid="franja-otro-hotel"
+          >
+            <ShieldAlert className="hidden h-5 w-5 shrink-0 text-[hsl(var(--chart-3))] sm:block" aria-hidden="true" />
+            <p className="min-w-0 flex-1 leading-snug">
+              <span className="font-semibold">Estás dentro de {hotelNombre} como superadmin.</span>{' '}
+              <span className="text-muted-foreground">Todo lo que hagas queda en los datos de este hotel.</span>
+            </p>
+            <Button
+              size="sm"
+              variant="outline"
+              className="w-full shrink-0 border-[hsl(var(--chart-3)/.5)] bg-background sm:w-auto"
+              onClick={alSalirDelHotel}
+              disabled={saliendo}
+            >
+              <LogOut className="h-4 w-4" aria-hidden="true" />
+              {saliendo ? 'Saliendo…' : 'Salir de este hotel'}
+            </Button>
+          </div>
+        )}
+
         <Header onMenuClick={() => setMobileMenuOpen(true)} />
 
         <main className="p-4 sm:p-6">

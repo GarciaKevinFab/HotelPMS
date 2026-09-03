@@ -63,6 +63,11 @@ export const authAPI = {
   me: () => api.get('/auth/me'),
   // Alta publica de un hotel y su administrador (POST /api/registro).
   registro: (data) => api.post('/registro', data),
+  // Mi cuenta: nombre y contrasena propios, para cualquier rol.
+  cambiarPassword: (actual, nueva) => api.put('/auth/password', { actual, nueva }),
+  actualizarPerfil: (data) => api.put('/auth/perfil', data),
+  // Vuelta a la consola del SUPER_ADMIN tras "Entrar como" en un hotel.
+  salirDeHotel: () => api.post('/auth/salir-de-hotel'),
 };
 
 // Tenants
@@ -70,12 +75,21 @@ export const tenantsAPI = {
   list: () => api.get('/tenants'),
   get: (id) => api.get(`/tenants/${id}`),
   create: (data) => api.post('/tenants', data),
+  update: (id, data) => api.put(`/tenants/${id}`, data),
+  setActivo: (id, is_active) => api.put(`/tenants/${id}/activo`, { is_active }),
+  delete: (id) => api.delete(`/tenants/${id}`),
+  stats: (id) => api.get(`/tenants/${id}/stats`),
+  entrar: (id) => api.post(`/tenants/${id}/entrar`),
   updateInvoicing: (id, data) => api.put(`/tenants/${id}/invoicing`, data),
+  updateSuscripcion: (id, data) => api.put(`/tenants/${id}/suscripcion`, data),
+  planes: () => api.get('/planes'),
 };
 
 // Users
 export const usersAPI = {
-  list: () => api.get('/users'),
+  // `tenant_id` solo lo usa el SUPER_ADMIN desde Hoteles; el ADMIN siempre
+  // recibe los de su hotel.
+  list: (params) => api.get('/users', { params }),
   get: (id) => api.get(`/users/${id}`),
   create: (data) => api.post('/users', data),
   update: (id, data) => api.put(`/users/${id}`, data),
