@@ -74,7 +74,7 @@ const secciones = [
     items: [
       { path: '/alerts', icon: Bell, label: 'Alertas', roles: ['SUPER_ADMIN', 'ADMIN', 'RECEPTIONIST', 'HOUSEKEEPING'] },
       { path: '/employees', icon: UserCog, label: 'Empleados', roles: ['SUPER_ADMIN', 'ADMIN'] },
-      { path: '/settings', icon: Settings, label: 'Configuración', roles: ['SUPER_ADMIN', 'ADMIN'] },
+      { path: '/settings', icon: Settings, label: 'Configuración', roles: ['SUPER_ADMIN', 'ADMIN', 'RECEPTIONIST', 'HOUSEKEEPING', 'SECURITY'] },
       { path: '/tenants', icon: Building2, label: 'Hoteles', roles: ['SUPER_ADMIN'] },
     ],
   },

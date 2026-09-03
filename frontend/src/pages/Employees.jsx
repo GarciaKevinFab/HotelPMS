@@ -217,8 +217,8 @@ export function Employees() {
       toast.error('Las contraseñas no coinciden');
       return;
     }
-    if (passwordForm.password.length < 6) {
-      toast.error('La contraseña debe tener al menos 6 caracteres');
+    if (passwordForm.password.length < 8) {
+      toast.error('La contraseña debe tener al menos 8 caracteres');
       return;
     }
 
@@ -539,7 +539,7 @@ export function Employees() {
                 type="password"
                 value={createForm.password}
                 onChange={(e) => setCreateForm((prev) => ({ ...prev, password: e.target.value }))}
-                placeholder="Mínimo 6 caracteres"
+                placeholder="Mínimo 8 caracteres"
                 className="mt-1"
               />
             </div>
@@ -640,7 +640,7 @@ export function Employees() {
                 onChange={(e) =>
                   setPasswordForm((prev) => ({ ...prev, password: e.target.value }))
                 }
-                placeholder="Mínimo 6 caracteres"
+                placeholder="Mínimo 8 caracteres"
                 className="mt-1"
               />
             </div>
