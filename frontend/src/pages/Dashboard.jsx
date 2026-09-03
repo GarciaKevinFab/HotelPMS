@@ -261,7 +261,7 @@ export function Dashboard() {
 
       {/* Franja de metricas secundarias: una sola tarjeta, celdas separadas
           por 1 px (el gap deja ver el fondo de borde). */}
-      <Card className="grid grid-cols-2 gap-px overflow-hidden bg-border shadow-sm sm:grid-cols-4 lg:grid-cols-7">
+      <Card className="grid grid-cols-2 gap-px overflow-hidden bg-border shadow-sm sm:grid-cols-4 lg:grid-cols-7 [&>*:last-child]:col-span-2 lg:[&>*:last-child]:col-span-1">
         {secundarias.map((m) => (
           <div key={m.label} className="bg-card px-4 py-3">
             <p className="truncate text-xs text-muted-foreground">{m.label}</p>
