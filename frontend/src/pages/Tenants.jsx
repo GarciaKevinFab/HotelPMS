@@ -8,13 +8,22 @@ import {
   Settings,
   CheckCircle,
   XCircle,
-  MoreHorizontal
+  MoreHorizontal,
+  CreditCard
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Badge } from '../components/ui/badge';
 import { Card } from '../components/ui/card';
+import { Textarea } from '../components/ui/textarea';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../components/ui/select';
 import {
   Table,
   TableBody,
@@ -60,6 +69,20 @@ function InsigniaEstado({ activo, className }) {
   );
 }
 
+/* Estado de la suscripcion con los mismos tokens: activa/prueba turquesa,
+   vencida (en gracia) lima, suspendida fucsia, cancelada neutro. */
+const ESTADOS_SUSC = {
+  prueba: ['Prueba', 'status-vacant-clean'],
+  activa: ['Activa', 'status-vacant-clean'],
+  vencida: ['Vencida', 'status-dirty'],
+  suspendida: ['Suspendida', 'status-occupied'],
+  cancelada: ['Cancelada', 'status-ooo'],
+};
+function InsigniaSuscripcion({ estado }) {
+  const [texto, clase] = ESTADOS_SUSC[estado] || [estado || 'Sin estado', 'status-ooo'];
+  return <Badge variant="outline" className={cn('whitespace-nowrap', clase)}>{texto}</Badge>;
+}
+
 function Metrica({ rotulo, valor, tono }) {
   return (
     <Card className="min-w-0 p-4 shadow-sm">
@@ -80,6 +103,46 @@ export function Tenants() {
   const [showDetailDialog, setShowDetailDialog] = useState(false);
   const [selectedTenant, setSelectedTenant] = useState(null);
 
+  // Plan y pago a mano: el SUPER_ADMIN pone el plan y el estado cuando el
+  // hotel paga en efectivo, por Yape o por transferencia, o cuando se le
+  // regala un periodo. Sin esto solo la pasarela podia activar un plan.
+  const [showPlanDialog, setShowPlanDialog] = useState(false);
+  const [planes, setPlanes] = useState([]);
+  const [planForm, setPlanForm] = useState({ plan_codigo: '', subscription_status: 'activa', vence: '', nota: '' });
+  const [savingPlan, setSavingPlan] = useState(false);
+
+  const abrirPlan = (tenant) => {
+    const manual = tenant.settings?.suscripcion_manual || {};
+    setSelectedTenant(tenant);
+    setPlanForm({
+      plan_codigo: tenant.plan_codigo || 'prueba',
+      subscription_status: tenant.subscription_status || 'prueba',
+      vence: manual.vence || (tenant.trial_ends_at ? String(tenant.trial_ends_at).slice(0, 10) : ''),
+      nota: manual.nota || '',
+    });
+    setShowPlanDialog(true);
+  };
+
+  const guardarPlan = async () => {
+    if (!selectedTenant) return;
+    setSavingPlan(true);
+    try {
+      await tenantsAPI.updateSuscripcion(selectedTenant.id, {
+        plan_codigo: planForm.plan_codigo,
+        subscription_status: planForm.subscription_status,
+        vence: planForm.vence || null,
+        nota: planForm.nota || null,
+      });
+      toast.success('Plan del hotel actualizado');
+      setShowPlanDialog(false);
+      fetchTenants();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'No se pudo actualizar el plan');
+    } finally {
+      setSavingPlan(false);
+    }
+  };
+
   // Form
   const [formData, setFormData] = useState({
     name: '',
@@ -97,6 +160,7 @@ export function Tenants() {
   useEffect(() => {
     if (isSuperAdmin) {
       fetchTenants();
+      tenantsAPI.planes().then((r) => setPlanes(r.data || [])).catch(() => setPlanes([]));
     }
   }, [isSuperAdmin]);
 
@@ -233,6 +297,7 @@ export function Tenants() {
               <TableHead>RUC</TableHead>
               <TableHead>Contacto</TableHead>
               <TableHead>Estado</TableHead>
+              <TableHead>Plan</TableHead>
               <TableHead>Creado</TableHead>
               <TableHead className="text-right">Acciones</TableHead>
             </TableRow>
@@ -280,6 +345,17 @@ export function Tenants() {
                   <TableCell>
                     <InsigniaEstado activo={tenant.is_active !== false} />
                   </TableCell>
+                  <TableCell>
+                    <button
+                      type="button"
+                      onClick={() => abrirPlan(tenant)}
+                      className="group flex flex-col items-start gap-1 rounded-md text-left"
+                      aria-label={`Cambiar plan de ${tenant.name}`}
+                    >
+                      <span className="text-sm font-medium capitalize group-hover:text-accent">{tenant.plan_codigo || 'prueba'}</span>
+                      <InsigniaSuscripcion estado={tenant.subscription_status} />
+                    </button>
+                  </TableCell>
                   <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
                     {formatDate(tenant.created_at)}
                   </TableCell>
@@ -299,9 +375,9 @@ export function Tenants() {
                           <Users className="w-4 h-4 mr-2" />
                           Ver Usuarios
                         </DropdownMenuItem>
-                        <DropdownMenuItem>
-                          <Settings className="w-4 h-4 mr-2" />
-                          Configuración
+                        <DropdownMenuItem onClick={() => abrirPlan(tenant)}>
+                          <CreditCard className="w-4 h-4 mr-2" />
+                          Plan y pago
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
@@ -312,6 +388,67 @@ export function Tenants() {
           </TableBody>
         </Table>
       </Card>
+
+      {/* Plan y pago (SUPER_ADMIN) */}
+      <Dialog open={showPlanDialog} onOpenChange={setShowPlanDialog}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="font-heading">Plan y pago</DialogTitle>
+            <DialogDescription>
+              {selectedTenant?.name}. Úsalo cuando el hotel paga en efectivo, por Yape o por
+              transferencia, o para regalar un periodo. Lo que pongas aquí manda sobre la pasarela.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-2 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="plan-codigo">Plan</Label>
+              <Select value={planForm.plan_codigo} onValueChange={(v) => setPlanForm({ ...planForm, plan_codigo: v })}>
+                <SelectTrigger id="plan-codigo"><SelectValue placeholder="Elige un plan" /></SelectTrigger>
+                <SelectContent>
+                  {planes.map((p) => (
+                    <SelectItem key={p.codigo} value={p.codigo}>
+                      {p.nombre} · S/ {Number(p.precio_mensual || 0).toFixed(0)}/mes
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="plan-estado">Estado</Label>
+              <Select value={planForm.subscription_status} onValueChange={(v) => setPlanForm({ ...planForm, subscription_status: v })}>
+                <SelectTrigger id="plan-estado"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="activa">Activa (pagada)</SelectItem>
+                  <SelectItem value="prueba">Prueba</SelectItem>
+                  <SelectItem value="vencida">Vencida (en gracia, sigue entrando)</SelectItem>
+                  <SelectItem value="suspendida">Suspendida (no puede operar)</SelectItem>
+                  <SelectItem value="cancelada">Cancelada</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="plan-vence">Pagado o en prueba hasta</Label>
+              <Input id="plan-vence" type="date" value={planForm.vence} onChange={(e) => setPlanForm({ ...planForm, vence: e.target.value })} />
+              <p className="text-xs text-muted-foreground">Solo informativo: el acceso lo decide el estado.</p>
+            </div>
+            <div className="space-y-2 sm:col-span-2">
+              <Label htmlFor="plan-nota">Nota</Label>
+              <Textarea id="plan-nota" rows={2} placeholder="Ej.: pagó S/ 119 en efectivo el 3/9, recibo 0012" value={planForm.nota} onChange={(e) => setPlanForm({ ...planForm, nota: e.target.value })} />
+            </div>
+          </div>
+          {selectedTenant?.settings?.suscripcion_manual?.en && (
+            <p className="text-xs text-muted-foreground">
+              Último cambio manual: {formatDate(selectedTenant.settings.suscripcion_manual.en)} por {selectedTenant.settings.suscripcion_manual.por}
+            </p>
+          )}
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setShowPlanDialog(false)}>Cancelar</Button>
+            <Button onClick={guardarPlan} disabled={savingPlan || !planForm.plan_codigo}>
+              {savingPlan ? 'Guardando…' : 'Guardar plan'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Create Dialog */}
       <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>

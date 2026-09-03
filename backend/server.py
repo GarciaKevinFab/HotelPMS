@@ -781,6 +781,69 @@ async def get_tenant(tenant_id: str, user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=404, detail="Hotel no encontrado")
     return tenant
 
+class TenantSuscripcion(BaseModel):
+    """Plan y estado puestos A MANO por el SUPER_ADMIN.
+
+    Existe porque no todo el mundo paga por la pasarela: hay hoteles que pagan
+    en efectivo, por Yape o por transferencia, y otros a los que se les regala
+    un periodo. Sin esto, el unico camino para activar un plan era la pasarela,
+    y el dueno del producto no tenia forma de honrar un pago que ya recibio.
+    """
+    plan_codigo: str
+    subscription_status: Literal["prueba", "activa", "vencida", "suspendida", "cancelada"]
+    # Hasta cuando esta pagado (o hasta cuando dura la prueba). Es informativo
+    # para el SUPER_ADMIN: hoy nadie corta el acceso solo; se corta cambiando
+    # el estado aqui mismo.
+    vence: Optional[date] = None
+    nota: Optional[str] = Field(default=None, max_length=300)
+
+
+@api_router.put("/tenants/{tenant_id}/suscripcion")
+async def update_tenant_suscripcion(
+    tenant_id: str, data: TenantSuscripcion,
+    user: dict = Depends(require_roles(Role.SUPER_ADMIN)),
+):
+    tid = id_valido(tenant_id, "tenant_id")
+    async with db_pg.tx(user) as conn:
+        if not await db_pg.uno(conn, "select 1 from planes where codigo = $1 and activo", data.plan_codigo):
+            raise HTTPException(status_code=400, detail="Ese plan no existe o no esta activo")
+        antes = await db_pg.uno(
+            conn,
+            "select plan_codigo, subscription_status, trial_ends_at from tenants where id = $1",
+            tid,
+        )
+        if not antes:
+            raise HTTPException(status_code=404, detail="Hotel no encontrado")
+
+        manual = {
+            "plan_codigo": data.plan_codigo,
+            "estado": data.subscription_status,
+            "vence": data.vence.isoformat() if data.vence else None,
+            "nota": (data.nota or "").strip() or None,
+            "por": user.get("email"),
+            "en": datetime.now(timezone.utc).isoformat(),
+        }
+        await conn.execute(
+            """update tenants
+                  set plan_codigo = $2,
+                      subscription_status = $3,
+                      trial_ends_at = case when $3 = 'prueba' and $4::date is not null
+                                           then ($4::date + interval '23 hours 59 minutes')
+                                           else trial_ends_at end,
+                      settings = coalesce(settings, '{}'::jsonb)
+                                 || jsonb_build_object('suscripcion_manual', $5::jsonb)
+                where id = $1""",
+            tid, data.plan_codigo, data.subscription_status, data.vence, json.dumps(manual),
+        )
+        await create_audit_log(
+            conn, tid, user["id"], "tenant_suscripcion", "update",
+            before={"plan_codigo": antes["plan_codigo"], "subscription_status": antes["subscription_status"]},
+            after={"plan_codigo": data.plan_codigo, "subscription_status": data.subscription_status,
+                   "vence": manual["vence"], "nota": manual["nota"]},
+        )
+    return {"message": "Suscripcion actualizada", "suscripcion_manual": manual}
+
+
 @api_router.put("/tenants/{tenant_id}/invoicing")
 async def update_tenant_invoicing(tenant_id: str, config: TenantInvoicingConfig, user: dict = Depends(require_roles(Role.SUPER_ADMIN, Role.ADMIN))):
     if user["role"] != Role.SUPER_ADMIN.value and user.get("tenant_id") != tenant_id:

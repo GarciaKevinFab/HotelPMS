@@ -71,6 +71,8 @@ export const tenantsAPI = {
   get: (id) => api.get(`/tenants/${id}`),
   create: (data) => api.post('/tenants', data),
   updateInvoicing: (id, data) => api.put(`/tenants/${id}/invoicing`, data),
+  updateSuscripcion: (id, data) => api.put(`/tenants/${id}/suscripcion`, data),
+  planes: () => api.get('/planes'),
 };
 
 // Users
