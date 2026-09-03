@@ -502,8 +502,9 @@ def pagina_checkout(plan: dict, periodo: str, importe: dict, error: str,
           <span>Total a pagar</span>
           <span class="cifra">{_e(total_txt)}</span>
         </div>
-        <p class="co-nota">Precio en soles con IGV incluido. Se renueva cada {_e(cada)}
-           y puedes cancelar cuando quieras.</p>
+        <p class="co-nota">Precio en soles con IGV incluido. Es un pago único por
+           {_e(cada)}: no guardamos tu tarjeta ni queda ningún cobro programado.
+           Te avisamos por correo antes de que venza.</p>
         {ahorro}
         <h2 style="margin-top:24px">Qué incluye</h2>
         <ul class="co-incluye">{puntos}</ul>
