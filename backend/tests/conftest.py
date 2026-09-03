@@ -47,25 +47,47 @@ def pytest_configure(config):
         "no_necesita_servidor: prueba que corre sin instancia levantada ni base "
         "de datos (las paginas puras de backend/checkout.py).",
     )
+    config.addinivalue_line(
+        "markers",
+        "necesita_base: prueba que habla directamente con Postgres por asyncpg "
+        "y no necesita instancia levantada. Se salta sin "
+        "ZENSTAY_TEST_DATABASE_URL (ver test_auditoria_jsonb.py).",
+    )
 
 
 def pytest_collection_modifyitems(config, items):
-    """Sin instancia levantada se salta lo que la necesita, y solo eso.
+    """Cada prueba se salta por lo que le falta a ella, no por lo que falte.
 
     Antes el fixture de abajo llamaba a pytest.skip() y, por ser autouse de
     sesion, se llevaba por delante TODA la bateria. Las pruebas de las paginas
     del checkout no tocan red ni base: no hay motivo para saltarselas cuando lo
     unico que falta es REACT_APP_BACKEND_URL, y saltarselas significaria que en
     la practica nunca corren.
+
+    Hay tres clases de prueba y dos ejes independientes:
+
+        (sin marcador)        necesita la instancia HTTP  -> REACT_APP_BACKEND_URL
+        necesita_base         necesita solo Postgres      -> ZENSTAY_TEST_DATABASE_URL
+        no_necesita_servidor  no necesita nada            -> corre siempre
+
+    Las de `necesita_base` no dependen de que haya un backend levantado:
+    importan server.py y llaman a las funciones con una conexion propia. Por
+    eso no se pueden saltar por el mismo motivo que las de HTTP.
     """
-    if BASE_URL:
-        return
-    saltar = pytest.mark.skip(
+    sin_servidor = pytest.mark.skip(
         reason="REACT_APP_BACKEND_URL sin definir: hace falta una instancia "
                "efimera levantada (nunca produccion).")
+    sin_base = pytest.mark.skip(
+        reason="ZENSTAY_TEST_DATABASE_URL sin definir: hace falta un Postgres "
+               "efimero (nunca produccion). Ver la cabecera de "
+               "test_auditoria_jsonb.py.")
+
     for item in items:
-        if "no_necesita_servidor" not in item.keywords:
-            item.add_marker(saltar)
+        if "necesita_base" in item.keywords:
+            if not os.environ.get("ZENSTAY_TEST_DATABASE_URL"):
+                item.add_marker(sin_base)
+        elif "no_necesita_servidor" not in item.keywords and not BASE_URL:
+            item.add_marker(sin_servidor)
 
 
 @pytest.fixture(scope="session", autouse=True)
