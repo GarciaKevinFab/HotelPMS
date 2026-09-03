@@ -57,6 +57,10 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from '../components/ui/dropdown-menu';
+import { EncabezadoPagina } from '../components/EncabezadoPagina';
+import { EstadoVacio } from '../components/EstadoVacio';
+import { EsqueletoMetricas, EsqueletoFilas } from '../components/Esqueleto';
+import { cn } from '../lib/utils';
 import { usersAPI } from '../lib/api';
 import { toast } from 'sonner';
 import { useAuth } from '../contexts/AuthContext';
@@ -274,97 +278,84 @@ export function Employees() {
 
   const isCurrentUser = (emp) => emp.id === user?.user_id;
 
+  const hayFiltros = searchQuery !== '' || filterRole !== 'ALL' || filterStatus !== 'ALL';
+  const limpiarFiltros = () => {
+    setSearchQuery('');
+    setFilterRole('ALL');
+    setFilterStatus('ALL');
+  };
+
+  const acciones = (
+    <Button onClick={() => setShowCreateDialog(true)} data-testid="create-employee-btn">
+      <Plus className="w-4 h-4 mr-2" />
+      Nuevo Empleado
+    </Button>
+  );
+
+  /* Las tarjetas de arriba usan el mismo color que la insignia del rol en la
+     tabla, para que el ojo una las dos cosas sin leer el rotulo. */
+  const tarjetas = [
+    { rotulo: 'Total Empleados', valor: stats.total, Icono: Users, chip: 'bg-muted', icono: 'text-foreground' },
+    { rotulo: 'Activos', valor: stats.active, Icono: UserCheck, chip: 'bg-[hsl(var(--status-vacant-clean)/.10)]', icono: 'text-[hsl(var(--acento-turquesa))]' },
+    { rotulo: 'Recepcionistas', valor: stats.receptionists, Icono: Shield, chip: 'bg-[hsl(var(--acento-turquesa)/.12)]', icono: 'text-[hsl(var(--acento-turquesa))]' },
+    { rotulo: 'Limpieza', valor: stats.housekeeping, Icono: Users, chip: 'bg-[hsl(var(--acento-lima)/.14)]', icono: 'text-[hsl(var(--acento-lima))]' },
+    { rotulo: 'Seguridad', valor: stats.security, Icono: Shield, chip: 'bg-[hsl(var(--acento-oliva)/.14)]', icono: 'text-[hsl(var(--acento-oliva))]' },
+  ];
+
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-96">
-        <div className="w-8 h-8 border-4 border-zen-200 border-t-zen-turquesa rounded-full animate-spin" />
+      <div className="space-y-6" data-testid="employees-page" aria-busy="true">
+        <EncabezadoPagina titulo="Gestión de Empleados" subtitulo="Administra el personal del hotel" acciones={acciones} />
+        <EsqueletoMetricas cantidad={5} className="gap-3 sm:grid-cols-3 lg:grid-cols-5 lg:gap-4" />
+        <Card>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Nombre</TableHead>
+                <TableHead>Email</TableHead>
+                <TableHead>Rol</TableHead>
+                <TableHead>Estado</TableHead>
+                <TableHead className="text-right">Acciones</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              <EsqueletoFilas filas={6} columnas={5} />
+            </TableBody>
+          </Table>
+        </Card>
       </div>
     );
   }
 
   return (
     <div className="space-y-6" data-testid="employees-page">
-      {/* Header */}
-      {/* En movil va en columna: titulo y botones en una sola fila con
-          justify-between no caben en 375 px y desbordaban la pagina. */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-zen-900">Gestión de Empleados</h1>
-          <p className="text-zen-500">Administra el personal del hotel</p>
-        </div>
-        <Button onClick={() => setShowCreateDialog(true)} data-testid="create-employee-btn">
-          <Plus className="w-4 h-4 mr-2" />
-          Nuevo Empleado
-        </Button>
-      </div>
+      <EncabezadoPagina titulo="Gestión de Empleados" subtitulo="Administra el personal del hotel" acciones={acciones} />
 
       {/* Stats */}
       {/* grid-cols-5 fijo no cabe en un movil: cinco tarjetas sobre 375 px dan
           66 px cada una y la ultima se salia de la pantalla. Dos columnas en
           movil, tres en tableta y las cinco cuando hay sitio. */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5 lg:gap-4">
-        <Card className="p-4">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-zen-100 rounded-lg flex items-center justify-center">
-              <Users className="w-5 h-5 text-zen-600" />
+        {tarjetas.map(({ rotulo, valor, Icono, chip, icono }) => (
+          <Card key={rotulo} className="p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-xs font-medium text-muted-foreground">{rotulo}</p>
+                <p className="mt-1 text-2xl font-semibold tracking-tight tabular-nums">{valor}</p>
+              </div>
+              <div className={cn('grid h-10 w-10 shrink-0 place-items-center rounded-lg', chip)}>
+                <Icono className={cn('h-5 w-5', icono)} aria-hidden="true" />
+              </div>
             </div>
-            <div>
-              <p className="text-sm text-zen-500">Total Empleados</p>
-              <p className="text-2xl font-bold">{stats.total}</p>
-            </div>
-          </div>
-        </Card>
-        <Card className="p-4">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-emerald-100 rounded-lg flex items-center justify-center">
-              <UserCheck className="w-5 h-5 text-emerald-600" />
-            </div>
-            <div>
-              <p className="text-sm text-zen-500">Activos</p>
-              <p className="text-2xl font-bold">{stats.active}</p>
-            </div>
-          </div>
-        </Card>
-        <Card className="p-4">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-emerald-50 rounded-lg flex items-center justify-center">
-              <Shield className="w-5 h-5 text-emerald-500" />
-            </div>
-            <div>
-              <p className="text-sm text-zen-500">Recepcionistas</p>
-              <p className="text-2xl font-bold">{stats.receptionists}</p>
-            </div>
-          </div>
-        </Card>
-        <Card className="p-4">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-amber-50 rounded-lg flex items-center justify-center">
-              <Users className="w-5 h-5 text-amber-500" />
-            </div>
-            <div>
-              <p className="text-sm text-zen-500">Limpieza</p>
-              <p className="text-2xl font-bold">{stats.housekeeping}</p>
-            </div>
-          </div>
-        </Card>
-        <Card className="p-4">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-purple-50 rounded-lg flex items-center justify-center">
-              <Shield className="w-5 h-5 text-purple-500" />
-            </div>
-            <div>
-              <p className="text-sm text-zen-500">Seguridad</p>
-              <p className="text-2xl font-bold">{stats.security}</p>
-            </div>
-          </div>
-        </Card>
+          </Card>
+        ))}
       </div>
 
       {/* Filters */}
       <Card className="p-4">
-        <div className="flex items-center gap-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
           <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zen-500" />
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
             <Input
               aria-label="Buscar empleado por nombre o correo"
               placeholder="Buscar por nombre o email..."
@@ -374,10 +365,10 @@ export function Employees() {
               data-testid="search-employees-input"
             />
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Filter className="w-4 h-4 text-zen-500" />
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-2">
+            <Filter className="hidden h-4 w-4 text-muted-foreground sm:block" aria-hidden="true" />
             <Select value={filterRole} onValueChange={setFilterRole}>
-              <SelectTrigger className="w-[180px]">
+              <SelectTrigger className="w-full sm:w-[180px]" aria-label="Filtrar por rol">
                 <SelectValue placeholder="Filtrar por rol" />
               </SelectTrigger>
               <SelectContent>
@@ -389,7 +380,7 @@ export function Employees() {
               </SelectContent>
             </Select>
             <Select value={filterStatus} onValueChange={setFilterStatus}>
-              <SelectTrigger className="w-[160px]">
+              <SelectTrigger className="w-full sm:w-[160px]" aria-label="Estado">
                 <SelectValue placeholder="Estado" />
               </SelectTrigger>
               <SelectContent>
@@ -414,11 +405,19 @@ export function Employees() {
               <TableHead className="text-right">Acciones</TableHead>
             </TableRow>
           </TableHeader>
-          <TableBody>
+          <TableBody className="escalonado">
             {filteredEmployees.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={5} className="text-center py-8 text-zen-500">
-                  No se encontraron empleados
+              <TableRow className="hover:bg-transparent">
+                <TableCell colSpan={5} className="p-0">
+                  <EstadoVacio
+                    icono={Users}
+                    titulo="No se encontraron empleados"
+                    descripcion="Crea el primer empleado para dar acceso al personal del hotel con su propio rol."
+                    accion="Nuevo Empleado"
+                    onAccion={() => setShowCreateDialog(true)}
+                    filtrado={employees.length > 0 && hayFiltros}
+                    onLimpiar={limpiarFiltros}
+                  />
                 </TableCell>
               </TableRow>
             ) : (
@@ -426,13 +425,13 @@ export function Employees() {
                 <TableRow key={emp.id}>
                   <TableCell>
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 bg-zen-100 rounded-full flex items-center justify-center">
+                      <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-zen-100">
                         <span className="text-sm font-medium text-zen-600">
                           {emp.full_name?.charAt(0)?.toUpperCase() || 'U'}
                         </span>
                       </div>
-                      <div>
-                        <p className="font-medium">{emp.full_name}</p>
+                      <div className="min-w-0">
+                        <p className="truncate font-medium">{emp.full_name}</p>
                         {isCurrentUser(emp) && (
                           <p className="text-xs text-[hsl(var(--acento-turquesa))]">(Tu cuenta)</p>
                         )}
@@ -449,11 +448,11 @@ export function Employees() {
                   </TableCell>
                   <TableCell>
                     {emp.is_active ? (
-                      <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200">
+                      <Badge className="border-[hsl(var(--status-vacant-clean)/.35)] bg-[hsl(var(--status-vacant-clean)/.12)] text-[hsl(var(--insignia-turquesa))]">
                         Activo
                       </Badge>
                     ) : (
-                      <Badge className="bg-red-100 text-red-700 border-red-200">
+                      <Badge className="border-[hsl(var(--status-occupied)/.35)] bg-[hsl(var(--status-occupied)/.12)] text-[hsl(var(--insignia-fucsia))]">
                         Inactivo
                       </Badge>
                     )}
@@ -491,7 +490,7 @@ export function Employees() {
                           <DropdownMenuSeparator />
                           <DropdownMenuItem
                             onClick={() => openDeleteDialog(emp)}
-                            className="text-red-600 focus:text-red-600"
+                            className="text-destructive focus:text-destructive"
                           >
                             <Trash2 className="w-4 h-4 mr-2" />
                             Eliminar
@@ -681,7 +680,7 @@ export function Employees() {
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDelete}
-              className="bg-red-600 hover:bg-red-700"
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               Eliminar
             </AlertDialogAction>

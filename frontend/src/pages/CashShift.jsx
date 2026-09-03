@@ -1,11 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  Wallet, 
-  Plus, 
-  Minus, 
-  Lock, 
+import {
+  Wallet,
+  Plus,
+  Minus,
+  Lock,
   Unlock,
-  TrendingUp,
   CreditCard,
   Banknote,
   RefreshCw
@@ -32,6 +31,9 @@ import {
   TableHeader,
   TableRow,
 } from '../components/ui/table';
+import { EncabezadoPagina } from '../components/EncabezadoPagina';
+import { EstadoVacio } from '../components/EstadoVacio';
+import { EsqueletoMetricas, EsqueletoLista } from '../components/Esqueleto';
 import { cashShiftsAPI } from '../lib/api';
 import { formatCurrency, formatDateTime, getStatusLabel, cn } from '../lib/utils';
 import { toast } from 'sonner';
@@ -42,12 +44,12 @@ export function CashShift() {
   const [currentShift, setCurrentShift] = useState(null);
   const [shifts, setShifts] = useState([]);
   const [loading, setLoading] = useState(true);
-  
+
   // Dialogs
   const [showOpenDialog, setShowOpenDialog] = useState(false);
   const [showCloseDialog, setShowCloseDialog] = useState(false);
   const [showMovementDialog, setShowMovementDialog] = useState(false);
-  
+
   // Form data
   const [openingAmount, setOpeningAmount] = useState('');
   const [countedCash, setCountedCash] = useState('');
@@ -102,13 +104,13 @@ export function CashShift() {
     try {
       const response = await cashShiftsAPI.close(currentShift.id, parseFloat(countedCash), closeNotes);
       const diff = response.data.difference;
-      
+
       if (Math.abs(diff) > 0) {
         toast.warning(`Caja cerrada con diferencia de ${formatCurrency(diff)}`);
       } else {
         toast.success('Caja cerrada exitosamente');
       }
-      
+
       setShowCloseDialog(false);
       setCountedCash('');
       setCloseNotes('');
@@ -152,94 +154,96 @@ export function CashShift() {
     }
   };
 
+  const closedShifts = shifts.filter(s => s.status === 'CLOSED');
+
+  const acciones = (
+    <Button variant="outline" size="sm" onClick={fetchData}>
+      <RefreshCw className="w-4 h-4 mr-2" />
+      Actualizar
+    </Button>
+  );
+
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-96">
-        <div className="w-8 h-8 border-4 border-zen-200 border-t-zen-turquesa rounded-full animate-spin" />
+      <div className="space-y-6" data-testid="cash-shift-page" aria-busy="true">
+        <EncabezadoPagina titulo="Caja" subtitulo="Gestión de turnos de caja" acciones={acciones} />
+        <EsqueletoMetricas />
+        <EsqueletoLista cantidad={5} />
       </div>
     );
   }
 
   return (
     <div className="space-y-6" data-testid="cash-shift-page">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-zen-900">Caja</h1>
-          <p className="text-zen-500">Gestión de turnos de caja</p>
-        </div>
-        <Button variant="outline" size="sm" onClick={fetchData}>
-          <RefreshCw className="w-4 h-4 mr-2" />
-          Actualizar
-        </Button>
-      </div>
+      <EncabezadoPagina titulo="Caja" subtitulo="Gestión de turnos de caja" acciones={acciones} />
 
       {/* Current Shift Card */}
       {currentShift ? (
         <div className="cash-shift-card">
-          <div className="flex items-center justify-between mb-6">
-            <div className="flex items-center gap-3">
-              <div className="p-3 bg-white/10 rounded-lg">
-                <Unlock className="w-6 h-6" />
+          <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="grid h-12 w-12 shrink-0 place-items-center rounded-lg bg-white/10">
+                <Unlock className="w-6 h-6" aria-hidden="true" />
               </div>
-              <div>
-                <h2 className="text-xl font-bold">Caja Abierta</h2>
-                <p className="text-zen-300 text-sm">
+              <div className="min-w-0">
+                <h2 className="font-heading text-xl font-semibold leading-tight">Caja Abierta</h2>
+                <p className="mt-0.5 text-sm text-white/70">
                   Desde {formatDateTime(currentShift.opened_at)}
                 </p>
               </div>
             </div>
-            <Badge className="bg-emerald-500 text-white">Activa</Badge>
+            <Badge className="border-transparent bg-[hsl(var(--status-vacant-clean))] text-white">Activa</Badge>
           </div>
 
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+          <div className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-4 md:gap-4">
             <div className="cash-shift-stat">
-              <p className="text-sm text-zen-300">Apertura</p>
-              <p className="text-xl font-bold">{formatCurrency(currentShift.opening_amount)}</p>
+              <p className="text-xs font-medium text-white/70">Apertura</p>
+              <p className="mt-1 text-2xl font-semibold tracking-tight tabular-nums">{formatCurrency(currentShift.opening_amount)}</p>
             </div>
             <div className="cash-shift-stat">
-              <p className="text-sm text-zen-300">Efectivo</p>
-              <p className="text-xl font-bold">{formatCurrency(currentShift.totals?.EFECTIVO || 0)}</p>
+              <p className="text-xs font-medium text-white/70">Efectivo</p>
+              <p className="mt-1 text-2xl font-semibold tracking-tight tabular-nums">{formatCurrency(currentShift.totals?.EFECTIVO || 0)}</p>
             </div>
             <div className="cash-shift-stat">
-              <p className="text-sm text-zen-300">Tarjeta</p>
-              <p className="text-xl font-bold">{formatCurrency(currentShift.totals?.TARJETA || 0)}</p>
+              <p className="text-xs font-medium text-white/70">Tarjeta</p>
+              <p className="mt-1 text-2xl font-semibold tracking-tight tabular-nums">{formatCurrency(currentShift.totals?.TARJETA || 0)}</p>
             </div>
             <div className="cash-shift-stat">
-              <p className="text-sm text-zen-300">Total Pagos</p>
-              <p className="text-xl font-bold text-emerald-400">{formatCurrency(currentShift.total_payments || 0)}</p>
+              <p className="text-xs font-medium text-white/70">Total Pagos</p>
+              <p className="mt-1 text-2xl font-semibold tracking-tight tabular-nums text-[hsl(var(--status-vacant-clean))]">{formatCurrency(currentShift.total_payments || 0)}</p>
             </div>
           </div>
 
           {/* Payment Methods Breakdown */}
           {currentShift.totals && Object.keys(currentShift.totals).length > 0 && (
             <div className="mb-6">
-              <h3 className="text-sm font-medium text-zen-300 mb-3">Desglose por Método</h3>
-              <div className="space-y-2">
+              <h3 className="mb-3 text-xs font-medium uppercase tracking-wide text-white/70">Desglose por Método</h3>
+              <div className="space-y-2 escalonado">
                 {Object.entries(currentShift.totals).map(([method, amount]) => (
-                  <div key={method} className="flex items-center justify-between bg-white/5 rounded-lg px-4 py-2">
-                    <div className="flex items-center gap-2">
+                  <div key={method} className="flex items-center justify-between gap-3 rounded-lg bg-white/5 px-4 py-2.5">
+                    <div className="flex items-center gap-2 text-sm">
                       {getPaymentMethodIcon(method)}
                       <span>{getStatusLabel(method)}</span>
                     </div>
-                    <span className="font-medium">{formatCurrency(amount)}</span>
+                    <span className="text-sm font-medium tabular-nums">{formatCurrency(amount)}</span>
                   </div>
                 ))}
               </div>
             </div>
           )}
 
-          <div className="flex gap-3">
-            <Button 
-              variant="secondary" 
+          {/* En movil los dos botones se apilan a lo ancho; en una fila no
+              caben con sus 44 px de alto sin apretar el texto. */}
+          <div className="flex flex-col gap-3 sm:flex-row">
+            <Button
+              variant="outline"
               onClick={() => setShowMovementDialog(true)}
               data-testid="add-movement-btn"
             >
               <Plus className="w-4 h-4 mr-2" />
               Movimiento
             </Button>
-            <Button 
-              className="bg-white text-zen-900 hover:bg-zen-100"
+            <Button
               onClick={() => setShowCloseDialog(true)}
               data-testid="close-shift-btn"
             >
@@ -249,16 +253,20 @@ export function CashShift() {
           </div>
         </div>
       ) : (
-        <Card className="border-2 border-dashed">
-          <CardContent className="py-12 text-center">
-            <Lock className="w-12 h-12 text-zen-300 mx-auto mb-4" />
-            <h3 className="text-lg font-medium text-zen-900 mb-2">No hay caja abierta</h3>
-            <p className="text-zen-500 mb-6">Abra una caja para comenzar a registrar pagos</p>
+        <Card>
+          {/* El boton va fuera de EstadoVacio para conservar su data-testid. */}
+          <EstadoVacio
+            icono={Lock}
+            titulo="No hay caja abierta"
+            descripcion="Abra una caja para comenzar a registrar pagos"
+            className="pb-0"
+          />
+          <div className="flex justify-center px-6 pb-14 pt-5">
             <Button onClick={() => setShowOpenDialog(true)} data-testid="open-shift-btn">
               <Unlock className="w-4 h-4 mr-2" />
               Abrir Caja
             </Button>
-          </CardContent>
+          </div>
         </Card>
       )}
 
@@ -280,25 +288,25 @@ export function CashShift() {
                 <TableHead>Estado</TableHead>
               </TableRow>
             </TableHeader>
-            <TableBody>
-              {shifts.filter(s => s.status === 'CLOSED').map(shift => (
+            <TableBody className="escalonado">
+              {closedShifts.map(shift => (
                 <TableRow key={shift.id}>
-                  <TableCell className="text-sm">
+                  <TableCell className="whitespace-nowrap text-sm">
                     {formatDateTime(shift.opened_at)}
                   </TableCell>
-                  <TableCell className="text-sm">
+                  <TableCell className="whitespace-nowrap text-sm">
                     {formatDateTime(shift.closed_at)}
                   </TableCell>
-                  <TableCell>{formatCurrency(shift.opening_amount)}</TableCell>
-                  <TableCell>
+                  <TableCell className="tabular-nums">{formatCurrency(shift.opening_amount)}</TableCell>
+                  <TableCell className="tabular-nums">
                     {formatCurrency(Object.values(shift.totals || {}).reduce((a, b) => a + b, 0))}
                   </TableCell>
-                  <TableCell>{formatCurrency(shift.counted_cash)}</TableCell>
+                  <TableCell className="tabular-nums">{formatCurrency(shift.counted_cash)}</TableCell>
                   <TableCell>
                     <span className={cn(
-                      "font-medium",
-                      shift.difference > 0 && "text-emerald-600",
-                      shift.difference < 0 && "text-rose-600"
+                      "font-medium tabular-nums",
+                      shift.difference > 0 && "text-[hsl(var(--acento-turquesa))]",
+                      shift.difference < 0 && "text-[hsl(var(--acento-fucsia))]"
                     )}>
                       {shift.difference > 0 ? '+' : ''}{formatCurrency(shift.difference)}
                     </span>
@@ -308,10 +316,14 @@ export function CashShift() {
                   </TableCell>
                 </TableRow>
               ))}
-              {shifts.filter(s => s.status === 'CLOSED').length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={7} className="text-center text-zen-500 py-8">
-                    No hay registros de cajas cerradas
+              {closedShifts.length === 0 && (
+                <TableRow className="hover:bg-transparent">
+                  <TableCell colSpan={7} className="p-0">
+                    <EstadoVacio
+                      icono={Wallet}
+                      titulo="No hay registros de cajas cerradas"
+                      descripcion="Cuando cierres una caja aparecerá aquí con su arqueo, el efectivo contado y la diferencia."
+                    />
                   </TableCell>
                 </TableRow>
               )}
@@ -363,21 +375,21 @@ export function CashShift() {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
-            <div className="p-4 bg-zen-50 rounded-lg space-y-2">
+            <div className="space-y-2 rounded-lg bg-muted p-4">
               <div className="flex justify-between text-sm">
                 <span>Monto apertura:</span>
-                <span className="font-medium">{formatCurrency(currentShift?.opening_amount || 0)}</span>
+                <span className="font-medium tabular-nums">{formatCurrency(currentShift?.opening_amount || 0)}</span>
               </div>
               <div className="flex justify-between text-sm">
                 <span>Pagos en efectivo:</span>
-                <span className="font-medium">{formatCurrency(currentShift?.totals?.EFECTIVO || 0)}</span>
+                <span className="font-medium tabular-nums">{formatCurrency(currentShift?.totals?.EFECTIVO || 0)}</span>
               </div>
-              <div className="flex justify-between text-sm font-bold border-t pt-2">
+              <div className="flex justify-between border-t pt-2 text-sm font-semibold">
                 <span>Efectivo esperado:</span>
-                <span>{formatCurrency((currentShift?.opening_amount || 0) + (currentShift?.totals?.EFECTIVO || 0))}</span>
+                <span className="tabular-nums">{formatCurrency((currentShift?.opening_amount || 0) + (currentShift?.totals?.EFECTIVO || 0))}</span>
               </div>
             </div>
-            
+
             <div>
               <Label>Efectivo Contado (S/)</Label>
               <Input
@@ -391,7 +403,7 @@ export function CashShift() {
                 data-testid="counted-cash-input"
               />
             </div>
-            
+
             <div>
               <Label>Notas (opcional)</Label>
               <Textarea
@@ -441,7 +453,7 @@ export function CashShift() {
                 Egreso
               </Button>
             </div>
-            
+
             <div>
               <Label>Monto (S/)</Label>
               <Input
@@ -454,7 +466,7 @@ export function CashShift() {
                 className="mt-2"
               />
             </div>
-            
+
             <div>
               <Label>Motivo</Label>
               <Textarea

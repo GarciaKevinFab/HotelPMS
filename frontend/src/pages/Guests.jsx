@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  Search, 
+import {
+  Search,
   UserPlus,
   User,
   Phone,
@@ -11,9 +11,11 @@ import {
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { EstadoVacio } from '../components/EstadoVacio';
+import { EncabezadoPagina } from '../components/EncabezadoPagina';
+import { EsqueletoFilas, EsqueletoLista, EsqueletoMetricas } from '../components/Esqueleto';
 import { Input } from '../components/ui/input';
 import { Badge } from '../components/ui/badge';
-import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
+import { Card } from '../components/ui/card';
 import { Label } from '../components/ui/label';
 import {
   Table,
@@ -45,13 +47,16 @@ import { toast } from 'sonner';
 export function Guests() {
   const [guests, setGuests] = useState([]);
   const [loading, setLoading] = useState(true);
+  // Distingue la primera carga (esqueleto en las metricas) de las recargas
+  // por busqueda, donde las metricas ya tienen un valor que mostrar.
+  const [haCargado, setHaCargado] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  
+
   // Dialogs
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [showDetailDialog, setShowDetailDialog] = useState(false);
   const [selectedGuest, setSelectedGuest] = useState(null);
-  
+
   // Form
   const [formData, setFormData] = useState({
     doc_type: 'DNI',
@@ -76,6 +81,7 @@ export function Guests() {
       console.error('Error fetching guests:', err);
     } finally {
       setLoading(false);
+      setHaCargado(true);
     }
   };
 
@@ -118,24 +124,58 @@ export function Guests() {
     });
   };
 
+  // La busqueda se resuelve en el servidor, asi que "filtrado" es
+  // simplemente "hay texto en el buscador".
+  const hayFiltro = searchQuery.trim().length > 0;
+
+  const stats = [
+    { rotulo: 'Total Huéspedes', valor: guests.length, color: 'text-foreground' },
+    { rotulo: 'Con DNI', valor: guests.filter(g => g.doc_type === 'DNI').length, color: 'text-[hsl(var(--acento-turquesa))]' },
+    { rotulo: 'Extranjeros', valor: guests.filter(g => g.nationality !== 'PE').length, color: 'text-[hsl(var(--acento-fucsia))]' },
+  ];
+
+  // Misma pieza para la tabla y para la lista movil.
+  const accionesHuesped = (guest, { ancho = false } = {}) => (
+    <Button
+      variant={ancho ? 'outline' : 'ghost'}
+      size={ancho ? 'default' : 'sm'}
+      className={ancho ? 'w-full' : undefined}
+      onClick={() => handleViewDetail(guest)}
+    >
+      <Eye className="w-4 h-4 mr-2" />
+      Ver
+    </Button>
+  );
+
+  const estadoVacio = (
+    <EstadoVacio
+      icono={Users}
+      titulo="Todavía no hay huéspedes"
+      descripcion="Se van creando solos al registrar la primera reserva. También puedes darlos de alta ahora si ya tienes sus datos."
+      accion="Registrar un huésped"
+      onAccion={() => setShowCreateDialog(true)}
+      filtrado={hayFiltro}
+      onLimpiar={() => { setSearchQuery(''); }}
+    />
+  );
+
   return (
     <div className="space-y-6" data-testid="guests-page">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-zen-900">Huéspedes</h1>
-          <p className="text-zen-500">Gestión de perfiles de huéspedes</p>
-        </div>
-        <Button onClick={() => setShowCreateDialog(true)} data-testid="create-guest-btn">
-          <UserPlus className="w-4 h-4 mr-2" />
-          Nuevo Huésped
-        </Button>
-      </div>
+      <EncabezadoPagina
+        titulo="Huéspedes"
+        subtitulo="Gestión de perfiles de huéspedes"
+        acciones={
+          <Button onClick={() => setShowCreateDialog(true)} data-testid="create-guest-btn">
+            <UserPlus className="w-4 h-4 mr-2" />
+            Nuevo Huésped
+          </Button>
+        }
+      />
 
       {/* Search */}
       <Card className="p-4">
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zen-500" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input
             aria-label="Buscar huésped por nombre, documento o correo"
             placeholder="Buscar por nombre, documento o email..."
@@ -148,92 +188,124 @@ export function Guests() {
       </Card>
 
       {/* Stats */}
-      <div className="grid grid-cols-3 gap-4">
-        <Card className="p-4">
-          <p className="text-sm text-zen-500">Total Huéspedes</p>
-          <p className="text-2xl font-bold">{guests.length}</p>
-        </Card>
-        <Card className="p-4">
-          <p className="text-sm text-zen-500">Con DNI</p>
-          <p className="text-2xl font-bold">{guests.filter(g => g.doc_type === 'DNI').length}</p>
-        </Card>
-        <Card className="p-4">
-          <p className="text-sm text-zen-500">Extranjeros</p>
-          <p className="text-2xl font-bold">{guests.filter(g => g.nationality !== 'PE').length}</p>
+      {!haCargado ? (
+        <EsqueletoMetricas cantidad={3} className="grid-cols-3 lg:grid-cols-3" />
+      ) : (
+        <div className="escalonado grid grid-cols-3 gap-3 sm:gap-4">
+          {stats.map((s) => (
+            <Card key={s.rotulo} className="p-4 transition-shadow duration-180 hover:shadow-md">
+              <p className="text-xs font-medium text-muted-foreground">{s.rotulo}</p>
+              <p className={`mt-1 text-2xl font-semibold tracking-tight tabular-nums ${s.color}`}>{s.valor}</p>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {/* Tabla (desde md) */}
+      <div className="hidden md:block">
+        <Card>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Huésped</TableHead>
+                <TableHead>Documento</TableHead>
+                <TableHead>Contacto</TableHead>
+                <TableHead>Nacionalidad</TableHead>
+                <TableHead className="text-right">Acciones</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody className="escalonado">
+              {loading ? (
+                <EsqueletoFilas filas={6} columnas={5} />
+              ) : guests.length === 0 ? (
+                <TableRow className="hover:bg-transparent">
+                  <TableCell colSpan={5} className="p-0">
+                    {estadoVacio}
+                  </TableCell>
+                </TableRow>
+              ) : (
+                guests.map((guest) => (
+                  <TableRow key={guest.id}>
+                    <TableCell>
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 shrink-0 bg-muted rounded-full flex items-center justify-center">
+                          <User className="w-5 h-5 text-muted-foreground" aria-hidden="true" />
+                        </div>
+                        <p className="font-medium">{guest.full_name}</p>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="outline">{guest.doc_type}</Badge>
+                      <span className="ml-2 tabular-nums">{guest.doc_number}</span>
+                    </TableCell>
+                    <TableCell>
+                      <div className="text-sm">
+                        {guest.phone && <p className="flex items-center gap-1"><Phone className="w-3 h-3" aria-hidden="true" /> {guest.phone}</p>}
+                        {guest.email && <p className="flex items-center gap-1 text-muted-foreground"><Mail className="w-3 h-3" aria-hidden="true" /> {guest.email}</p>}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="secondary">{guest.nationality || 'PE'}</Badge>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {accionesHuesped(guest)}
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
         </Card>
       </div>
 
-      {/* Table */}
-      <Card>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Huésped</TableHead>
-              <TableHead>Documento</TableHead>
-              <TableHead>Contacto</TableHead>
-              <TableHead>Nacionalidad</TableHead>
-              <TableHead className="text-right">Acciones</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {loading ? (
-              <TableRow>
-                <TableCell colSpan={5} className="text-center py-8">
-                  <div className="w-6 h-6 border-2 border-zen-200 border-t-zen-turquesa rounded-full animate-spin mx-auto" />
-                </TableCell>
-              </TableRow>
-            ) : guests.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={5} className="p-0">
-                  <EstadoVacio
-                    icono={Users}
-                    titulo="Todavía no hay huéspedes"
-                    descripcion="Se van creando solos al registrar la primera reserva. También puedes darlos de alta ahora si ya tienes sus datos."
-                    accion="Registrar un huésped"
-                    onAccion={() => setShowCreateDialog(true)}
-                    filtrado={guests.length > 0}
-                    onLimpiar={() => { setSearchQuery(''); }}
-                  />
-                </TableCell>
-              </TableRow>
-            ) : (
-              guests.map((guest) => (
-                <TableRow key={guest.id}>
-                  <TableCell>
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 bg-zen-100 rounded-full flex items-center justify-center">
-                        <User className="w-5 h-5 text-zen-500" />
-                      </div>
-                      <div>
-                        <p className="font-medium">{guest.full_name}</p>
-                      </div>
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant="outline">{guest.doc_type}</Badge>
-                    <span className="ml-2">{guest.doc_number}</span>
-                  </TableCell>
-                  <TableCell>
-                    <div className="text-sm">
-                      {guest.phone && <p className="flex items-center gap-1"><Phone className="w-3 h-3" /> {guest.phone}</p>}
-                      {guest.email && <p className="flex items-center gap-1 text-zen-500"><Mail className="w-3 h-3" /> {guest.email}</p>}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant="secondary">{guest.nationality || 'PE'}</Badge>
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <Button variant="ghost" size="sm" onClick={() => handleViewDetail(guest)}>
-                      <Eye className="w-4 h-4 mr-2" />
-                      Ver
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-      </Card>
+      {/* Tarjetas apiladas (movil) */}
+      <div className="md:hidden">
+        {loading ? (
+          <EsqueletoLista cantidad={4} />
+        ) : guests.length === 0 ? (
+          <Card>{estadoVacio}</Card>
+        ) : (
+          <div className="escalonado space-y-3">
+            {guests.map((guest) => (
+              <Card key={guest.id} className="p-4 transition-shadow duration-180 hover:shadow-md">
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 shrink-0 bg-muted rounded-full flex items-center justify-center">
+                    <User className="w-5 h-5 text-muted-foreground" aria-hidden="true" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="font-semibold leading-tight break-words">{guest.full_name}</p>
+                    <p className="mt-1 text-sm text-muted-foreground tabular-nums">
+                      {guest.doc_type} {guest.doc_number}
+                    </p>
+                  </div>
+                  <Badge variant="secondary" className="shrink-0">{guest.nationality || 'PE'}</Badge>
+                </div>
+
+                {(guest.phone || guest.email) && (
+                  <div className="mt-3 space-y-1 text-sm text-muted-foreground">
+                    {guest.phone && (
+                      <p className="flex items-center gap-2 tabular-nums">
+                        <Phone className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                        <span className="truncate">{guest.phone}</span>
+                      </p>
+                    )}
+                    {guest.email && (
+                      <p className="flex items-center gap-2">
+                        <Mail className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                        <span className="truncate">{guest.email}</span>
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                <div className="mt-4">
+                  {accionesHuesped(guest, { ancho: true })}
+                </div>
+              </Card>
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* Create Dialog */}
       <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
@@ -246,8 +318,8 @@ export function Guests() {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <Label>Tipo Documento</Label>
-                <Select 
-                  value={formData.doc_type} 
+                <Select
+                  value={formData.doc_type}
                   onValueChange={(v) => setFormData(prev => ({ ...prev, doc_type: v }))}
                 >
                   <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
@@ -331,38 +403,38 @@ export function Guests() {
           {selectedGuest && (
             <div className="space-y-4 py-4">
               <div className="flex items-center gap-4">
-                <div className="w-16 h-16 bg-zen-100 rounded-full flex items-center justify-center">
-                  <User className="w-8 h-8 text-zen-500" />
+                <div className="w-16 h-16 shrink-0 bg-muted rounded-full flex items-center justify-center">
+                  <User className="w-8 h-8 text-muted-foreground" aria-hidden="true" />
                 </div>
-                <div>
-                  <h3 className="text-xl font-bold">{selectedGuest.full_name}</h3>
-                  <p className="text-zen-500">{getStatusLabel(selectedGuest.doc_type)}: {selectedGuest.doc_number}</p>
+                <div className="min-w-0">
+                  <h3 className="font-heading text-xl font-semibold tracking-tight break-words">{selectedGuest.full_name}</h3>
+                  <p className="text-sm text-muted-foreground tabular-nums">{getStatusLabel(selectedGuest.doc_type)}: {selectedGuest.doc_number}</p>
                 </div>
               </div>
-              
-              <div className="grid grid-cols-2 gap-4 pt-4 border-t">
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-4 border-t">
                 {selectedGuest.phone && (
-                  <div className="flex items-center gap-2">
-                    <Phone className="w-4 h-4 text-zen-500" />
-                    <span>{selectedGuest.phone}</span>
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Phone className="w-4 h-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                    <span className="truncate tabular-nums">{selectedGuest.phone}</span>
                   </div>
                 )}
                 {selectedGuest.email && (
-                  <div className="flex items-center gap-2">
-                    <Mail className="w-4 h-4 text-zen-500" />
-                    <span>{selectedGuest.email}</span>
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Mail className="w-4 h-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                    <span className="truncate">{selectedGuest.email}</span>
                   </div>
                 )}
                 {selectedGuest.address && (
-                  <div className="flex items-center gap-2 col-span-2">
-                    <MapPin className="w-4 h-4 text-zen-500" />
-                    <span>{selectedGuest.address}</span>
+                  <div className="flex items-center gap-2 sm:col-span-2 min-w-0">
+                    <MapPin className="w-4 h-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                    <span className="break-words">{selectedGuest.address}</span>
                   </div>
                 )}
               </div>
-              
+
               <div className="pt-4 border-t">
-                <p className="text-sm text-zen-500">
+                <p className="text-sm text-muted-foreground">
                   Registrado: {formatDate(selectedGuest.created_at)}
                 </p>
               </div>

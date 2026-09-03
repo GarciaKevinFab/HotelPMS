@@ -1,19 +1,23 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  Users, 
-  Plus, 
+import {
+  Users,
+  Plus,
   Eye,
-  Calendar,
   Phone,
-  Mail,
-  Building
+  Building,
+  BedDouble,
+  CheckCircle,
+  Banknote,
+  X
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
+import { EncabezadoPagina } from '../components/EncabezadoPagina';
 import { EstadoVacio } from '../components/EstadoVacio';
+import { EsqueletoFilas, EsqueletoMetricas } from '../components/Esqueleto';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Badge } from '../components/ui/badge';
-import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
+import { Card } from '../components/ui/card';
 import { Textarea } from '../components/ui/textarea';
 import {
   Table,
@@ -46,12 +50,12 @@ export function GroupReservations() {
   const [groups, setGroups] = useState([]);
   const [roomTypes, setRoomTypes] = useState([]);
   const [loading, setLoading] = useState(true);
-  
+
   // Create dialog
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [showDetailDialog, setShowDetailDialog] = useState(false);
   const [selectedGroup, setSelectedGroup] = useState(null);
-  
+
   // Form
   const [formData, setFormData] = useState({
     group_name: '',
@@ -178,39 +182,54 @@ export function GroupReservations() {
     totalRevenue: groups.reduce((sum, g) => sum + (g.total_estimated || 0), 0)
   };
 
+  const metricas = [
+    { rotulo: 'Total Grupos', valor: stats.total, icono: Users, tono: 'neutro' },
+    { rotulo: 'Confirmados', valor: stats.confirmed, icono: CheckCircle, tono: 'turquesa' },
+    { rotulo: 'Total Habitaciones', valor: stats.totalRooms, icono: BedDouble, tono: 'neutro' },
+    { rotulo: 'Ingreso Estimado', valor: formatCurrency(stats.totalRevenue), icono: Banknote, tono: 'fucsia' },
+  ];
+
+  const tonos = {
+    neutro: { valor: 'text-foreground', caja: 'bg-muted text-muted-foreground' },
+    turquesa: { valor: 'text-[hsl(var(--acento-turquesa))]', caja: 'bg-[hsl(var(--status-vacant-clean)/.10)] text-[hsl(var(--acento-turquesa))]' },
+    fucsia: { valor: 'text-foreground', caja: 'bg-[hsl(var(--status-occupied)/.10)] text-[hsl(var(--acento-fucsia))]' },
+  };
+
   return (
     <div className="space-y-6" data-testid="group-reservations-page">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-zen-900">Reservas Grupales</h1>
-          <p className="text-zen-500">Gestión de grupos y eventos</p>
-        </div>
-        <Button onClick={() => setShowCreateDialog(true)} data-testid="create-group-btn">
-          <Plus className="w-4 h-4 mr-2" />
-          Nueva Reserva Grupal
-        </Button>
-      </div>
+      <EncabezadoPagina
+        titulo="Reservas Grupales"
+        subtitulo="Gestión de grupos y eventos"
+        acciones={
+          <Button onClick={() => setShowCreateDialog(true)} data-testid="create-group-btn">
+            <Plus className="w-4 h-4 mr-2" />
+            Nueva Reserva Grupal
+          </Button>
+        }
+      />
 
       {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <Card className="p-4">
-          <p className="text-sm text-zen-500">Total Grupos</p>
-          <p className="text-2xl font-bold">{stats.total}</p>
-        </Card>
-        <Card className="p-4">
-          <p className="text-sm text-zen-500">Confirmados</p>
-          <p className="text-2xl font-bold text-emerald-600">{stats.confirmed}</p>
-        </Card>
-        <Card className="p-4">
-          <p className="text-sm text-zen-500">Total Habitaciones</p>
-          <p className="text-2xl font-bold">{stats.totalRooms}</p>
-        </Card>
-        <Card className="p-4">
-          <p className="text-sm text-zen-500">Ingreso Estimado</p>
-          <p className="text-2xl font-bold">{formatCurrency(stats.totalRevenue)}</p>
-        </Card>
-      </div>
+      {loading ? (
+        <EsqueletoMetricas />
+      ) : (
+        <div className="escalonado grid grid-cols-2 gap-4 lg:grid-cols-4">
+          {metricas.map(({ rotulo, valor, icono: Icono, tono }) => (
+            <Card key={rotulo} className="p-4 sm:p-5">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-xs font-medium text-muted-foreground">{rotulo}</p>
+                  <p className={cn('mt-1 whitespace-nowrap text-2xl font-semibold tracking-tight tabular-nums', tonos[tono].valor)}>
+                    {valor}
+                  </p>
+                </div>
+                <span className={cn('grid h-9 w-9 shrink-0 place-items-center rounded-lg', tonos[tono].caja)}>
+                  <Icono className="h-4 w-4" aria-hidden="true" />
+                </span>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
 
       {/* Table */}
       <Card>
@@ -227,13 +246,9 @@ export function GroupReservations() {
               <TableHead className="text-right">Acciones</TableHead>
             </TableRow>
           </TableHeader>
-          <TableBody>
+          <TableBody className="escalonado">
             {loading ? (
-              <TableRow>
-                <TableCell colSpan={8} className="text-center py-8">
-                  <div className="w-6 h-6 border-2 border-zen-200 border-t-zen-turquesa rounded-full animate-spin mx-auto" />
-                </TableCell>
-              </TableRow>
+              <EsqueletoFilas filas={5} columnas={8} />
             ) : groups.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={8} className="p-0">
@@ -252,7 +267,7 @@ export function GroupReservations() {
                   <TableCell className="font-mono font-medium">{group.code}</TableCell>
                   <TableCell>
                     <div className="flex items-center gap-2">
-                      <Building className="w-4 h-4 text-zen-500" />
+                      <Building className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
                       <span className="font-medium">{group.group_name}</span>
                     </div>
                   </TableCell>
@@ -260,22 +275,22 @@ export function GroupReservations() {
                     <div className="text-sm">
                       <p>{group.contact_name}</p>
                       {group.contact_phone && (
-                        <p className="text-zen-500 flex items-center gap-1">
-                          <Phone className="w-3 h-3" /> {group.contact_phone}
+                        <p className="flex items-center gap-1 text-muted-foreground tabular-nums">
+                          <Phone className="h-3 w-3" aria-hidden="true" /> {group.contact_phone}
                         </p>
                       )}
                     </div>
                   </TableCell>
                   <TableCell>
-                    <div className="text-sm">
+                    <div className="whitespace-nowrap text-sm tabular-nums">
                       <p>{formatDate(group.checkin_date)}</p>
-                      <p className="text-zen-500">→ {formatDate(group.checkout_date)}</p>
+                      <p className="text-muted-foreground">→ {formatDate(group.checkout_date)}</p>
                     </div>
                   </TableCell>
                   <TableCell>
-                    <Badge variant="outline">{group.total_rooms} hab.</Badge>
+                    <Badge variant="outline" className="tabular-nums">{group.total_rooms} hab.</Badge>
                   </TableCell>
-                  <TableCell className="font-bold">
+                  <TableCell className="whitespace-nowrap font-semibold tabular-nums">
                     {formatCurrency(group.total_estimated)}
                   </TableCell>
                   <TableCell>
@@ -310,8 +325,8 @@ export function GroupReservations() {
             {/* Group Info */}
             <div>
               <h4 className="font-medium mb-3">Información del Grupo</h4>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="col-span-2">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="sm:col-span-2">
                   <Label>Nombre del Grupo / Evento *</Label>
                   <Input
                     value={formData.group_name}
@@ -336,7 +351,7 @@ export function GroupReservations() {
                     className="mt-1"
                   />
                 </div>
-                <div className="col-span-2">
+                <div className="sm:col-span-2">
                   <Label>Email</Label>
                   <Input
                     type="email"
@@ -351,7 +366,7 @@ export function GroupReservations() {
             {/* Dates */}
             <div>
               <h4 className="font-medium mb-3">Fechas</h4>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
                   <Label>Check-in *</Label>
                   <Input
@@ -388,7 +403,7 @@ export function GroupReservations() {
                       value={room.room_type_id}
                       onValueChange={(v) => updateRoomRow(index, 'room_type_id', v)}
                     >
-                      <SelectTrigger className="flex-1">
+                      <SelectTrigger className="min-w-0 flex-1">
                         <SelectValue placeholder="Tipo de habitación" />
                       </SelectTrigger>
                       <SelectContent>
@@ -404,12 +419,19 @@ export function GroupReservations() {
                       min="1"
                       value={room.quantity}
                       onChange={(e) => updateRoomRow(index, 'quantity', parseInt(e.target.value) || 1)}
-                      className="w-20"
+                      className="w-20 shrink-0"
                       placeholder="Cant."
+                      aria-label="Cantidad"
                     />
                     {formData.rooms.length > 1 && (
-                      <Button variant="ghost" size="sm" onClick={() => removeRoomRow(index)}>
-                        ×
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="shrink-0 text-muted-foreground hover:text-destructive"
+                        aria-label="Quitar habitación"
+                        onClick={() => removeRoomRow(index)}
+                      >
+                        <X className="h-4 w-4" />
                       </Button>
                     )}
                   </div>
@@ -418,7 +440,7 @@ export function GroupReservations() {
             </div>
 
             {/* Other */}
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
               <div>
                 <Label>Adultos</Label>
                 <Input
@@ -439,7 +461,7 @@ export function GroupReservations() {
                   className="mt-1"
                 />
               </div>
-              <div>
+              <div className="col-span-2 sm:col-span-1">
                 <Label>Depósito (S/)</Label>
                 <Input
                   type="number"
@@ -476,53 +498,53 @@ export function GroupReservations() {
 
       {/* Detail Dialog */}
       <Dialog open={showDetailDialog} onOpenChange={setShowDetailDialog}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Detalle de Reserva Grupal</DialogTitle>
           </DialogHeader>
           {selectedGroup && (
             <div className="space-y-6">
-              <div className="flex items-center justify-between p-4 bg-zen-50 rounded-lg">
-                <div>
-                  <p className="text-sm text-zen-500">Código</p>
-                  <p className="text-xl font-bold font-mono">{selectedGroup.code}</p>
+              <div className="flex items-center justify-between gap-3 rounded-lg bg-muted/60 p-4">
+                <div className="min-w-0">
+                  <p className="text-xs font-medium text-muted-foreground">Código</p>
+                  <p className="font-mono text-xl font-semibold tracking-tight">{selectedGroup.code}</p>
                 </div>
-                <Badge className={cn("badge", getStatusClass(selectedGroup.status))}>
+                <Badge className={cn("badge shrink-0", getStatusClass(selectedGroup.status))}>
                   {getStatusLabel(selectedGroup.status)}
                 </Badge>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <p className="text-sm text-zen-500">Grupo</p>
+                <div className="min-w-0">
+                  <p className="text-xs font-medium text-muted-foreground">Grupo</p>
                   <p className="font-medium">{selectedGroup.group_name}</p>
                 </div>
-                <div>
-                  <p className="text-sm text-zen-500">Contacto</p>
+                <div className="min-w-0">
+                  <p className="text-xs font-medium text-muted-foreground">Contacto</p>
                   <p className="font-medium">{selectedGroup.contact_name}</p>
                 </div>
                 <div>
-                  <p className="text-sm text-zen-500">Check-in</p>
-                  <p className="font-medium">{formatDate(selectedGroup.checkin_date)}</p>
+                  <p className="text-xs font-medium text-muted-foreground">Check-in</p>
+                  <p className="font-medium tabular-nums">{formatDate(selectedGroup.checkin_date)}</p>
                 </div>
                 <div>
-                  <p className="text-sm text-zen-500">Check-out</p>
-                  <p className="font-medium">{formatDate(selectedGroup.checkout_date)}</p>
+                  <p className="text-xs font-medium text-muted-foreground">Check-out</p>
+                  <p className="font-medium tabular-nums">{formatDate(selectedGroup.checkout_date)}</p>
                 </div>
                 <div>
-                  <p className="text-sm text-zen-500">Total Habitaciones</p>
-                  <p className="font-medium">{selectedGroup.total_rooms}</p>
+                  <p className="text-xs font-medium text-muted-foreground">Total Habitaciones</p>
+                  <p className="font-medium tabular-nums">{selectedGroup.total_rooms}</p>
                 </div>
                 <div>
-                  <p className="text-sm text-zen-500">Total Estimado</p>
-                  <p className="font-medium text-lg">{formatCurrency(selectedGroup.total_estimated)}</p>
+                  <p className="text-xs font-medium text-muted-foreground">Total Estimado</p>
+                  <p className="text-lg font-semibold tracking-tight tabular-nums">{formatCurrency(selectedGroup.total_estimated)}</p>
                 </div>
               </div>
 
-              {selectedGroup.reservation_details && selectedGroup.reservation_details.length > 0 && (
-                <div>
-                  <h4 className="font-medium mb-2">Reservas Individuales</h4>
-                  <div className="border rounded-lg overflow-hidden">
+              <div>
+                <h4 className="font-medium mb-2">Reservas Individuales</h4>
+                <div className="overflow-hidden rounded-lg border">
+                  {selectedGroup.reservation_details && selectedGroup.reservation_details.length > 0 ? (
                     <Table>
                       <TableHeader>
                         <TableRow>
@@ -532,7 +554,7 @@ export function GroupReservations() {
                           <TableHead>Total</TableHead>
                         </TableRow>
                       </TableHeader>
-                      <TableBody>
+                      <TableBody className="escalonado">
                         {selectedGroup.reservation_details.map(res => (
                           <TableRow key={res.id}>
                             <TableCell className="font-mono text-sm">{res.code}</TableCell>
@@ -540,14 +562,21 @@ export function GroupReservations() {
                             <TableCell>
                               <Badge variant="outline">{getStatusLabel(res.status)}</Badge>
                             </TableCell>
-                            <TableCell>{formatCurrency(res.total_estimated)}</TableCell>
+                            <TableCell className="whitespace-nowrap tabular-nums">{formatCurrency(res.total_estimated)}</TableCell>
                           </TableRow>
                         ))}
                       </TableBody>
                     </Table>
-                  </div>
+                  ) : (
+                    <EstadoVacio
+                      compacto
+                      icono={BedDouble}
+                      titulo="Sin reservas individuales"
+                      descripcion="Este grupo todavía no tiene habitaciones desglosadas."
+                    />
+                  )}
                 </div>
-              )}
+              </div>
             </div>
           )}
         </DialogContent>

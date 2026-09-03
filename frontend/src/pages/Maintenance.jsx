@@ -1,14 +1,18 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  Wrench, 
-  Plus, 
+import {
+  Wrench,
+  Plus,
   AlertTriangle,
   Clock,
   CheckCircle,
-  XCircle
+  XCircle,
+  Play,
+  ClipboardList
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
+import { EncabezadoPagina } from '../components/EncabezadoPagina';
 import { EstadoVacio } from '../components/EstadoVacio';
+import { EsqueletoFilas, EsqueletoMetricas } from '../components/Esqueleto';
 import { Input } from '../components/ui/input';
 import { Badge } from '../components/ui/badge';
 import { Card } from '../components/ui/card';
@@ -41,13 +45,20 @@ import { maintenanceAPI, roomsAPI } from '../lib/api';
 import { formatDateTime, getStatusLabel, getStatusClass, formatCurrency, cn } from '../lib/utils';
 import { toast } from 'sonner';
 
+// Un matiz por estado, y el mismo en icono, estadistica y fila:
+// abierto ambar, en progreso lima, resuelto turquesa, critico fucsia.
+const COLOR_AMBAR = 'text-[hsl(38_92%_30%)]';
+const COLOR_LIMA = 'text-[hsl(var(--acento-lima))]';
+const COLOR_TURQUESA = 'text-[hsl(var(--acento-turquesa))]';
+const COLOR_FUCSIA = 'text-[hsl(var(--acento-fucsia))]';
+
 export function Maintenance() {
   const [tickets, setTickets] = useState([]);
   const [rooms, setRooms] = useState([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('all');
   const [priorityFilter, setPriorityFilter] = useState('all');
-  
+
   // Create dialog
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [formData, setFormData] = useState({
@@ -68,7 +79,7 @@ export function Maintenance() {
       const params = {};
       if (statusFilter !== 'all') params.status = statusFilter;
       if (priorityFilter !== 'all') params.priority = priorityFilter;
-      
+
       const [ticketsRes, roomsRes] = await Promise.all([
         maintenanceAPI.list(params),
         roomsAPI.list()
@@ -124,18 +135,18 @@ export function Maintenance() {
 
   const getPriorityIcon = (priority) => {
     switch (priority) {
-      case 'CRITICAL': return <AlertTriangle className="w-4 h-4 text-rose-500" />;
-      case 'HIGH': return <AlertTriangle className="w-4 h-4 text-amber-500" />;
-      default: return <Wrench className="w-4 h-4 text-zen-500" />;
+      case 'CRITICAL': return <AlertTriangle className={cn('h-4 w-4', COLOR_FUCSIA)} aria-hidden="true" />;
+      case 'HIGH': return <AlertTriangle className={cn('h-4 w-4', COLOR_AMBAR)} aria-hidden="true" />;
+      default: return <Wrench className="h-4 w-4 text-muted-foreground" aria-hidden="true" />;
     }
   };
 
   const getStatusIcon = (status) => {
     switch (status) {
-      case 'OPEN': return <Clock className="w-4 h-4 text-amber-500" />;
-      case 'IN_PROGRESS': return <Wrench className="w-4 h-4 text-[hsl(var(--acento-oliva))]" />;
-      case 'RESOLVED': return <CheckCircle className="w-4 h-4 text-emerald-500" />;
-      case 'CANCELLED': return <XCircle className="w-4 h-4 text-zen-500" />;
+      case 'OPEN': return <Clock className={cn('h-4 w-4', COLOR_AMBAR)} aria-hidden="true" />;
+      case 'IN_PROGRESS': return <Wrench className={cn('h-4 w-4', COLOR_LIMA)} aria-hidden="true" />;
+      case 'RESOLVED': return <CheckCircle className={cn('h-4 w-4', COLOR_TURQUESA)} aria-hidden="true" />;
+      case 'CANCELLED': return <XCircle className="h-4 w-4 text-muted-foreground" aria-hidden="true" />;
       default: return null;
     }
   };
@@ -148,67 +159,84 @@ export function Maintenance() {
     critical: tickets.filter(t => t.priority === 'CRITICAL' && t.status !== 'RESOLVED').length,
   };
 
+  const metricas = [
+    { rotulo: 'Total Tickets', valor: stats.total, icono: ClipboardList, valorClase: 'text-foreground', caja: 'bg-muted text-muted-foreground' },
+    { rotulo: 'Pendientes', valor: stats.open, icono: Clock, valorClase: COLOR_AMBAR, caja: cn('bg-[hsl(38_92%_50%/.12)]', COLOR_AMBAR) },
+    { rotulo: 'En Progreso', valor: stats.inProgress, icono: Wrench, valorClase: COLOR_LIMA, caja: cn('bg-[hsl(var(--status-dirty)/.15)]', COLOR_LIMA) },
+    { rotulo: 'Críticos', valor: stats.critical, icono: AlertTriangle, valorClase: COLOR_FUCSIA, caja: cn('bg-[hsl(var(--status-occupied)/.10)]', COLOR_FUCSIA) },
+  ];
+
+  // Los filtros se aplican en el servidor: si hay alguno puesto, el vacio
+  // es "nada coincide", no "todavia no hay partes".
+  const hayFiltros = statusFilter !== 'all' || priorityFilter !== 'all';
+  const limpiarFiltros = () => { setStatusFilter('all'); setPriorityFilter('all'); };
+  const primeraCarga = loading && tickets.length === 0;
+
   return (
     <div className="space-y-6" data-testid="maintenance-page">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-zen-900">Mantenimiento</h1>
-          <p className="text-zen-500">Gestión de tickets de mantenimiento</p>
-        </div>
-        <Button onClick={() => setShowCreateDialog(true)} data-testid="create-ticket-btn">
-          <Plus className="w-4 h-4 mr-2" />
-          Nuevo Ticket
-        </Button>
-      </div>
+      <EncabezadoPagina
+        titulo="Mantenimiento"
+        subtitulo="Gestión de tickets de mantenimiento"
+        acciones={
+          <Button onClick={() => setShowCreateDialog(true)} data-testid="create-ticket-btn">
+            <Plus className="w-4 h-4 mr-2" />
+            Nuevo Ticket
+          </Button>
+        }
+      />
 
       {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <Card className="p-4">
-          <p className="text-sm text-zen-500">Total Tickets</p>
-          <p className="text-2xl font-bold">{stats.total}</p>
-        </Card>
-        <Card className="p-4">
-          <p className="text-sm text-zen-500">Pendientes</p>
-          <p className="text-2xl font-bold text-amber-600">{stats.open}</p>
-        </Card>
-        <Card className="p-4">
-          <p className="text-sm text-zen-500">En Progreso</p>
-          <p className="text-2xl font-bold text-[hsl(var(--acento-oliva))]">{stats.inProgress}</p>
-        </Card>
-        <Card className="p-4">
-          <p className="text-sm text-zen-500">Críticos</p>
-          <p className="text-2xl font-bold text-rose-600">{stats.critical}</p>
-        </Card>
-      </div>
+      {primeraCarga ? (
+        <EsqueletoMetricas />
+      ) : (
+        <div className="escalonado grid grid-cols-2 gap-4 lg:grid-cols-4">
+          {metricas.map(({ rotulo, valor, icono: Icono, valorClase, caja }) => (
+            <Card key={rotulo} className="p-4 sm:p-5">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-xs font-medium text-muted-foreground">{rotulo}</p>
+                  <p className={cn('mt-1 text-2xl font-semibold tracking-tight tabular-nums', valorClase)}>
+                    {valor}
+                  </p>
+                </div>
+                <span className={cn('grid h-9 w-9 shrink-0 place-items-center rounded-lg', caja)}>
+                  <Icono className="h-4 w-4" aria-hidden="true" />
+                </span>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
 
       {/* Filters */}
-      <div className="flex gap-4">
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-[150px]">
-            <SelectValue placeholder="Estado" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Todos</SelectItem>
-            <SelectItem value="OPEN">Abiertos</SelectItem>
-            <SelectItem value="IN_PROGRESS">En Progreso</SelectItem>
-            <SelectItem value="RESOLVED">Resueltos</SelectItem>
-            <SelectItem value="CANCELLED">Cancelados</SelectItem>
-          </SelectContent>
-        </Select>
-        <Select value={priorityFilter} onValueChange={setPriorityFilter}>
-          <SelectTrigger className="w-[150px]">
-            <SelectValue placeholder="Prioridad" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Todas</SelectItem>
-            <SelectItem value="CRITICAL">Crítica</SelectItem>
-            <SelectItem value="HIGH">Alta</SelectItem>
-            <SelectItem value="MEDIUM">Media</SelectItem>
-            <SelectItem value="LOW">Baja</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
+      <Card className="p-4">
+        <div className="grid grid-cols-2 gap-3 sm:flex sm:gap-4">
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="w-full sm:w-[150px]" aria-label="Filtrar por estado">
+              <SelectValue placeholder="Estado" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos</SelectItem>
+              <SelectItem value="OPEN">Abiertos</SelectItem>
+              <SelectItem value="IN_PROGRESS">En Progreso</SelectItem>
+              <SelectItem value="RESOLVED">Resueltos</SelectItem>
+              <SelectItem value="CANCELLED">Cancelados</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={priorityFilter} onValueChange={setPriorityFilter}>
+            <SelectTrigger className="w-full sm:w-[150px]" aria-label="Filtrar por prioridad">
+              <SelectValue placeholder="Prioridad" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todas</SelectItem>
+              <SelectItem value="CRITICAL">Crítica</SelectItem>
+              <SelectItem value="HIGH">Alta</SelectItem>
+              <SelectItem value="MEDIUM">Media</SelectItem>
+              <SelectItem value="LOW">Baja</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </Card>
 
       {/* Table */}
       <Card>
@@ -224,13 +252,9 @@ export function Maintenance() {
               <TableHead className="text-right">Acciones</TableHead>
             </TableRow>
           </TableHeader>
-          <TableBody>
+          <TableBody className="escalonado">
             {loading ? (
-              <TableRow>
-                <TableCell colSpan={7} className="text-center py-8">
-                  <div className="w-6 h-6 border-2 border-zen-200 border-t-zen-turquesa rounded-full animate-spin mx-auto" />
-                </TableCell>
-              </TableRow>
+              <EsqueletoFilas filas={5} columnas={7} />
             ) : tickets.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={7} className="p-0">
@@ -240,22 +264,22 @@ export function Maintenance() {
                     descripcion="Aquí se anota lo que se rompe: una ducha, un aire, una cerradura. Mientras el parte está abierto, la habitación puede quedar fuera de servicio."
                     accion="Abrir un parte"
                     onAccion={() => setShowCreateDialog(true)}
-                    filtrado={true}
-                    onLimpiar={() => { setStatusFilter('all'); setPriorityFilter('all'); }}
+                    filtrado={hayFiltros}
+                    onLimpiar={limpiarFiltros}
                   />
                 </TableCell>
               </TableRow>
             ) : (
               tickets.map((ticket) => (
                 <TableRow key={ticket.id}>
-                  <TableCell className="font-medium">
+                  <TableCell className="whitespace-nowrap font-medium tabular-nums">
                     Hab. {ticket.room?.number || '-'}
                   </TableCell>
                   <TableCell>
-                    <div>
+                    <div className="min-w-[12rem] max-w-xs">
                       <p className="font-medium">{ticket.title}</p>
                       {ticket.description && (
-                        <p className="text-xs text-zen-500 line-clamp-1">{ticket.description}</p>
+                        <p className="line-clamp-1 text-xs text-muted-foreground">{ticket.description}</p>
                       )}
                     </div>
                   </TableCell>
@@ -268,32 +292,36 @@ export function Maintenance() {
                     </div>
                   </TableCell>
                   <TableCell>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 whitespace-nowrap">
                       {getStatusIcon(ticket.status)}
                       <span className="text-sm">{getStatusLabel(ticket.status)}</span>
                     </div>
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="whitespace-nowrap tabular-nums">
                     {ticket.estimated_cost ? formatCurrency(ticket.estimated_cost) : '-'}
                   </TableCell>
-                  <TableCell className="text-sm">
+                  <TableCell className="whitespace-nowrap text-sm text-muted-foreground tabular-nums">
                     {formatDateTime(ticket.created_at)}
                   </TableCell>
                   <TableCell className="text-right">
                     {ticket.status === 'OPEN' && (
-                      <Button 
-                        size="sm" 
-                        variant="outline"
+                      <Button
+                        size="sm"
+                        variant="ghost"
                         onClick={() => handleUpdateStatus(ticket.id, 'IN_PROGRESS')}
                       >
+                        <Play className="h-4 w-4" />
                         Iniciar
                       </Button>
                     )}
                     {ticket.status === 'IN_PROGRESS' && (
-                      <Button 
+                      <Button
                         size="sm"
+                        variant="ghost"
+                        className={cn(COLOR_TURQUESA, 'hover:text-[hsl(var(--acento-turquesa))]')}
                         onClick={() => handleUpdateStatus(ticket.id, 'RESOLVED')}
                       >
+                        <CheckCircle className="h-4 w-4" />
                         Resolver
                       </Button>
                     )}
@@ -315,8 +343,8 @@ export function Maintenance() {
           <div className="space-y-4 py-4">
             <div>
               <Label>Habitación *</Label>
-              <Select 
-                value={formData.room_id} 
+              <Select
+                value={formData.room_id}
                 onValueChange={(v) => setFormData(prev => ({ ...prev, room_id: v }))}
               >
                 <SelectTrigger className="mt-1"><SelectValue placeholder="Seleccione habitación" /></SelectTrigger>
@@ -347,11 +375,11 @@ export function Maintenance() {
                 className="mt-1"
               />
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
                 <Label>Prioridad</Label>
-                <Select 
-                  value={formData.priority} 
+                <Select
+                  value={formData.priority}
                   onValueChange={(v) => setFormData(prev => ({ ...prev, priority: v }))}
                 >
                   <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>

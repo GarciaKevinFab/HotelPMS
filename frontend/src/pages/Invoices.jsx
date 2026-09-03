@@ -1,8 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  Plus, 
-  Search, 
-  Filter,
+import {
+  Search,
   FileText,
   Download,
   Eye,
@@ -10,13 +8,16 @@ import {
   XCircle,
   RefreshCw,
   Check,
-  AlertCircle
+  AlertCircle,
+  Banknote
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
+import { EncabezadoPagina } from '../components/EncabezadoPagina';
 import { EstadoVacio } from '../components/EstadoVacio';
+import { EsqueletoFilas, EsqueletoMetricas } from '../components/Esqueleto';
 import { Input } from '../components/ui/input';
 import { Badge } from '../components/ui/badge';
-import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
+import { Card } from '../components/ui/card';
 import { Label } from '../components/ui/label';
 import { Textarea } from '../components/ui/textarea';
 import {
@@ -60,11 +61,11 @@ export function Invoices() {
   const [searchQuery, setSearchQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
-  
+
   // Detail dialog
   const [showDetailDialog, setShowDetailDialog] = useState(false);
   const [selectedInvoice, setSelectedInvoice] = useState(null);
-  
+
   // Void dialog
   const [showVoidDialog, setShowVoidDialog] = useState(false);
   const [voidReason, setVoidReason] = useState('');
@@ -79,7 +80,7 @@ export function Invoices() {
       const params = {};
       if (typeFilter !== 'all') params.type = typeFilter;
       if (statusFilter !== 'all') params.status = statusFilter;
-      
+
       const response = await invoicesAPI.list(params);
       setInvoices(response.data);
     } catch (err) {
@@ -117,12 +118,14 @@ export function Invoices() {
     }
   };
 
+  // Mismo matiz que la insignia de getStatusClass, para que icono y texto
+  // cuenten lo mismo: aceptado turquesa, rechazado fucsia, pendiente ambar.
   const getStatusIcon = (status) => {
     switch (status) {
-      case 'ACCEPTED': return <Check className="w-4 h-4 text-emerald-500" />;
-      case 'REJECTED': return <XCircle className="w-4 h-4 text-rose-500" />;
-      case 'PENDING': return <RefreshCw className="w-4 h-4 text-amber-500" />;
-      default: return <AlertCircle className="w-4 h-4 text-zen-500" />;
+      case 'ACCEPTED': return <Check className="h-4 w-4 text-[hsl(var(--acento-turquesa))]" aria-hidden="true" />;
+      case 'REJECTED': return <XCircle className="h-4 w-4 text-[hsl(var(--acento-fucsia))]" aria-hidden="true" />;
+      case 'PENDING': return <RefreshCw className="h-4 w-4 text-[hsl(38_92%_30%)]" aria-hidden="true" />;
+      default: return <AlertCircle className="h-4 w-4 text-muted-foreground" aria-hidden="true" />;
     }
   };
 
@@ -144,45 +147,66 @@ export function Invoices() {
     totalAmount: invoices.filter(i => i.status === 'ACCEPTED').reduce((sum, i) => sum + (i.total || 0), 0)
   };
 
+  const metricas = [
+    { rotulo: 'Total Comprobantes', valor: stats.total, icono: FileText, tono: 'neutro' },
+    { rotulo: 'Aceptados', valor: stats.accepted, icono: Check, tono: 'turquesa' },
+    { rotulo: 'Rechazados', valor: stats.rejected, icono: XCircle, tono: 'fucsia' },
+    { rotulo: 'Monto Total Aceptado', valor: formatCurrency(stats.totalAmount), icono: Banknote, tono: 'neutro' },
+  ];
+
+  const tonos = {
+    neutro: { valor: 'text-foreground', caja: 'bg-muted text-muted-foreground' },
+    turquesa: { valor: 'text-[hsl(var(--acento-turquesa))]', caja: 'bg-[hsl(var(--status-vacant-clean)/.10)] text-[hsl(var(--acento-turquesa))]' },
+    fucsia: { valor: 'text-[hsl(var(--acento-fucsia))]', caja: 'bg-[hsl(var(--status-occupied)/.10)] text-[hsl(var(--acento-fucsia))]' },
+  };
+
+  // Tipo y estado se filtran en el servidor; la busqueda, aqui. Cualquiera
+  // de los tres activos convierte el vacio en "nada coincide".
+  const hayFiltros = searchQuery.trim() !== '' || typeFilter !== 'all' || statusFilter !== 'all';
+  const limpiarFiltros = () => { setSearchQuery(''); setTypeFilter('all'); setStatusFilter('all'); };
+  const primeraCarga = loading && invoices.length === 0;
+
   return (
     <div className="space-y-6" data-testid="invoices-page">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-zen-900">Facturación</h1>
-          <p className="text-zen-500">Gestión de comprobantes electrónicos</p>
-        </div>
-        <Button variant="outline" onClick={fetchInvoices}>
-          <RefreshCw className="w-4 h-4 mr-2" />
-          Actualizar
-        </Button>
-      </div>
+      <EncabezadoPagina
+        titulo="Facturación"
+        subtitulo="Gestión de comprobantes electrónicos"
+        acciones={
+          <Button variant="outline" onClick={fetchInvoices}>
+            <RefreshCw className="w-4 h-4 mr-2" />
+            Actualizar
+          </Button>
+        }
+      />
 
       {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <Card className="p-4">
-          <p className="text-sm text-zen-500">Total Comprobantes</p>
-          <p className="text-2xl font-bold">{stats.total}</p>
-        </Card>
-        <Card className="p-4">
-          <p className="text-sm text-zen-500">Aceptados</p>
-          <p className="text-2xl font-bold text-emerald-600">{stats.accepted}</p>
-        </Card>
-        <Card className="p-4">
-          <p className="text-sm text-zen-500">Rechazados</p>
-          <p className="text-2xl font-bold text-rose-600">{stats.rejected}</p>
-        </Card>
-        <Card className="p-4">
-          <p className="text-sm text-zen-500">Monto Total Aceptado</p>
-          <p className="text-2xl font-bold">{formatCurrency(stats.totalAmount)}</p>
-        </Card>
-      </div>
+      {primeraCarga ? (
+        <EsqueletoMetricas />
+      ) : (
+        <div className="escalonado grid grid-cols-2 gap-4 lg:grid-cols-4">
+          {metricas.map(({ rotulo, valor, icono: Icono, tono }) => (
+            <Card key={rotulo} className="p-4 sm:p-5">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-xs font-medium text-muted-foreground">{rotulo}</p>
+                  <p className={cn('mt-1 whitespace-nowrap text-2xl font-semibold tracking-tight tabular-nums', tonos[tono].valor)}>
+                    {valor}
+                  </p>
+                </div>
+                <span className={cn('grid h-9 w-9 shrink-0 place-items-center rounded-lg', tonos[tono].caja)}>
+                  <Icono className="h-4 w-4" aria-hidden="true" />
+                </span>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
 
       {/* Filters */}
       <Card className="p-4">
-        <div className="flex flex-col sm:flex-row gap-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:gap-4">
           <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zen-500" />
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
             <Input
               aria-label="Buscar comprobante por número o cliente"
               placeholder="Buscar por número, cliente..."
@@ -191,28 +215,30 @@ export function Invoices() {
               className="pl-10"
             />
           </div>
-          <Select value={typeFilter} onValueChange={setTypeFilter}>
-            <SelectTrigger className="w-[150px]">
-              <SelectValue placeholder="Tipo" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todos</SelectItem>
-              <SelectItem value="BOLETA">Boleta</SelectItem>
-              <SelectItem value="FACTURA">Factura</SelectItem>
-            </SelectContent>
-          </Select>
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-[150px]">
-              <SelectValue placeholder="Estado" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todos</SelectItem>
-              <SelectItem value="ACCEPTED">Aceptados</SelectItem>
-              <SelectItem value="REJECTED">Rechazados</SelectItem>
-              <SelectItem value="PENDING">Pendientes</SelectItem>
-              <SelectItem value="VOIDED">Anulados</SelectItem>
-            </SelectContent>
-          </Select>
+          <div className="grid grid-cols-2 gap-3 sm:flex sm:gap-4">
+            <Select value={typeFilter} onValueChange={setTypeFilter}>
+              <SelectTrigger className="w-full sm:w-[150px]" aria-label="Filtrar por tipo">
+                <SelectValue placeholder="Tipo" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos</SelectItem>
+                <SelectItem value="BOLETA">Boleta</SelectItem>
+                <SelectItem value="FACTURA">Factura</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="w-full sm:w-[150px]" aria-label="Filtrar por estado">
+                <SelectValue placeholder="Estado" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos</SelectItem>
+                <SelectItem value="ACCEPTED">Aceptados</SelectItem>
+                <SelectItem value="REJECTED">Rechazados</SelectItem>
+                <SelectItem value="PENDING">Pendientes</SelectItem>
+                <SelectItem value="VOIDED">Anulados</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         </div>
       </Card>
 
@@ -229,13 +255,9 @@ export function Invoices() {
               <TableHead className="text-right">Acciones</TableHead>
             </TableRow>
           </TableHeader>
-          <TableBody>
+          <TableBody className="escalonado">
             {loading ? (
-              <TableRow>
-                <TableCell colSpan={6} className="text-center py-8">
-                  <div className="w-6 h-6 border-2 border-zen-200 border-t-zen-turquesa rounded-full animate-spin mx-auto" />
-                </TableCell>
-              </TableRow>
+              <EsqueletoFilas filas={6} columnas={6} />
             ) : filteredInvoices.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={6} className="p-0">
@@ -243,8 +265,8 @@ export function Invoices() {
                     icono={FileText}
                     titulo="Todavía no hay comprobantes"
                     descripcion="Se emiten al cerrar la cuenta de una estancia. Boleta o factura, según lo que pida el huésped."
-                    filtrado={true}
-                    onLimpiar={() => { setSearchQuery(''); setTypeFilter('all'); setStatusFilter('all'); }}
+                    filtrado={hayFiltros}
+                    onLimpiar={limpiarFiltros}
                   />
                 </TableCell>
               </TableRow>
@@ -253,32 +275,35 @@ export function Invoices() {
                 <TableRow key={invoice.id}>
                   <TableCell>
                     <div className="flex items-center gap-3">
-                      <div className={cn(
-                        "w-10 h-10 rounded-lg flex items-center justify-center text-white font-bold text-xs",
-                        invoice.type === 'BOLETA'
-                          ? 'bg-[hsl(var(--acento-turquesa))]'
-                          : 'bg-[hsl(var(--acento-oliva))]'
-                      )}>
+                      <div
+                        className={cn(
+                          'grid h-10 w-10 shrink-0 place-items-center rounded-lg text-xs font-bold text-white',
+                          invoice.type === 'BOLETA'
+                            ? 'bg-[hsl(var(--acento-turquesa))]'
+                            : 'bg-[hsl(var(--acento-oliva))]'
+                        )}
+                        aria-hidden="true"
+                      >
                         {invoice.type === 'BOLETA' ? 'B' : 'F'}
                       </div>
-                      <div>
-                        <p className="font-medium">{invoice.series}-{String(invoice.number).padStart(8, '0')}</p>
-                        <p className="text-xs text-zen-500">{getStatusLabel(invoice.type)}</p>
+                      <div className="min-w-0">
+                        <p className="whitespace-nowrap font-medium tabular-nums">{invoice.series}-{String(invoice.number).padStart(8, '0')}</p>
+                        <p className="text-xs text-muted-foreground">{getStatusLabel(invoice.type)}</p>
                       </div>
                     </div>
                   </TableCell>
-                  <TableCell className="text-sm">
+                  <TableCell className="whitespace-nowrap text-sm tabular-nums">
                     {formatDate(invoice.issued_at)}
                   </TableCell>
                   <TableCell>
                     <div>
-                      <p className="font-medium text-sm">{invoice.client_name}</p>
-                      <p className="text-xs text-zen-500">
+                      <p className="text-sm font-medium">{invoice.client_name}</p>
+                      <p className="text-xs text-muted-foreground tabular-nums">
                         {invoice.client_doc_type}: {invoice.client_doc_number}
                       </p>
                     </div>
                   </TableCell>
-                  <TableCell className="font-medium">
+                  <TableCell className="whitespace-nowrap font-semibold tabular-nums">
                     {formatCurrency(invoice.total)}
                   </TableCell>
                   <TableCell>
@@ -292,7 +317,7 @@ export function Invoices() {
                   <TableCell className="text-right">
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon">
+                        <Button variant="ghost" size="icon" aria-label="Acciones del comprobante">
                           <MoreHorizontal className="w-4 h-4" />
                         </Button>
                       </DropdownMenuTrigger>
@@ -308,8 +333,8 @@ export function Invoices() {
                           </DropdownMenuItem>
                         )}
                         {isAdmin && invoice.status === 'ACCEPTED' && (
-                          <DropdownMenuItem 
-                            className="text-red-600"
+                          <DropdownMenuItem
+                            className="text-destructive focus:text-destructive"
                             onClick={() => {
                               setSelectedInvoice(invoice);
                               setShowVoidDialog(true);
@@ -331,30 +356,30 @@ export function Invoices() {
 
       {/* Detail Dialog */}
       <Dialog open={showDetailDialog} onOpenChange={setShowDetailDialog}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Detalle del Comprobante</DialogTitle>
           </DialogHeader>
-          
+
           {selectedInvoice && (
             <div className="space-y-6">
               {/* Header info */}
-              <div className="grid grid-cols-2 gap-4 p-4 bg-zen-50 rounded-lg">
+              <div className="grid grid-cols-2 gap-4 rounded-lg bg-muted/60 p-4">
                 <div>
-                  <p className="text-sm text-zen-500">Tipo</p>
+                  <p className="text-xs font-medium text-muted-foreground">Tipo</p>
                   <p className="font-medium">{getStatusLabel(selectedInvoice.type)}</p>
                 </div>
                 <div>
-                  <p className="text-sm text-zen-500">Número</p>
-                  <p className="font-medium">{selectedInvoice.series}-{String(selectedInvoice.number).padStart(8, '0')}</p>
+                  <p className="text-xs font-medium text-muted-foreground">Número</p>
+                  <p className="font-medium tabular-nums">{selectedInvoice.series}-{String(selectedInvoice.number).padStart(8, '0')}</p>
                 </div>
                 <div>
-                  <p className="text-sm text-zen-500">Fecha Emisión</p>
-                  <p className="font-medium">{formatDateTime(selectedInvoice.issued_at)}</p>
+                  <p className="text-xs font-medium text-muted-foreground">Fecha Emisión</p>
+                  <p className="font-medium tabular-nums">{formatDateTime(selectedInvoice.issued_at)}</p>
                 </div>
                 <div>
-                  <p className="text-sm text-zen-500">Estado</p>
-                  <Badge className={cn("badge", getStatusClass(selectedInvoice.status))}>
+                  <p className="text-xs font-medium text-muted-foreground">Estado</p>
+                  <Badge className={cn("badge mt-0.5", getStatusClass(selectedInvoice.status))}>
                     {getStatusLabel(selectedInvoice.status)}
                   </Badge>
                 </div>
@@ -363,18 +388,18 @@ export function Invoices() {
               {/* Client info */}
               <div>
                 <h4 className="font-medium mb-2">Datos del Cliente</h4>
-                <div className="grid grid-cols-2 gap-4 p-4 border rounded-lg">
-                  <div>
-                    <p className="text-sm text-zen-500">Nombre/Razón Social</p>
+                <div className="grid grid-cols-1 gap-4 rounded-lg border p-4 sm:grid-cols-2">
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium text-muted-foreground">Nombre/Razón Social</p>
                     <p className="font-medium">{selectedInvoice.client_name}</p>
                   </div>
-                  <div>
-                    <p className="text-sm text-zen-500">Documento</p>
-                    <p className="font-medium">{selectedInvoice.client_doc_type}: {selectedInvoice.client_doc_number}</p>
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium text-muted-foreground">Documento</p>
+                    <p className="font-medium tabular-nums">{selectedInvoice.client_doc_type}: {selectedInvoice.client_doc_number}</p>
                   </div>
                   {selectedInvoice.client_address && (
-                    <div className="col-span-2">
-                      <p className="text-sm text-zen-500">Dirección</p>
+                    <div className="min-w-0 sm:col-span-2">
+                      <p className="text-xs font-medium text-muted-foreground">Dirección</p>
                       <p className="font-medium">{selectedInvoice.client_address}</p>
                     </div>
                   )}
@@ -384,16 +409,16 @@ export function Invoices() {
               {/* Amounts */}
               <div>
                 <h4 className="font-medium mb-2">Montos</h4>
-                <div className="p-4 border rounded-lg space-y-2">
+                <div className="space-y-2 rounded-lg border p-4 tabular-nums">
                   <div className="flex justify-between">
-                    <span className="text-zen-600">Subtotal:</span>
+                    <span className="text-muted-foreground">Subtotal:</span>
                     <span>{formatCurrency(selectedInvoice.subtotal)}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-zen-600">IGV (18%):</span>
+                    <span className="text-muted-foreground">IGV (18%):</span>
                     <span>{formatCurrency(selectedInvoice.igv)}</span>
                   </div>
-                  <div className="flex justify-between font-bold text-lg border-t pt-2">
+                  <div className="flex justify-between border-t pt-2 text-lg font-semibold">
                     <span>Total:</span>
                     <span>{formatCurrency(selectedInvoice.total)}</span>
                   </div>
@@ -404,17 +429,19 @@ export function Invoices() {
               {selectedInvoice.nubefact_response && (
                 <div>
                   <h4 className="font-medium mb-2">Respuesta SUNAT</h4>
-                  <div className="p-4 bg-zen-50 rounded-lg text-sm">
+                  <div className="rounded-lg bg-muted/60 p-4 text-sm">
                     <p><strong>Descripción:</strong> {selectedInvoice.nubefact_response.sunat_description}</p>
                     {selectedInvoice.hash && (
-                      <p className="mt-2"><strong>Hash:</strong> {selectedInvoice.hash}</p>
+                      // break-all: el hash es una cadena sin espacios que a
+                      // 390 px desbordaba el dialogo.
+                      <p className="mt-2 break-all"><strong>Hash:</strong> <span className="font-mono text-xs">{selectedInvoice.hash}</span></p>
                     )}
                   </div>
                 </div>
               )}
 
               {/* Download links */}
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 {selectedInvoice.pdf_url && (
                   <Button variant="outline" onClick={() => window.open(selectedInvoice.pdf_url, '_blank')}>
                     <FileText className="w-4 h-4 mr-2" />
