@@ -7,6 +7,7 @@ import AppLayout from './components/layout/AppLayout';
 
 // Pages
 import Login from './pages/Login';
+import Registro from './pages/Registro';
 import Dashboard from './pages/Dashboard';
 import RoomCalendar from './pages/RoomCalendar';
 import Reservations from './pages/Reservations';
@@ -31,15 +32,16 @@ function App() {
   return (
     <AuthProvider>
       {/*
-        La aplicacion vive bajo /app: la raiz del dominio la ocupa la landing,
-        que es HTML estatico servido por el backend (ver servir_web en
-        server.py). Sin este basename, cada enlace interno apuntaria a la raiz
-        y sacaria al usuario del sistema hacia la pagina comercial.
+        La aplicacion vive en la raiz del dominio (/login, /dashboard...) y la
+        landing comercial en / y sus paginas legales: las reparte servir_web en
+        server.py. Hasta septiembre de 2026 vivio bajo /app; el backend redirige
+        con 301 las rutas viejas.
       */}
-      <BrowserRouter basename="/app">
+      <BrowserRouter>
         <Routes>
           {/* Public routes */}
           <Route path="/login" element={<Login />} />
+          <Route path="/registro" element={<Registro />} />
           
           {/* Protected routes */}
           <Route element={<AppLayout />}>
