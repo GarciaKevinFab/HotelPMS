@@ -1,14 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  Settings as SettingsIcon, 
-  Building2, 
-  Receipt, 
+import {
+  Building2,
+  Receipt,
   Users,
   Save,
   Eye,
   EyeOff,
   AlertTriangle,
-  CheckCircle
+  CheckCircle,
+  UserRound,
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -18,9 +18,31 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs'
 import { Switch } from '../components/ui/switch';
 import { Badge } from '../components/ui/badge';
 import { Separator } from '../components/ui/separator';
+import { EncabezadoPagina } from '../components/EncabezadoPagina';
+import { EstadoVacio } from '../components/EstadoVacio';
+import { EsqueletoBloque } from '../components/Esqueleto';
 import { tenantsAPI, usersAPI } from '../lib/api';
 import { toast } from 'sonner';
 import { useAuth } from '../contexts/AuthContext';
+
+/* Misma jerarquia en las tres pestanas: titulo de seccion en font-heading,
+   descripcion en gris, y un solo boton turquesa por formulario. */
+const TITULO_SECCION = 'font-heading flex items-center gap-2 text-base font-semibold';
+const DESCRIPCION_SECCION = 'text-sm text-muted-foreground';
+
+/* El <select> nativo del rol se viste como los Input de shadcn para que no
+   desentone en la rejilla; 44 px de alto en el telefono como el resto. */
+const SELECT_NATIVO =
+  'flex h-11 w-full rounded-md border border-input bg-card px-3 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 sm:h-9';
+
+function Dato({ rotulo, valor }) {
+  return (
+    <div className="min-w-0">
+      <dt className="text-xs font-medium text-muted-foreground">{rotulo}</dt>
+      <dd className="mt-1 break-words text-sm font-medium text-foreground">{valor}</dd>
+    </div>
+  );
+}
 
 export function Settings() {
   const { user, isAdmin, isSuperAdmin } = useAuth();
@@ -28,7 +50,7 @@ export function Settings() {
   const [saving, setSaving] = useState(false);
   const [tenant, setTenant] = useState(null);
   const [users, setUsers] = useState([]);
-  
+
   // Invoicing config
   const [invoicingConfig, setInvoicingConfig] = useState({
     nubefact_ruta: '',
@@ -36,7 +58,7 @@ export function Settings() {
     mode: 'MOCK'
   });
   const [showToken, setShowToken] = useState(false);
-  
+
   // User form
   const [showUserForm, setShowUserForm] = useState(false);
   const [newUser, setNewUser] = useState({
@@ -56,7 +78,7 @@ export function Settings() {
       if (user?.tenant_id) {
         const tenantRes = await tenantsAPI.get(user.tenant_id);
         setTenant(tenantRes.data);
-        
+
         // La configuracion de facturacion viene en campos planos del hotel.
         // Antes llegaba anidada en `invoicing_config` Y duplicada en la raiz;
         // con Postgres existe una sola vez, que es la que consulta el codigo
@@ -72,7 +94,7 @@ export function Settings() {
           mode: tenantRes.data.invoicing_mode || 'MOCK'
         });
       }
-      
+
       if (isAdmin) {
         const usersRes = await usersAPI.list();
         setUsers(usersRes.data);
@@ -138,106 +160,105 @@ export function Settings() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-96">
-        <div className="w-8 h-8 border-4 border-zen-200 border-t-zen-turquesa rounded-full animate-spin" />
+      <div className="space-y-6" data-testid="settings-page">
+        <EncabezadoPagina titulo="Configuración" subtitulo="Ajustes del sistema y facturación" />
+        <EsqueletoBloque lineas={6} />
       </div>
     );
   }
 
+  const enProduccion = Boolean(invoicingConfig.nubefact_token);
+
   return (
     <div className="space-y-6" data-testid="settings-page">
-      {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-zen-900">Configuración</h1>
-        <p className="text-zen-500">Ajustes del sistema y facturación</p>
-      </div>
+      <EncabezadoPagina titulo="Configuración" subtitulo="Ajustes del sistema y facturación" />
 
       <Tabs defaultValue="invoicing" className="space-y-6">
-        <TabsList>
-          <TabsTrigger value="invoicing" className="gap-2">
-            <Receipt className="w-4 h-4" />
+        {/* En el telefono las pestanas reparten el ancho; tres botones de
+            ancho natural no cabian y la lista se cortaba. */}
+        <TabsList className={isAdmin ? 'grid h-auto w-full grid-cols-3 sm:inline-grid sm:w-auto' : 'grid h-auto w-full grid-cols-2 sm:inline-grid sm:w-auto'}>
+          <TabsTrigger value="invoicing" className="min-h-[40px] gap-2">
+            <Receipt className="h-4 w-4 shrink-0" />
             Facturación
           </TabsTrigger>
-          <TabsTrigger value="hotel" className="gap-2">
-            <Building2 className="w-4 h-4" />
+          <TabsTrigger value="hotel" className="min-h-[40px] gap-2">
+            <Building2 className="h-4 w-4 shrink-0" />
             Hotel
           </TabsTrigger>
           {isAdmin && (
-            <TabsTrigger value="users" className="gap-2">
-              <Users className="w-4 h-4" />
+            <TabsTrigger value="users" className="min-h-[40px] gap-2">
+              <Users className="h-4 w-4 shrink-0" />
               Usuarios
             </TabsTrigger>
           )}
         </TabsList>
 
         {/* Invoicing Tab */}
-        <TabsContent value="invoicing">
-          <Card>
+        <TabsContent value="invoicing" className="animate-slide-in-up">
+          <Card className="shadow-sm">
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Receipt className="w-5 h-5" />
+              <CardTitle className={TITULO_SECCION}>
+                <Receipt className="h-5 w-5 shrink-0 text-muted-foreground" />
                 Configuración NubeFact
               </CardTitle>
-              <CardDescription>
+              <CardDescription className={DESCRIPCION_SECCION}>
                 Configure la integración con SUNAT para facturación electrónica
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
               {/* Mode indicator */}
-              <div className="flex items-center justify-between p-4 rounded-lg bg-zen-50">
-                <div className="flex items-center gap-3">
-                  {invoicingConfig.nubefact_token ? (
-                    <>
-                      <CheckCircle className="w-5 h-5 text-emerald-500" />
-                      <div>
-                        <p className="font-medium">Modo Producción</p>
-                        <p className="text-sm text-zen-500">Facturas enviadas a SUNAT</p>
-                      </div>
-                    </>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-start gap-3">
+                  {enProduccion ? (
+                    <CheckCircle className="mt-0.5 h-5 w-5 shrink-0 text-[hsl(var(--acento-turquesa))]" aria-hidden="true" />
                   ) : (
-                    <>
-                      <AlertTriangle className="w-5 h-5 text-amber-500" />
-                      <div>
-                        <p className="font-medium">Modo Pruebas (MOCK)</p>
-                        <p className="text-sm text-zen-500">Facturas simuladas, no enviadas a SUNAT</p>
-                      </div>
-                    </>
+                    <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-[hsl(var(--chart-3))]" aria-hidden="true" />
                   )}
+                  <div>
+                    <p className="text-sm font-medium">
+                      {enProduccion ? 'Modo Producción' : 'Modo Pruebas (MOCK)'}
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      {enProduccion ? 'Facturas enviadas a SUNAT' : 'Facturas simuladas, no enviadas a SUNAT'}
+                    </p>
+                  </div>
                 </div>
-                <Badge variant={invoicingConfig.nubefact_token ? 'default' : 'secondary'}>
-                  {invoicingConfig.nubefact_token ? 'LIVE' : 'MOCK'}
+                <Badge
+                  variant="outline"
+                  className={enProduccion ? 'status-vacant-clean self-start sm:self-auto' : 'status-dirty self-start sm:self-auto'}
+                >
+                  {enProduccion ? 'LIVE' : 'MOCK'}
                 </Badge>
               </div>
 
               <Separator />
 
               {/* API Configuration */}
-              <div className="space-y-4">
-                <div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
                   <Label htmlFor="nubefact_ruta">URL de la API (Ruta)</Label>
                   <Input
                     id="nubefact_ruta"
                     value={invoicingConfig.nubefact_ruta}
                     onChange={(e) => setInvoicingConfig(prev => ({ ...prev, nubefact_ruta: e.target.value }))}
                     placeholder="https://api.nubefact.com/api/v1/..."
-                    className="mt-2"
                     data-testid="nubefact-ruta-input"
                   />
-                  <p className="text-xs text-zen-500 mt-1">
+                  <p className="text-xs text-muted-foreground">
                     La URL proporcionada por NubeFact para su cuenta
                   </p>
                 </div>
 
-                <div>
+                <div className="space-y-2">
                   <Label htmlFor="nubefact_token">Token de Autenticación</Label>
-                  <div className="relative mt-2">
+                  <div className="relative">
                     <Input
                       id="nubefact_token"
                       type={showToken ? 'text' : 'password'}
                       value={invoicingConfig.nubefact_token}
                       onChange={(e) => setInvoicingConfig(prev => ({ ...prev, nubefact_token: e.target.value }))}
                       placeholder="••••••••••••••••"
-                      className="pr-10"
+                      className="pr-12"
                       data-testid="nubefact-token-input"
                     />
                     {/* Era un boton mudo: solo un ojo, sin nombre, asi que con
@@ -248,20 +269,20 @@ export function Settings() {
                       variant="ghost"
                       size="sm"
                       aria-label={showToken ? 'Ocultar el token' : 'Mostrar el token'}
-                      className="absolute right-0 top-0 h-full px-4"
+                      className="absolute right-0 top-0 h-full px-4 text-muted-foreground"
                       onClick={() => setShowToken(!showToken)}
                     >
                       {showToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </Button>
                   </div>
-                  <p className="text-xs text-zen-500 mt-1">
+                  <p className="text-xs text-muted-foreground">
                     El token de su cuenta NubeFact. Nunca compartir este valor.
                   </p>
                 </div>
               </div>
 
-              <div className="flex justify-end pt-4">
-                <Button onClick={handleSaveInvoicing} disabled={saving} data-testid="save-invoicing-btn">
+              <div className="flex justify-end pt-2">
+                <Button className="w-full sm:w-auto" onClick={handleSaveInvoicing} disabled={saving} data-testid="save-invoicing-btn">
                   <Save className="w-4 h-4 mr-2" />
                   {saving ? 'Guardando...' : 'Guardar Configuración'}
                 </Button>
@@ -271,44 +292,34 @@ export function Settings() {
         </TabsContent>
 
         {/* Hotel Tab */}
-        <TabsContent value="hotel">
-          <Card>
+        <TabsContent value="hotel" className="animate-slide-in-up">
+          <Card className="shadow-sm">
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Building2 className="w-5 h-5" />
+              <CardTitle className={TITULO_SECCION}>
+                <Building2 className="h-5 w-5 shrink-0 text-muted-foreground" />
                 Información del Hotel
               </CardTitle>
+              <CardDescription className={DESCRIPCION_SECCION}>
+                Datos fiscales y de contacto que aparecen en los comprobantes
+              </CardDescription>
             </CardHeader>
             <CardContent>
               {tenant ? (
-                <div className="grid grid-cols-2 gap-6">
-                  <div>
-                    <Label className="text-zen-500">Razón Social</Label>
-                    <p className="font-medium mt-1">{tenant.name}</p>
-                  </div>
-                  <div>
-                    <Label className="text-zen-500">Nombre Comercial</Label>
-                    <p className="font-medium mt-1">{tenant.nombre_comercial || '-'}</p>
-                  </div>
-                  <div>
-                    <Label className="text-zen-500">RUC</Label>
-                    <p className="font-medium mt-1">{tenant.ruc}</p>
-                  </div>
-                  <div>
-                    <Label className="text-zen-500">Dirección</Label>
-                    <p className="font-medium mt-1">{tenant.address || '-'}</p>
-                  </div>
-                  <div>
-                    <Label className="text-zen-500">Teléfono</Label>
-                    <p className="font-medium mt-1">{tenant.phone || '-'}</p>
-                  </div>
-                  <div>
-                    <Label className="text-zen-500">Email</Label>
-                    <p className="font-medium mt-1">{tenant.email || '-'}</p>
-                  </div>
-                </div>
+                <dl className="escalonado grid gap-4 sm:grid-cols-2">
+                  <Dato rotulo="Razón Social" valor={tenant.name} />
+                  <Dato rotulo="Nombre Comercial" valor={tenant.nombre_comercial || '-'} />
+                  <Dato rotulo="RUC" valor={<span className="font-mono">{tenant.ruc}</span>} />
+                  <Dato rotulo="Dirección" valor={tenant.address || '-'} />
+                  <Dato rotulo="Teléfono" valor={tenant.phone || '-'} />
+                  <Dato rotulo="Email" valor={tenant.email || '-'} />
+                </dl>
               ) : (
-                <p className="text-zen-500">No hay información del hotel disponible</p>
+                <EstadoVacio
+                  compacto
+                  icono={Building2}
+                  titulo="No hay información del hotel disponible"
+                  descripcion="Los datos del hotel los carga el administrador del sistema al darlo de alta. Si cree que falta algo, escríbale."
+                />
               )}
             </CardContent>
           </Card>
@@ -316,62 +327,72 @@ export function Settings() {
 
         {/* Users Tab */}
         {isAdmin && (
-          <TabsContent value="users">
-            <Card>
+          <TabsContent value="users" className="animate-slide-in-up">
+            <Card className="shadow-sm">
               <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <CardTitle className="flex items-center gap-2">
-                      <Users className="w-5 h-5" />
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="min-w-0">
+                    <CardTitle className={TITULO_SECCION}>
+                      <Users className="h-5 w-5 shrink-0 text-muted-foreground" />
                       Usuarios del Sistema
                     </CardTitle>
-                    <CardDescription>
+                    <CardDescription className={`mt-1.5 ${DESCRIPCION_SECCION}`}>
                       Gestione los usuarios con acceso al sistema
                     </CardDescription>
                   </div>
-                  <Button onClick={() => setShowUserForm(true)} data-testid="add-user-btn">
+                  <Button
+                    className="w-full sm:w-auto sm:shrink-0"
+                    variant={showUserForm ? 'outline' : 'default'}
+                    onClick={() => setShowUserForm(true)}
+                    data-testid="add-user-btn"
+                  >
                     Nuevo Usuario
                   </Button>
                 </div>
               </CardHeader>
               <CardContent>
-                {/* New User Form */}
+                {/* New User Form: sin caja propia dentro de la tarjeta; lo
+                    separa una linea, y el unico boton turquesa es "Crear". */}
                 {showUserForm && (
-                  <div className="mb-6 p-4 border rounded-lg bg-zen-50">
-                    <h4 className="font-medium mb-4">Crear Nuevo Usuario</h4>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <Label>Nombre Completo</Label>
+                  <div className="animate-slide-in-up mb-6">
+                    <h4 className="font-heading text-base font-semibold">Crear Nuevo Usuario</h4>
+                    <p className={`mt-1 ${DESCRIPCION_SECCION}`}>
+                      Recibirá acceso con la contraseña que defina aquí.
+                    </p>
+                    <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label htmlFor="nuevo-usuario-nombre">Nombre Completo</Label>
                         <Input
+                          id="nuevo-usuario-nombre"
                           value={newUser.full_name}
                           onChange={(e) => setNewUser(prev => ({ ...prev, full_name: e.target.value }))}
-                          className="mt-1"
                         />
                       </div>
-                      <div>
-                        <Label>Email</Label>
+                      <div className="space-y-2">
+                        <Label htmlFor="nuevo-usuario-email">Email</Label>
                         <Input
+                          id="nuevo-usuario-email"
                           type="email"
                           value={newUser.email}
                           onChange={(e) => setNewUser(prev => ({ ...prev, email: e.target.value }))}
-                          className="mt-1"
                         />
                       </div>
-                      <div>
-                        <Label>Contraseña</Label>
+                      <div className="space-y-2">
+                        <Label htmlFor="nuevo-usuario-password">Contraseña</Label>
                         <Input
+                          id="nuevo-usuario-password"
                           type="password"
                           value={newUser.password}
                           onChange={(e) => setNewUser(prev => ({ ...prev, password: e.target.value }))}
-                          className="mt-1"
                         />
                       </div>
-                      <div>
-                        <Label>Rol</Label>
+                      <div className="space-y-2">
+                        <Label htmlFor="nuevo-usuario-rol">Rol</Label>
                         <select
+                          id="nuevo-usuario-rol"
                           value={newUser.role}
                           onChange={(e) => setNewUser(prev => ({ ...prev, role: e.target.value }))}
-                          className="mt-1 w-full px-3 py-2 border rounded-md"
+                          className={SELECT_NATIVO}
                         >
                           <option value="RECEPTIONIST">Recepcionista</option>
                           <option value="HOUSEKEEPING">Limpieza</option>
@@ -379,7 +400,7 @@ export function Settings() {
                         </select>
                       </div>
                     </div>
-                    <div className="flex justify-end gap-2 mt-4">
+                    <div className="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
                       <Button variant="outline" onClick={() => setShowUserForm(false)}>
                         Cancelar
                       </Button>
@@ -387,42 +408,55 @@ export function Settings() {
                         Crear Usuario
                       </Button>
                     </div>
+                    <Separator className="mt-6" />
                   </div>
                 )}
 
                 {/* Users List */}
-                <div className="space-y-3">
-                  {users.map(u => (
-                    <div key={u.id} className="flex items-center justify-between p-4 border rounded-lg">
-                      <div className="flex items-center gap-4">
-                        <div className="w-10 h-10 bg-zen-100 rounded-full flex items-center justify-center">
-                          <Users className="w-5 h-5 text-zen-500" />
+                {users.length === 0 ? (
+                  <EstadoVacio
+                    icono={Users}
+                    titulo="No hay usuarios registrados"
+                    descripcion="Cree la primera cuenta para recepción o limpieza; cada persona entra con su propio usuario y queda registrada en lo que hace."
+                    accion="Nuevo Usuario"
+                    onAccion={() => setShowUserForm(true)}
+                  />
+                ) : (
+                  <ul className="escalonado divide-y divide-border">
+                    {users.map(u => (
+                      <li key={u.id} className="flex flex-col gap-3 py-4 first:pt-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="flex min-w-0 items-center gap-3">
+                          <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-muted">
+                            <UserRound className="h-5 w-5 text-muted-foreground" aria-hidden="true" />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-medium">{u.full_name}</p>
+                            <p className="truncate text-sm text-muted-foreground">{u.email}</p>
+                          </div>
                         </div>
-                        <div>
-                          <p className="font-medium">{u.full_name}</p>
-                          <p className="text-sm text-zen-500">{u.email}</p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-4">
-                        <Badge variant="outline">{u.role}</Badge>
-                        <div className="flex items-center gap-2">
-                          <Label htmlFor={`active-${u.id}`} className="text-sm">
-                            {u.is_active ? 'Activo' : 'Inactivo'}
+                        <div className="flex items-center justify-between gap-4 pl-[52px] sm:pl-0">
+                          <Badge variant="outline" className="font-mono text-[11px]">{u.role}</Badge>
+                          {/* La etiqueta es clicable y mide 44 px de alto:
+                              el interruptor solo, de 20 px, se erraba. */}
+                          <Label
+                            htmlFor={`active-${u.id}`}
+                            className="flex min-h-[44px] cursor-pointer items-center gap-2 text-sm"
+                          >
+                            <span className={u.is_active ? 'text-foreground' : 'text-muted-foreground'}>
+                              {u.is_active ? 'Activo' : 'Inactivo'}
+                            </span>
+                            <Switch
+                              id={`active-${u.id}`}
+                              checked={u.is_active}
+                              onCheckedChange={() => handleToggleUserStatus(u.id, u.is_active)}
+                              disabled={u.id === user?.user_id}
+                            />
                           </Label>
-                          <Switch
-                            id={`active-${u.id}`}
-                            checked={u.is_active}
-                            onCheckedChange={() => handleToggleUserStatus(u.id, u.is_active)}
-                            disabled={u.id === user?.user_id}
-                          />
                         </div>
-                      </div>
-                    </div>
-                  ))}
-                  {users.length === 0 && (
-                    <p className="text-center text-zen-500 py-8">No hay usuarios registrados</p>
-                  )}
-                </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </CardContent>
             </Card>
           </TabsContent>

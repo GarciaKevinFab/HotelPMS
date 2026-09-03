@@ -98,7 +98,7 @@ body::before {
 .envoltorio { max-width: 1120px; margin: 0 auto; padding: 0 28px; position: relative; z-index: 2; }
 
 /* --- Tipografia -------------------------------------------------------- */
-h1, h2, h3 { font-family: var(--display); font-weight: 700; line-height: 1.05; letter-spacing: -.035em; margin: 0; }
+h1, h2, h3 { font-family: var(--display); font-weight: 700; line-height: 1.05; letter-spacing: -.035em; margin: 0; text-wrap: balance; }
 /* Titulares grandes de verdad. Cuanto mayor es el cuerpo, mas sobra el espacio
    entre letras que el tipo trae de serie: por eso el tracking es negativo y se
    aprieta mas conforme crece el tamano. */
@@ -179,7 +179,9 @@ p  { margin: 0 0 1rem; }
   transition: transform .18s cubic-bezier(.2,.7,.3,1);
 }
 .enlace-flecha:hover::after { transform: translateX(3px); }
-.boton:active { transform: translateY(1px); }
+/* Al pulsar, el boton se encoge un 3%: la respuesta tactil que se nota
+   en el pulgar sin desplazar nada de sitio. */
+.boton:active { transform: scale(.97); }
 .boton-lleno {
   /* Texto OSCURO sobre el fucsia, no blanco.
      Medido: blanco sobre #fc3c78 da 3.47:1 y no llega al minimo de 4.5 que
@@ -391,7 +393,11 @@ p  { margin: 0 0 1rem; }
   .pie-legal { flex-direction: column-reverse; align-items: flex-start; }
 }
 @media (max-width: 520px) {
-  .pie-rejilla { grid-template-columns: 1fr; }
+  /* Dos columnas tambien en el telefono: tres listas cortas en una sola
+     columna alargaban el pie mas que la propia pagina. La marca y el lema
+     ocupan la fila entera y debajo van las listas de dos en dos. */
+  .pie-rejilla { grid-template-columns: 1fr 1fr; gap: 28px 20px; }
+  .pie-rejilla > div:first-child { grid-column: 1 / -1; }
 }
 
 /* La firma de la casa. Va en todas las paginas, discreta pero presente: es

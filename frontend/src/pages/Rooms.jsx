@@ -1,18 +1,18 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  BedDouble, 
-  Plus, 
+import {
+  BedDouble,
+  Plus,
   Search,
-  Building,
-  Edit,
-  MoreHorizontal
+  Building
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Badge } from '../components/ui/badge';
-import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
+import { Card } from '../components/ui/card';
 import { Label } from '../components/ui/label';
 import { EstadoVacio } from '../components/EstadoVacio';
+import { EncabezadoPagina } from '../components/EncabezadoPagina';
+import { EsqueletoFilas, EsqueletoLista, EsqueletoMetricas, EsqueletoTarjetas } from '../components/Esqueleto';
 import {
   Table,
   TableBody,
@@ -36,15 +36,19 @@ import {
   DialogHeader,
   DialogTitle,
 } from '../components/ui/dialog';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '../components/ui/dropdown-menu';
 import { roomsAPI, roomTypesAPI } from '../lib/api';
 import { formatCurrency, getStatusLabel, getStatusClass, cn } from '../lib/utils';
 import { toast } from 'sonner';
+
+// Una sola pieza para las insignias de ocupacion y limpieza, en tabla y en
+// tarjetas moviles, para que no deriven entre si.
+function InsigniaEstado({ estado }) {
+  return (
+    <Badge className={cn('badge', getStatusClass(estado))}>
+      {getStatusLabel(estado)}
+    </Badge>
+  );
+}
 
 export function Rooms() {
   const [rooms, setRooms] = useState([]);
@@ -53,12 +57,12 @@ export function Rooms() {
   const [searchQuery, setSearchQuery] = useState('');
   const [floorFilter, setFloorFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
-  
+
   // Dialogs
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [showBulkDialog, setShowBulkDialog] = useState(false);
   const [showTypeDialog, setShowTypeDialog] = useState(false);
-  
+
   // Form data
   const [roomForm, setRoomForm] = useState({ number: '', floor: 1, room_type_id: '', notes: '' });
   const [bulkForm, setBulkForm] = useState({ room_type_id: '', floor: 1, start_number: 1, count: 5, prefix: '' });
@@ -90,7 +94,7 @@ export function Rooms() {
       toast.error('Complete todos los campos requeridos');
       return;
     }
-    
+
     try {
       await roomsAPI.create(roomForm);
       toast.success('Habitación creada');
@@ -107,7 +111,7 @@ export function Rooms() {
       toast.error('Complete todos los campos requeridos');
       return;
     }
-    
+
     try {
       const response = await roomsAPI.createBulk(bulkForm);
       toast.success(response.data.message);
@@ -124,7 +128,7 @@ export function Rooms() {
       toast.error('Complete todos los campos requeridos');
       return;
     }
-    
+
     try {
       await roomTypesAPI.create(typeForm);
       toast.success('Tipo de habitación creado');
@@ -163,108 +167,129 @@ export function Rooms() {
     return true;
   });
 
-  // Stats
-  const stats = {
-    total: rooms.length,
-    available: rooms.filter(r => r.occupancy_status === 'VACANT' && r.housekeeping_status === 'CLEAN').length,
-    occupied: rooms.filter(r => r.occupancy_status === 'OCCUPIED').length,
-    dirty: rooms.filter(r => r.housekeeping_status === 'DIRTY').length,
-    ooo: rooms.filter(r => r.housekeeping_status === 'OUT_OF_ORDER').length,
+  const limpiarFiltros = () => {
+    setSearchQuery('');
+    setFloorFilter('all');
+    setStatusFilter('all');
   };
+
+  // Stats
+  const stats = [
+    { rotulo: 'Total', valor: rooms.length, color: 'text-foreground' },
+    {
+      rotulo: 'Disponibles',
+      valor: rooms.filter(r => r.occupancy_status === 'VACANT' && r.housekeeping_status === 'CLEAN').length,
+      color: 'text-[hsl(var(--acento-turquesa))]',
+    },
+    { rotulo: 'Ocupadas', valor: rooms.filter(r => r.occupancy_status === 'OCCUPIED').length, color: 'text-[hsl(var(--acento-fucsia))]' },
+    { rotulo: 'Sucias', valor: rooms.filter(r => r.housekeeping_status === 'DIRTY').length, color: 'text-[hsl(var(--acento-lima))]' },
+    { rotulo: 'Fuera Servicio', valor: rooms.filter(r => r.housekeeping_status === 'OUT_OF_ORDER').length, color: 'text-muted-foreground' },
+  ];
+
+  // Compartido entre la tabla y la lista movil.
+  const estadoVacioHabitaciones = (
+    <EstadoVacio
+      icono={BedDouble}
+      titulo="Todavía no hay habitaciones"
+      descripcion="Con «Crear múltiples» cargas un piso entero de una vez: dices el rango de números y el tipo, y quedan todas."
+      accion="Crear varias habitaciones"
+      onAccion={() => setShowBulkDialog(true)}
+      filtrado={rooms.length > 0 && filteredRooms.length === 0}
+      onLimpiar={limpiarFiltros}
+    />
+  );
 
   return (
     <div className="space-y-6" data-testid="rooms-page">
-      {/* Header */}
-      {/* En movil va en columna: titulo y botones en una sola fila con
-          justify-between no caben en 375 px y desbordaban la pagina. */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-zen-900">Habitaciones</h1>
-          <p className="text-zen-500">Gestión de inventario de habitaciones</p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button variant="outline" onClick={() => setShowTypeDialog(true)}>
-            <Plus className="w-4 h-4 mr-2" />
-            Tipo
-          </Button>
-          <Button variant="outline" onClick={() => setShowBulkDialog(true)}>
-            <Building className="w-4 h-4 mr-2" />
-            Crear Múltiples
-          </Button>
-          <Button onClick={() => setShowCreateDialog(true)} data-testid="create-room-btn">
-            <Plus className="w-4 h-4 mr-2" />
-            Nueva Habitación
-          </Button>
-        </div>
-      </div>
+      <EncabezadoPagina
+        titulo="Habitaciones"
+        subtitulo="Gestión de inventario de habitaciones"
+        acciones={
+          <>
+            <Button variant="outline" onClick={() => setShowTypeDialog(true)}>
+              <Plus className="w-4 h-4 mr-2" />
+              Tipo
+            </Button>
+            <Button variant="outline" onClick={() => setShowBulkDialog(true)}>
+              <Building className="w-4 h-4 mr-2" />
+              Crear Múltiples
+            </Button>
+            <Button onClick={() => setShowCreateDialog(true)} data-testid="create-room-btn">
+              <Plus className="w-4 h-4 mr-2" />
+              Nueva Habitación
+            </Button>
+          </>
+        }
+      />
 
       {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-        <Card className="p-4">
-          <p className="text-sm text-zen-500">Total</p>
-          <p className="text-2xl font-bold">{stats.total}</p>
-        </Card>
-        <Card className="p-4">
-          <p className="text-sm text-zen-500">Disponibles</p>
-          <p className="text-2xl font-bold text-[hsl(var(--acento-turquesa))]">{stats.available}</p>
-        </Card>
-        <Card className="p-4">
-          <p className="text-sm text-zen-500">Ocupadas</p>
-          <p className="text-2xl font-bold text-[hsl(var(--acento-fucsia))]">{stats.occupied}</p>
-        </Card>
-        <Card className="p-4">
-          <p className="text-sm text-zen-500">Sucias</p>
-          <p className="text-2xl font-bold text-[hsl(var(--acento-lima))]">{stats.dirty}</p>
-        </Card>
-        <Card className="p-4">
-          <p className="text-sm text-zen-500">Fuera Servicio</p>
-          <p className="text-2xl font-bold text-[hsl(var(--status-ooo))]">{stats.ooo}</p>
-        </Card>
-      </div>
+      {loading ? (
+        <EsqueletoMetricas cantidad={5} className="grid-cols-2 sm:grid-cols-3 lg:grid-cols-5" />
+      ) : (
+        <div className="escalonado grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-5">
+          {stats.map((s) => (
+            <Card key={s.rotulo} className="p-4 transition-shadow duration-180 hover:shadow-md">
+              <p className="text-xs font-medium text-muted-foreground">{s.rotulo}</p>
+              <p className={`mt-1 text-2xl font-semibold tracking-tight tabular-nums ${s.color}`}>{s.valor}</p>
+            </Card>
+          ))}
+        </div>
+      )}
 
-      {/* Room Types */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">Tipos de Habitación</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      {/* Room Types: seccion con titulo y rejilla de tarjetas sueltas, en vez
+          de tarjetas con borde dentro de otra tarjeta. */}
+      <section aria-labelledby="titulo-tipos" className="space-y-3">
+        <div className="flex items-baseline justify-between gap-3">
+          <h2 id="titulo-tipos" className="font-heading text-lg font-semibold tracking-tight text-foreground">
+            Tipos de Habitación
+          </h2>
+          {!loading && roomTypes.length > 0 && (
+            <span className="text-sm text-muted-foreground tabular-nums">{roomTypes.length}</span>
+          )}
+        </div>
+
+        {loading ? (
+          <EsqueletoTarjetas cantidad={3} />
+        ) : roomTypes.length === 0 ? (
+          <Card>
+            <EstadoVacio
+              icono={BedDouble}
+              titulo="Empieza por los tipos de habitación"
+              descripcion="Una matrimonial, una doble, una suite… Cada tipo lleva su capacidad y su precio base, y es lo que después se usa para cobrar la noche."
+              accion="Crear el primer tipo"
+              onAccion={() => setShowTypeDialog(true)}
+            />
+          </Card>
+        ) : (
+          <div className="escalonado grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {roomTypes.map(type => (
-              <div key={type.id} className="p-4 border rounded-lg">
-                <div className="flex items-center justify-between mb-2">
-                  <h3 className="font-medium">{type.name}</h3>
-                  <Badge variant="secondary">{type.capacity} pax</Badge>
+              <Card key={type.id} className="p-4 transition-shadow duration-180 hover:shadow-md">
+                <div className="flex items-start justify-between gap-3">
+                  <h3 className="min-w-0 break-words font-semibold leading-tight">{type.name}</h3>
+                  <Badge variant="secondary" className="shrink-0 tabular-nums">{type.capacity} pax</Badge>
                 </div>
-                <p className="text-lg font-bold">{formatCurrency(type.base_price)}<span className="text-sm font-normal text-zen-500">/noche</span></p>
+                <p className="mt-2 text-lg font-semibold tracking-tight tabular-nums">
+                  {formatCurrency(type.base_price)}
+                  <span className="text-sm font-normal text-muted-foreground">/noche</span>
+                </p>
                 {type.amenities?.length > 0 && (
-                  <div className="flex flex-wrap gap-1 mt-2">
+                  <div className="mt-3 flex flex-wrap gap-1">
                     {type.amenities.map((a, i) => (
                       <Badge key={i} variant="outline" className="text-xs">{a}</Badge>
                     ))}
                   </div>
                 )}
-              </div>
+              </Card>
             ))}
-            {roomTypes.length === 0 && (
-              <div className="col-span-3">
-                <EstadoVacio
-                  icono={BedDouble}
-                  titulo="Empieza por los tipos de habitación"
-                  descripcion="Una matrimonial, una doble, una suite… Cada tipo lleva su capacidad y su precio base, y es lo que después se usa para cobrar la noche."
-                  accion="Crear el primer tipo"
-                  onAccion={() => setShowTypeDialog(true)}
-                />
-              </div>
-            )}
           </div>
-        </CardContent>
-      </Card>
+        )}
+      </section>
 
       {/* Filters */}
       <Card className="p-4">
-        <div className="flex flex-col sm:flex-row gap-4">
+        <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
           <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zen-500" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <Input
               aria-label="Buscar habitación por número"
               placeholder="Buscar por número..."
@@ -273,88 +298,107 @@ export function Rooms() {
               className="pl-10"
             />
           </div>
-          <Select value={floorFilter} onValueChange={setFloorFilter}>
-            <SelectTrigger className="w-[150px]">
-              <SelectValue placeholder="Piso" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todos los pisos</SelectItem>
-              {floors.map(floor => (
-                <SelectItem key={floor} value={String(floor)}>Piso {floor}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-[150px]">
-              <SelectValue placeholder="Estado" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todos</SelectItem>
-              <SelectItem value="CLEAN">Limpias</SelectItem>
-              <SelectItem value="DIRTY">Sucias</SelectItem>
-              <SelectItem value="OUT_OF_ORDER">Fuera Servicio</SelectItem>
-            </SelectContent>
-          </Select>
+          <div className="grid grid-cols-2 gap-3 sm:flex sm:gap-4">
+            <Select value={floorFilter} onValueChange={setFloorFilter}>
+              <SelectTrigger className="w-full sm:w-[150px]" aria-label="Filtrar por piso">
+                <SelectValue placeholder="Piso" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos los pisos</SelectItem>
+                {floors.map(floor => (
+                  <SelectItem key={floor} value={String(floor)}>Piso {floor}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="w-full sm:w-[150px]" aria-label="Filtrar por estado de limpieza">
+                <SelectValue placeholder="Estado" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos</SelectItem>
+                <SelectItem value="CLEAN">Limpias</SelectItem>
+                <SelectItem value="DIRTY">Sucias</SelectItem>
+                <SelectItem value="OUT_OF_ORDER">Fuera Servicio</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         </div>
       </Card>
 
-      {/* Table */}
-      <Card>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Número</TableHead>
-              <TableHead>Piso</TableHead>
-              <TableHead>Tipo</TableHead>
-              <TableHead>Precio Base</TableHead>
-              <TableHead>Ocupación</TableHead>
-              <TableHead>Limpieza</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {loading ? (
+      {/* Tabla (desde md) */}
+      <div className="hidden md:block">
+        <Card>
+          <Table>
+            <TableHeader>
               <TableRow>
-                <TableCell colSpan={6} className="text-center py-8">
-                  <div className="w-6 h-6 border-2 border-zen-200 border-t-zen-turquesa rounded-full animate-spin mx-auto" />
-                </TableCell>
+                <TableHead>Número</TableHead>
+                <TableHead>Piso</TableHead>
+                <TableHead>Tipo</TableHead>
+                <TableHead>Precio Base</TableHead>
+                <TableHead>Ocupación</TableHead>
+                <TableHead>Limpieza</TableHead>
               </TableRow>
-            ) : filteredRooms.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={6} className="p-0">
-                  <EstadoVacio
-                    icono={BedDouble}
-                    titulo="Todavía no hay habitaciones"
-                    descripcion="Con «Crear múltiples» cargas un piso entero de una vez: dices el rango de números y el tipo, y quedan todas."
-                    accion="Crear varias habitaciones"
-                    onAccion={() => setShowBulkDialog(true)}
-                    filtrado={rooms.length > 0}
-                    onLimpiar={() => { setSearchQuery(''); setFloorFilter('all'); setStatusFilter('all'); }}
-                  />
-                </TableCell>
-              </TableRow>
-            ) : (
-              filteredRooms.map((room) => (
-                <TableRow key={room.id}>
-                  <TableCell className="font-bold">{room.number}</TableCell>
-                  <TableCell>Piso {room.floor}</TableCell>
-                  <TableCell>{room.room_type?.name || '-'}</TableCell>
-                  <TableCell>{formatCurrency(room.room_type?.base_price || 0)}</TableCell>
-                  <TableCell>
-                    <Badge className={cn("badge", getStatusClass(room.occupancy_status))}>
-                      {getStatusLabel(room.occupancy_status)}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    <Badge className={cn("badge", getStatusClass(room.housekeeping_status))}>
-                      {getStatusLabel(room.housekeeping_status)}
-                    </Badge>
+            </TableHeader>
+            <TableBody className="escalonado">
+              {loading ? (
+                <EsqueletoFilas filas={8} columnas={6} />
+              ) : filteredRooms.length === 0 ? (
+                <TableRow className="hover:bg-transparent">
+                  <TableCell colSpan={6} className="p-0">
+                    {estadoVacioHabitaciones}
                   </TableCell>
                 </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-      </Card>
+              ) : (
+                filteredRooms.map((room) => (
+                  <TableRow key={room.id}>
+                    <TableCell className="font-semibold tabular-nums">{room.number}</TableCell>
+                    <TableCell>Piso {room.floor}</TableCell>
+                    <TableCell>{room.room_type?.name || '-'}</TableCell>
+                    <TableCell className="tabular-nums">{formatCurrency(room.room_type?.base_price || 0)}</TableCell>
+                    <TableCell>
+                      <InsigniaEstado estado={room.occupancy_status} />
+                    </TableCell>
+                    <TableCell>
+                      <InsigniaEstado estado={room.housekeeping_status} />
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </Card>
+      </div>
+
+      {/* Tarjetas apiladas (movil) */}
+      <div className="md:hidden">
+        {loading ? (
+          <EsqueletoLista cantidad={5} />
+        ) : filteredRooms.length === 0 ? (
+          <Card>{estadoVacioHabitaciones}</Card>
+        ) : (
+          <div className="escalonado space-y-3">
+            {filteredRooms.map((room) => (
+              <Card key={room.id} className="p-4 transition-shadow duration-180 hover:shadow-md">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="font-semibold leading-tight tabular-nums">{room.number}</p>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      Piso {room.floor} · {room.room_type?.name || '-'}
+                    </p>
+                  </div>
+                  <p className="shrink-0 text-sm font-medium tabular-nums">
+                    {formatCurrency(room.room_type?.base_price || 0)}
+                  </p>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <InsigniaEstado estado={room.occupancy_status} />
+                  <InsigniaEstado estado={room.housekeeping_status} />
+                </div>
+              </Card>
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* Create Room Dialog */}
       <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
@@ -385,8 +429,8 @@ export function Rooms() {
             </div>
             <div>
               <Label>Tipo de Habitación</Label>
-              <Select 
-                value={roomForm.room_type_id} 
+              <Select
+                value={roomForm.room_type_id}
                 onValueChange={(v) => setRoomForm(prev => ({ ...prev, room_type_id: v }))}
               >
                 <SelectTrigger className="mt-1"><SelectValue placeholder="Seleccione tipo" /></SelectTrigger>
@@ -415,8 +459,8 @@ export function Rooms() {
           <div className="space-y-4 py-4">
             <div>
               <Label>Tipo de Habitación</Label>
-              <Select 
-                value={bulkForm.room_type_id} 
+              <Select
+                value={bulkForm.room_type_id}
                 onValueChange={(v) => setBulkForm(prev => ({ ...prev, room_type_id: v }))}
               >
                 <SelectTrigger className="mt-1"><SelectValue placeholder="Seleccione tipo" /></SelectTrigger>
@@ -532,9 +576,9 @@ export function Rooms() {
               {typeForm.amenities.length > 0 && (
                 <div className="flex flex-wrap gap-1 mt-2">
                   {typeForm.amenities.map((a, i) => (
-                    <Badge 
-                      key={i} 
-                      variant="secondary" 
+                    <Badge
+                      key={i}
+                      variant="secondary"
                       className="cursor-pointer"
                       onClick={() => removeAmenity(a)}
                     >

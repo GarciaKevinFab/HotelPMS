@@ -47,6 +47,10 @@ import {
 } from '../components/ui/dialog';
 import { Label } from '../components/ui/label';
 import { Textarea } from '../components/ui/textarea';
+import { EncabezadoPagina } from '../components/EncabezadoPagina';
+import { EstadoVacio } from '../components/EstadoVacio';
+import { EsqueletoFilas, EsqueletoLista } from '../components/Esqueleto';
+import { ClipboardList } from 'lucide-react';
 import { reservationsAPI, guestsAPI, roomTypesAPI, roomsAPI, walkinAPI } from '../lib/api';
 import { formatDate, formatCurrency, getStatusLabel, getStatusClass, calculateNights, cn } from '../lib/utils';
 import { toast } from 'sonner';
@@ -358,38 +362,93 @@ export function Reservations() {
     );
   });
 
+  const hayFiltro = Boolean(searchQuery) || statusFilter !== 'all';
+  const limpiarFiltros = () => { setSearchQuery(''); setStatusFilter('all'); };
+
+  /* Las acciones de una reserva son las mismas en la tabla (escritorio) y en
+     la tarjeta (telefono); se montan una sola vez para que no se separen. */
+  const menuAcciones = (reservation) => (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="ghost" size="icon" aria-label={`Acciones de la reserva ${reservation.code}`} data-testid={`reservation-actions-${reservation.id}`}>
+          <MoreHorizontal className="w-4 h-4" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem onClick={() => navigate(`/reservations/${reservation.id}`)}>
+          <Eye className="w-4 h-4 mr-2" />
+          Ver Detalle
+        </DropdownMenuItem>
+        {reservation.status === 'CONFIRMED' && (
+          <>
+            <DropdownMenuItem onClick={() => handleCheckin(reservation)}>
+              <UserCheck className="w-4 h-4 mr-2" />
+              Check-in
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              className="text-destructive focus:text-destructive"
+              onClick={() => {
+                setSelectedReservation(reservation);
+                setShowCancelDialog(true);
+              }}
+            >
+              <X className="w-4 h-4 mr-2" />
+              Cancelar
+            </DropdownMenuItem>
+          </>
+        )}
+        {reservation.status === 'CHECKED_IN' && (
+          <DropdownMenuItem onClick={() => handleCheckout(reservation)}>
+            <UserMinus className="w-4 h-4 mr-2" />
+            Check-out
+          </DropdownMenuItem>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+
+  const estadoVacio = (
+    <EstadoVacio
+      icono={ClipboardList}
+      titulo="Todavía no hay reservas"
+      descripcion="Aquí verás cada reserva con su huésped, sus fechas y su estado. Crea la primera o registra un walk-in si el huésped ya está en recepción."
+      accion="Nueva Reserva"
+      onAccion={() => setShowCreateDialog(true)}
+      filtrado={reservations.length > 0 && hayFiltro}
+      onLimpiar={limpiarFiltros}
+    />
+  );
+
   return (
     <div className="space-y-6" data-testid="reservations-page">
-      {/* Header */}
-      {/* En movil va en columna: titulo y botones en una sola fila con
-          justify-between no caben en 375 px y desbordaban la pagina. */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-zen-900">Reservas</h1>
-          <p className="text-zen-500">Gestión de reservaciones</p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button 
-            variant="outline" 
-            onClick={() => {
-              fetchWalkinRooms();
-              setShowWalkinDialog(true);
-            }}
-            data-testid="walkin-btn"
-          >
-            <Zap className="w-4 h-4 mr-2" />
-            Walk-in
-          </Button>
-          <Button onClick={() => setShowCreateDialog(true)} data-testid="create-reservation-btn">
-            <Plus className="w-4 h-4 mr-2" />
-            Nueva Reserva
-          </Button>
-        </div>
-      </div>
+      <EncabezadoPagina
+        titulo="Reservas"
+        subtitulo="Gestión de reservaciones"
+        acciones={
+          <>
+            <Button
+              variant="outline"
+              onClick={() => {
+                fetchWalkinRooms();
+                setShowWalkinDialog(true);
+              }}
+              data-testid="walkin-btn"
+            >
+              <Zap className="w-4 h-4" />
+              Walk-in
+            </Button>
+            <Button onClick={() => setShowCreateDialog(true)} data-testid="create-reservation-btn">
+              <Plus className="w-4 h-4" />
+              Nueva Reserva
+            </Button>
+          </>
+        }
+      />
 
       {/* Filters */}
-      <Card className="p-4">
-        <div className="flex flex-col sm:flex-row gap-4">
+      <Card className="p-3 shadow-sm sm:p-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:gap-4">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zen-500" />
             <Input
@@ -402,7 +461,7 @@ export function Reservations() {
             />
           </div>
           <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-[180px]" data-testid="status-filter-select">
+            <SelectTrigger className="w-full sm:w-[180px]" data-testid="status-filter-select">
               <Filter className="w-4 h-4 mr-2" />
               <SelectValue placeholder="Estado" />
             </SelectTrigger>
@@ -418,8 +477,8 @@ export function Reservations() {
         </div>
       </Card>
 
-      {/* Table */}
-      <Card>
+      {/* Tabla (desde md) */}
+      <Card className="hidden shadow-sm md:block">
         <Table>
           <TableHeader>
             <TableRow>
@@ -427,41 +486,37 @@ export function Reservations() {
               <TableHead>Huésped</TableHead>
               <TableHead>Fechas</TableHead>
               <TableHead>Habitación</TableHead>
-              <TableHead>Total</TableHead>
+              <TableHead className="text-right">Total</TableHead>
               <TableHead>Estado</TableHead>
               <TableHead className="text-right">Acciones</TableHead>
             </TableRow>
           </TableHeader>
-          <TableBody>
+          <TableBody className="escalonado">
             {loading ? (
-              <TableRow>
-                <TableCell colSpan={7} className="text-center py-8">
-                  <div className="w-6 h-6 border-2 border-zen-200 border-t-zen-turquesa rounded-full animate-spin mx-auto" />
-                </TableCell>
-              </TableRow>
+              <EsqueletoFilas filas={6} columnas={7} />
             ) : filteredReservations.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={7} className="text-center py-8 text-zen-500">
-                  No se encontraron reservas
+              <TableRow className="hover:bg-transparent">
+                <TableCell colSpan={7} className="p-0">
+                  {estadoVacio}
                 </TableCell>
               </TableRow>
             ) : (
               filteredReservations.map((reservation) => (
                 <TableRow key={reservation.id}>
-                  <TableCell className="font-medium">{reservation.code}</TableCell>
+                  <TableCell className="font-mono text-[13px] font-medium">{reservation.code}</TableCell>
                   <TableCell>
                     <div>
                       <p className="font-medium">{reservation.guest?.full_name || '-'}</p>
-                      <p className="text-xs text-zen-500">
+                      <p className="text-xs text-muted-foreground">
                         {reservation.guest?.doc_type}: {reservation.guest?.doc_number}
                       </p>
                     </div>
                   </TableCell>
                   <TableCell>
-                    <div className="text-sm">
+                    <div className="text-sm tabular-nums">
                       <p>{formatDate(reservation.checkin_date)}</p>
-                      <p className="text-zen-500">{formatDate(reservation.checkout_date)}</p>
-                      <p className="text-xs text-zen-500">
+                      <p className="text-muted-foreground">{formatDate(reservation.checkout_date)}</p>
+                      <p className="text-xs text-muted-foreground">
                         {calculateNights(reservation.checkin_date, reservation.checkout_date)} noches
                       </p>
                     </div>
@@ -473,7 +528,7 @@ export function Reservations() {
                       <Badge variant="secondary">Sin asignar</Badge>
                     )}
                   </TableCell>
-                  <TableCell className="font-medium">
+                  <TableCell className="text-right font-medium tabular-nums">
                     {formatCurrency(reservation.total_estimated)}
                   </TableCell>
                   <TableCell>
@@ -482,44 +537,7 @@ export function Reservations() {
                     </Badge>
                   </TableCell>
                   <TableCell className="text-right">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" data-testid={`reservation-actions-${reservation.id}`}>
-                          <MoreHorizontal className="w-4 h-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => navigate(`/reservations/${reservation.id}`)}>
-                          <Eye className="w-4 h-4 mr-2" />
-                          Ver Detalle
-                        </DropdownMenuItem>
-                        {reservation.status === 'CONFIRMED' && (
-                          <>
-                            <DropdownMenuItem onClick={() => handleCheckin(reservation)}>
-                              <UserCheck className="w-4 h-4 mr-2" />
-                              Check-in
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem 
-                              className="text-red-600"
-                              onClick={() => {
-                                setSelectedReservation(reservation);
-                                setShowCancelDialog(true);
-                              }}
-                            >
-                              <X className="w-4 h-4 mr-2" />
-                              Cancelar
-                            </DropdownMenuItem>
-                          </>
-                        )}
-                        {reservation.status === 'CHECKED_IN' && (
-                          <DropdownMenuItem onClick={() => handleCheckout(reservation)}>
-                            <UserMinus className="w-4 h-4 mr-2" />
-                            Check-out
-                          </DropdownMenuItem>
-                        )}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                    {menuAcciones(reservation)}
                   </TableCell>
                 </TableRow>
               ))
@@ -527,6 +545,67 @@ export function Reservations() {
           </TableBody>
         </Table>
       </Card>
+
+      {/* Tarjetas (telefono). La misma informacion que la tabla, apilada:
+          a 390 px la tabla de siete columnas se cortaba en "Total E…" y habia
+          que arrastrar para saber el estado de cada reserva. */}
+      <div className="md:hidden">
+        {loading ? (
+          <EsqueletoLista cantidad={4} />
+        ) : filteredReservations.length === 0 ? (
+          <Card className="shadow-sm">{estadoVacio}</Card>
+        ) : (
+          <ul className="escalonado space-y-3">
+            {filteredReservations.map((reservation) => (
+              <li key={reservation.id}>
+                <Card className="p-4 shadow-sm">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate font-medium">{reservation.guest?.full_name || '-'}</p>
+                      <p className="font-mono text-xs text-muted-foreground">{reservation.code}</p>
+                    </div>
+                    <Badge className={cn("badge shrink-0", getStatusClass(reservation.status))}>
+                      {getStatusLabel(reservation.status)}
+                    </Badge>
+                  </div>
+                  <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 text-sm">
+                    <div>
+                      <dt className="text-xs text-muted-foreground">Entrada</dt>
+                      <dd className="tabular-nums">{formatDate(reservation.checkin_date)}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs text-muted-foreground">Salida</dt>
+                      <dd className="tabular-nums">{formatDate(reservation.checkout_date)}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs text-muted-foreground">Noches</dt>
+                      <dd className="tabular-nums">{calculateNights(reservation.checkin_date, reservation.checkout_date)}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs text-muted-foreground">Total</dt>
+                      <dd className="font-medium tabular-nums">{formatCurrency(reservation.total_estimated)}</dd>
+                    </div>
+                  </dl>
+                  <div className="mt-3 flex items-center justify-between gap-2 border-t border-border pt-3">
+                    {reservation.room_id ? (
+                      <Badge variant="outline">Hab. asignada</Badge>
+                    ) : (
+                      <Badge variant="secondary">Sin asignar</Badge>
+                    )}
+                    <div className="flex items-center gap-1">
+                      <Button variant="outline" size="sm" onClick={() => navigate(`/reservations/${reservation.id}`)}>
+                        <Eye className="w-4 h-4" />
+                        Ver Detalle
+                      </Button>
+                      {menuAcciones(reservation)}
+                    </div>
+                  </div>
+                </Card>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
 
       {/* Create Reservation Dialog */}
       <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
@@ -802,7 +881,7 @@ export function Reservations() {
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex flex-wrap items-center gap-2">
-              <Zap className="w-5 h-5 text-amber-500" />
+              <Zap className="w-5 h-5 text-[hsl(var(--accent))]" />
               Walk-in
             </DialogTitle>
             <DialogDescription>
@@ -882,7 +961,7 @@ export function Reservations() {
                 </SelectContent>
               </Select>
               {walkinRooms.length === 0 && (
-                <p className="text-sm text-amber-600 mt-1">No hay habitaciones disponibles</p>
+                <p className="mt-1 text-sm text-[hsl(var(--acento-fucsia))]" role="status">No hay habitaciones disponibles</p>
               )}
             </div>
 
@@ -937,7 +1016,6 @@ export function Reservations() {
             <Button 
               onClick={handleWalkinCreate} 
               disabled={creatingWalkin || walkinRooms.length === 0}
-              className="bg-amber-500 hover:bg-amber-600"
             >
               {creatingWalkin ? 'Registrando...' : 'Registrar Walk-in'}
             </Button>

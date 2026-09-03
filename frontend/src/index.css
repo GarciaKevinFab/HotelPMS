@@ -8,6 +8,23 @@
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --font-heading: 'Manrope', var(--font-sans);
   --font-mono: 'JetBrains Mono', monospace;
+
+  /* MOVIMIENTO
+     Una sola curva para todo lo que entra o se desplaza, y tres duraciones:
+     120 para lo que responde al dedo (botones), 180 para lo que cambia de
+     estado (hover, foco) y 240 para lo que se mueve de sitio (menu, velo). */
+  --ease-out: cubic-bezier(.16, 1, .3, 1);
+  --dur-1: 120ms;
+  --dur-2: 180ms;
+  --dur-3: 240ms;
+
+  /* SOMBRAS
+     Tenidas al matiz 156 de la marca y siempre con desplazamiento vertical:
+     una sombra gris sobre un fondo verdoso se ve sucia, y una sombra sin
+     desplazamiento es un halo, no una sombra. */
+  --sombra-1: 0 1px 2px hsl(156 30% 11% / .06), 0 1px 3px hsl(156 30% 11% / .04);
+  --sombra-2: 0 4px 12px -2px hsl(156 30% 11% / .08), 0 2px 4px -1px hsl(156 30% 11% / .05);
+  --sombra-3: 0 12px 32px -8px hsl(156 30% 11% / .16), 0 4px 10px -4px hsl(156 30% 11% / .08);
 }
 
 body {
@@ -15,6 +32,7 @@ body {
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
 code {
@@ -52,7 +70,13 @@ code {
     --secondary-foreground: 156 20% 98%;
     --muted: 156 12% 90%;
     --muted-foreground: 156 12% 40%;
-    --accent: 172 100% 30%;
+    /* EL ACENTO ES EL BOTON PRINCIPAL
+       `default` de Button pinta ahora con --accent, asi que el blanco de su
+       texto tiene que pasar 4.5:1 sobre el. A 30% daba 3.57; a 26% da 4.56,
+       el mismo valor que --acento-turquesa. --accent-hover es un paso mas
+       oscuro para el hover, nunca mas claro: aclarar bajaria el contraste. */
+    --accent: 172 100% 26%;
+    --accent-hover: 172 100% 21%;
     --accent-foreground: 0 0% 100%;
     --destructive: 342 97% 55%;
     --destructive-foreground: 0 0% 100%;
@@ -81,6 +105,17 @@ code {
     --acento-lima:      60 55% 30%;    /* 4.72:1 */
     --acento-fucsia:   342 80% 42%;    /* 6.05:1 */
     --acento-oliva:     75 30% 33%;    /* 5.2:1  */
+
+    /* TEXTO DE INSIGNIA
+       Las insignias de estado llevan el color al 12% de fondo, y sobre ese
+       tinte el texto pierde un poco del contraste que tenia sobre blanco
+       (el turquesa de arriba baja de 4.56 a 4.15). Estos son un paso mas
+       oscuros para que dentro de la insignia sigan pasando de 4.5. */
+    --insignia-turquesa: 172 100% 21%;
+    --insignia-fucsia:   342 85% 38%;
+    --insignia-lima:      60 60% 25%;
+    --insignia-oliva:     75 35% 28%;
+    --insignia-neutro:   156 12% 34%;
 
     /* Estados de habitacion: los MISMOS que el tablero de la landing. */
     --status-vacant-clean: 172 100% 34%;
@@ -121,6 +156,7 @@ code {
     --muted: 156 20% 18%;
     --muted-foreground: 156 10% 68%;
     --accent: 172 100% 40%;
+    --accent-hover: 172 100% 46%;
     --accent-foreground: 156 30% 8%;
     --destructive: 350 89% 60%;
     --destructive-foreground: 156 30% 8%;
@@ -139,96 +175,149 @@ code {
   }
   h1, h2, h3, h4, h5, h6 {
     font-family: var(--font-heading);
+    /* balance: un titulo de dos lineas reparte las palabras entre las dos en
+       vez de dejar una sola colgando en la segunda. */
+    text-wrap: balance;
     @apply font-bold tracking-tight;
+  }
+  /* Las cifras alineadas por digito: una columna de importes no baila. */
+  table, tbody, .tabular-nums, [data-cifra] {
+    font-variant-numeric: tabular-nums;
   }
 }
 
-/* Scrollbar styling */
+/* SUPERFICIES DEL NAVEGADOR
+   Lo que el navegador pinta por su cuenta -la seleccion, la barra de
+   desplazamiento, el anillo de foco- tambien lleva la marca. Son detalles
+   que nadie mira y todo el mundo nota. */
+::selection {
+  background: hsl(172 100% 34% / .22);
+  color: inherit;
+}
+
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
-
 ::-webkit-scrollbar-track {
-  @apply bg-muted/30;
+  background: transparent;
 }
-
 ::-webkit-scrollbar-thumb {
-  @apply bg-muted-foreground/30 rounded-full;
+  background: hsl(156 12% 40% / .28);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
 }
-
 ::-webkit-scrollbar-thumb:hover {
-  @apply bg-muted-foreground/50;
+  background: hsl(172 100% 30% / .45);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+* {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(156 12% 40% / .28) transparent;
 }
 
-/* Animation utilities */
+:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
+/* Animaciones */
 @keyframes fade-in {
   from { opacity: 0; }
   to { opacity: 1; }
 }
 
-@keyframes slide-in-up {
-  from { 
+@keyframes aparecer {
+  from {
     opacity: 0;
-    transform: translateY(10px);
+    transform: translateY(6px);
   }
-  to { 
+  to {
     opacity: 1;
     transform: translateY(0);
   }
 }
 
 @keyframes slide-in-right {
-  from { 
+  from {
     opacity: 0;
     transform: translateX(-10px);
   }
-  to { 
+  to {
     opacity: 1;
     transform: translateX(0);
   }
 }
 
 .animate-fade-in {
-  animation: fade-in 0.3s ease-out;
+  animation: fade-in var(--dur-3) var(--ease-out);
 }
 
 .animate-slide-in-up {
-  animation: slide-in-up 0.4s ease-out;
+  animation: aparecer var(--dur-3) var(--ease-out);
 }
 
 .animate-slide-in-right {
-  animation: slide-in-right 0.3s ease-out;
+  animation: slide-in-right var(--dur-3) var(--ease-out);
 }
 
-/* Status badge colors */
+/* ESCALONADO
+   Las ocho primeras filas o tarjetas de una lista entran una detras de otra,
+   a 30 ms de distancia. De la novena en adelante entran a la vez: mas alla
+   de ocho el efecto ya no se percibe como ritmo, solo como espera. */
+.escalonado > * {
+  animation: aparecer 220ms var(--ease-out) both;
+}
+.escalonado > *:nth-child(1) { animation-delay: 0ms; }
+.escalonado > *:nth-child(2) { animation-delay: 30ms; }
+.escalonado > *:nth-child(3) { animation-delay: 60ms; }
+.escalonado > *:nth-child(4) { animation-delay: 90ms; }
+.escalonado > *:nth-child(5) { animation-delay: 120ms; }
+.escalonado > *:nth-child(6) { animation-delay: 150ms; }
+.escalonado > *:nth-child(7) { animation-delay: 180ms; }
+.escalonado > *:nth-child(8) { animation-delay: 210ms; }
+.escalonado > *:nth-child(n+9) { animation-delay: 240ms; }
+
+/* INSIGNIAS DE ESTADO
+   Fondo al 12% del color del estado, borde al 35% y texto en la version
+   oscura del mismo matiz (ver --insignia-*). Antes "ocupada" era azul-100
+   de Tailwind: el unico color que la marca no tiene. */
 .status-vacant-clean {
-  @apply bg-emerald-100 text-emerald-700 border-emerald-200;
+  background: hsl(var(--status-vacant-clean) / .12);
+  color: hsl(var(--insignia-turquesa));
+  border-color: hsl(var(--status-vacant-clean) / .35);
 }
 
 .status-occupied {
-  @apply bg-blue-100 text-blue-700 border-blue-200;
+  background: hsl(var(--status-occupied) / .12);
+  color: hsl(var(--insignia-fucsia));
+  border-color: hsl(var(--status-occupied) / .35);
 }
 
 .status-dirty {
-  @apply bg-amber-100 text-amber-700 border-amber-200;
+  background: hsl(var(--status-dirty) / .18);
+  color: hsl(var(--insignia-lima));
+  border-color: hsl(var(--status-dirty) / .5);
 }
 
 .status-ooo {
-  @apply bg-rose-100 text-rose-700 border-rose-200;
+  background: hsl(var(--status-ooo) / .12);
+  color: hsl(var(--insignia-neutro));
+  border-color: hsl(var(--status-ooo) / .35);
 }
 
 .status-reserved {
-  @apply bg-violet-100 text-violet-700 border-violet-200;
+  background: hsl(var(--status-reserved) / .16);
+  color: hsl(var(--insignia-oliva));
+  border-color: hsl(var(--status-reserved) / .45);
 }
 
 .status-checkout {
-  @apply bg-zen-100 text-zen-700 border-zen-200;
-}
-
-/* Glass morphism effect */
-.glass {
-  @apply bg-white/80 backdrop-blur-lg border border-white/20;
+  background: hsl(var(--muted));
+  color: hsl(var(--insignia-neutro));
+  border-color: hsl(var(--border));
 }
 
 /* Calendar grid styles */
@@ -271,21 +360,16 @@ code {
   @apply sticky left-0 z-10 bg-white;
 }
 
-/* Tabular numbers for data */
-.tabular-nums {
-  font-variant-numeric: tabular-nums;
-}
-
 /* Print styles */
 @media print {
   .no-print {
     display: none !important;
   }
-  
+
   .print-only {
     display: block !important;
   }
-  
+
   body {
     print-color-adjust: exact;
     -webkit-print-color-adjust: exact;
@@ -319,4 +403,47 @@ code {
   background-size: 34px 100%, 34px 100%, 12px 100%, 12px 100%;
   background-repeat: no-repeat;
   background-attachment: local, local, scroll, scroll;
+}
+
+/* PRIMERA COLUMNA FIJA EN EL TELEFONO
+   Cuando la tabla se desplaza de lado, la columna que identifica la fila
+   -el codigo, el numero de habitacion, el nombre- se queda quieta. Sin
+   esto, al llegar a "Total" ya no se sabe de que reserva es. */
+@media (max-width: 767.98px) {
+  .tabla-fija-primera th:first-child,
+  .tabla-fija-primera td:first-child {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    background: hsl(var(--card));
+    box-shadow: 1px 0 0 hsl(var(--border));
+  }
+  .tabla-fija-primera thead th:first-child {
+    background: hsl(156 15% 97%);
+  }
+  .tabla-fija-primera tbody tr:hover td:first-child {
+    background: hsl(156 15% 96%);
+  }
+}
+
+/* MOVIMIENTO REDUCIDO
+   Quien lo pide en el sistema operativo no ve nada desplazarse: las
+   entradas se quedan en un fundido y las transiciones solo cambian color,
+   opacidad y sombra. Nada se traslada ni se escala. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    transition-property: color, background-color, border-color, opacity, box-shadow, outline-color !important;
+    animation-duration: var(--dur-2) !important;
+  }
+  .escalonado > *,
+  .page-transition,
+  .animate-slide-in-up,
+  .animate-slide-in-right {
+    animation-name: fade-in !important;
+    animation-delay: 0ms !important;
+  }
+  .sidebar,
+  .velo {
+    transition: none !important;
+  }
 }

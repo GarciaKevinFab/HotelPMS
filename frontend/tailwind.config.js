@@ -12,7 +12,26 @@ module.exports = {
   			md: 'calc(var(--radius) - 2px)',
   			sm: 'calc(var(--radius) - 4px)'
   		},
+  		/* Sombras tenidas al matiz 156 y con desplazamiento: sustituyen a las
+  		   grises de serie en TODAS las utilidades shadow-*, asi que ninguna
+  		   tarjeta puede quedarse con la sombra sucia por olvido. */
+  		boxShadow: {
+  			sm: 'var(--sombra-1)',
+  			DEFAULT: 'var(--sombra-1)',
+  			md: 'var(--sombra-2)',
+  			lg: 'var(--sombra-3)',
+  			xl: 'var(--sombra-3)',
+  		},
+  		transitionTimingFunction: {
+  			out: 'var(--ease-out)',
+  		},
+  		transitionDuration: {
+  			120: '120ms',
+  			180: '180ms',
+  			240: '240ms',
+  		},
   		fontFamily: {
+  			heading: ['Manrope', 'Inter', 'sans-serif'],
   			/* Las mismas dos de la landing. Existian solo alli, asi que el
   			   titular del login caia en la familia global (Manrope) y salia con
   			   otra letra y otro cuerpo que el del alta: 33.6 px de Manrope

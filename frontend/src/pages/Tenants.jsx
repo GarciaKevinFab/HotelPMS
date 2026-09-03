@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  Building2, 
-  Plus, 
+import {
+  Building2,
+  Plus,
   Search,
   Users,
   Eye,
@@ -14,7 +14,7 @@ import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Badge } from '../components/ui/badge';
-import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
+import { Card } from '../components/ui/card';
 import {
   Table,
   TableBody,
@@ -37,23 +37,49 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '../components/ui/dropdown-menu';
+import { EncabezadoPagina } from '../components/EncabezadoPagina';
+import { EstadoVacio } from '../components/EstadoVacio';
+import { EsqueletoFilas } from '../components/Esqueleto';
 import { tenantsAPI } from '../lib/api';
 import { formatDate, cn } from '../lib/utils';
 import { toast } from 'sonner';
 import { useAuth } from '../contexts/AuthContext';
 import { Navigate } from 'react-router-dom';
 
+/* Insignia de estado del hotel con los mismos tokens que las habitaciones:
+   activo = turquesa, inactivo = neutro. Antes "Activo" llevaba un verde de Tailwind ajeno a la marca. */
+function InsigniaEstado({ activo, className }) {
+  return (
+    <Badge
+      variant="outline"
+      className={cn('gap-1 whitespace-nowrap', activo ? 'status-vacant-clean' : 'status-ooo', className)}
+    >
+      {activo ? <CheckCircle className="h-3 w-3" aria-hidden="true" /> : <XCircle className="h-3 w-3" aria-hidden="true" />}
+      {activo ? 'Activo' : 'Inactivo'}
+    </Badge>
+  );
+}
+
+function Metrica({ rotulo, valor, tono }) {
+  return (
+    <Card className="min-w-0 p-4 shadow-sm">
+      <p className="text-xs font-medium text-muted-foreground">{rotulo}</p>
+      <p className={cn('mt-1 text-2xl font-semibold tracking-tight tabular-nums', tono)}>{valor}</p>
+    </Card>
+  );
+}
+
 export function Tenants() {
   const { isSuperAdmin } = useAuth();
   const [tenants, setTenants] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
-  
+
   // Dialogs
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [showDetailDialog, setShowDetailDialog] = useState(false);
   const [selectedTenant, setSelectedTenant] = useState(null);
-  
+
   // Form
   const [formData, setFormData] = useState({
     name: '',
@@ -166,38 +192,28 @@ export function Tenants() {
 
   return (
     <div className="space-y-6" data-testid="tenants-page">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-zen-900">Hoteles (Tenants)</h1>
-          <p className="text-zen-500">Gestión de hoteles en el sistema</p>
-        </div>
-        <Button onClick={() => setShowCreateDialog(true)} data-testid="create-tenant-btn">
-          <Plus className="w-4 h-4 mr-2" />
-          Nuevo Hotel
-        </Button>
-      </div>
+      <EncabezadoPagina
+        titulo="Hoteles (Tenants)"
+        subtitulo="Gestión de hoteles en el sistema"
+        acciones={
+          <Button onClick={() => setShowCreateDialog(true)} data-testid="create-tenant-btn">
+            <Plus className="w-4 h-4 mr-2" />
+            Nuevo Hotel
+          </Button>
+        }
+      />
 
       {/* Stats */}
-      <div className="grid grid-cols-3 gap-4">
-        <Card className="p-4">
-          <p className="text-sm text-zen-500">Total Hoteles</p>
-          <p className="text-2xl font-bold">{stats.total}</p>
-        </Card>
-        <Card className="p-4">
-          <p className="text-sm text-zen-500">Activos</p>
-          <p className="text-2xl font-bold text-emerald-600">{stats.active}</p>
-        </Card>
-        <Card className="p-4">
-          <p className="text-sm text-zen-500">Inactivos</p>
-          <p className="text-2xl font-bold text-zen-500">{stats.inactive}</p>
-        </Card>
+      <div className="escalonado grid grid-cols-3 gap-3 sm:gap-4">
+        <Metrica rotulo="Total Hoteles" valor={stats.total} />
+        <Metrica rotulo="Activos" valor={stats.active} tono="text-[hsl(var(--acento-turquesa))]" />
+        <Metrica rotulo="Inactivos" valor={stats.inactive} tono="text-muted-foreground" />
       </div>
 
       {/* Search */}
-      <Card className="p-4">
+      <Card className="p-3 shadow-sm sm:p-4">
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zen-500" />
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
           <Input
             aria-label="Buscar hotel por nombre o RUC"
             placeholder="Buscar por nombre o RUC..."
@@ -209,7 +225,7 @@ export function Tenants() {
       </Card>
 
       {/* Table */}
-      <Card>
+      <Card className="shadow-sm">
         <Table>
           <TableHeader>
             <TableRow>
@@ -221,17 +237,21 @@ export function Tenants() {
               <TableHead className="text-right">Acciones</TableHead>
             </TableRow>
           </TableHeader>
-          <TableBody>
+          <TableBody className="escalonado">
             {loading ? (
-              <TableRow>
-                <TableCell colSpan={6} className="text-center py-8">
-                  <div className="w-6 h-6 border-2 border-zen-200 border-t-zen-turquesa rounded-full animate-spin mx-auto" />
-                </TableCell>
-              </TableRow>
+              <EsqueletoFilas filas={5} columnas={6} />
             ) : filteredTenants.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} className="text-center py-8 text-zen-500">
-                  No se encontraron hoteles
+                <TableCell colSpan={6} className="p-0">
+                  <EstadoVacio
+                    icono={Building2}
+                    titulo="No se encontraron hoteles"
+                    descripcion="Cada hotel es un espacio independiente con sus propias habitaciones, usuarios y comprobantes. Cree el primero para empezar."
+                    accion="Nuevo Hotel"
+                    onAccion={() => setShowCreateDialog(true)}
+                    filtrado={tenants.length > 0}
+                    onLimpiar={() => setSearchQuery('')}
+                  />
                 </TableCell>
               </TableRow>
             ) : (
@@ -239,44 +259,34 @@ export function Tenants() {
                 <TableRow key={tenant.id}>
                   <TableCell>
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 bg-[hsl(var(--acento-turquesa)/0.12)] rounded-lg flex items-center justify-center">
-                        <Building2 className="w-5 h-5 text-[hsl(var(--acento-turquesa))]" />
+                      <div className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-[hsl(var(--acento-turquesa)/0.12)]">
+                        <Building2 className="h-5 w-5 text-[hsl(var(--acento-turquesa))]" aria-hidden="true" />
                       </div>
-                      <div>
-                        <p className="font-medium">{tenant.name}</p>
+                      <div className="min-w-0">
+                        <p className="truncate font-medium">{tenant.name}</p>
                         {tenant.nombre_comercial && tenant.nombre_comercial !== tenant.name && (
-                          <p className="text-xs text-zen-500">{tenant.nombre_comercial}</p>
+                          <p className="truncate text-xs text-muted-foreground">{tenant.nombre_comercial}</p>
                         )}
                       </div>
                     </div>
                   </TableCell>
-                  <TableCell className="font-mono text-sm">{tenant.ruc}</TableCell>
+                  <TableCell className="font-mono text-sm tabular-nums">{tenant.ruc}</TableCell>
                   <TableCell>
                     <div className="text-sm">
                       {tenant.phone && <p>{tenant.phone}</p>}
-                      {tenant.email && <p className="text-zen-500">{tenant.email}</p>}
+                      {tenant.email && <p className="text-muted-foreground">{tenant.email}</p>}
                     </div>
                   </TableCell>
                   <TableCell>
-                    {tenant.is_active !== false ? (
-                      <Badge className="bg-emerald-100 text-emerald-700">
-                        <CheckCircle className="w-3 h-3 mr-1" />
-                        Activo
-                      </Badge>
-                    ) : (
-                      <Badge variant="secondary">
-                        <XCircle className="w-3 h-3 mr-1" />
-                        Inactivo
-                      </Badge>
-                    )}
+                    <InsigniaEstado activo={tenant.is_active !== false} />
                   </TableCell>
-                  <TableCell className="text-sm text-zen-500">
+                  <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
                     {formatDate(tenant.created_at)}
                   </TableCell>
                   <TableCell className="text-right">
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon">
+                        <Button variant="ghost" size="icon" aria-label={`Acciones de ${tenant.name}`}>
                           <MoreHorizontal className="w-4 h-4" />
                         </Button>
                       </DropdownMenuTrigger>
@@ -305,126 +315,128 @@ export function Tenants() {
 
       {/* Create Dialog */}
       <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Crear Nuevo Hotel</DialogTitle>
+            <DialogTitle className="font-heading">Crear Nuevo Hotel</DialogTitle>
             <DialogDescription>
               Configure un nuevo hotel en el sistema multi-tenant
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-6 py-4">
+          <div className="space-y-6 py-2">
             {/* Hotel Info */}
-            <div>
-              <h4 className="font-medium mb-3 flex items-center gap-2">
-                <Building2 className="w-4 h-4" />
+            <section>
+              <h4 className="font-heading flex items-center gap-2 text-base font-semibold">
+                <Building2 className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
                 Información del Hotel
               </h4>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label>Razón Social *</Label>
+              <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="hotel-name">Razón Social *</Label>
                   <Input
+                    id="hotel-name"
                     value={formData.name}
                     onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
                     placeholder="Hotel Example S.A.C."
-                    className="mt-1"
                   />
                 </div>
-                <div>
-                  <Label>Nombre Comercial</Label>
+                <div className="space-y-2">
+                  <Label htmlFor="hotel-nombre-comercial">Nombre Comercial</Label>
                   <Input
+                    id="hotel-nombre-comercial"
                     value={formData.nombre_comercial}
                     onChange={(e) => setFormData(prev => ({ ...prev, nombre_comercial: e.target.value }))}
                     placeholder="Hotel Example"
-                    className="mt-1"
                   />
                 </div>
-                <div>
-                  <Label>RUC *</Label>
+                <div className="space-y-2">
+                  <Label htmlFor="hotel-ruc">RUC *</Label>
                   <Input
+                    id="hotel-ruc"
+                    inputMode="numeric"
                     value={formData.ruc}
                     onChange={(e) => setFormData(prev => ({ ...prev, ruc: e.target.value.replace(/\D/g, '').slice(0, 11) }))}
                     placeholder="20123456789"
                     maxLength={11}
-                    className="mt-1 font-mono"
+                    className="font-mono"
                   />
-                  <p className="text-xs text-zen-500 mt-1">{formData.ruc.length}/11 dígitos</p>
+                  <p className="text-xs tabular-nums text-muted-foreground">{formData.ruc.length}/11 dígitos</p>
                 </div>
-                <div>
-                  <Label>Teléfono</Label>
+                <div className="space-y-2">
+                  <Label htmlFor="hotel-phone">Teléfono</Label>
                   <Input
+                    id="hotel-phone"
                     value={formData.phone}
                     onChange={(e) => setFormData(prev => ({ ...prev, phone: e.target.value }))}
                     placeholder="+51 1 234 5678"
-                    className="mt-1"
                   />
                 </div>
-                <div className="col-span-2">
-                  <Label>Dirección</Label>
+                <div className="space-y-2 sm:col-span-2">
+                  <Label htmlFor="hotel-address">Dirección</Label>
                   <Input
+                    id="hotel-address"
                     value={formData.address}
                     onChange={(e) => setFormData(prev => ({ ...prev, address: e.target.value }))}
                     placeholder="Av. Principal 123, Lima"
-                    className="mt-1"
                   />
                 </div>
-                <div className="col-span-2">
-                  <Label>Email del Hotel</Label>
+                <div className="space-y-2 sm:col-span-2">
+                  <Label htmlFor="hotel-email">Email del Hotel</Label>
                   <Input
+                    id="hotel-email"
                     type="email"
                     value={formData.email}
                     onChange={(e) => setFormData(prev => ({ ...prev, email: e.target.value }))}
                     placeholder="contacto@hotel.com"
-                    className="mt-1"
                   />
                 </div>
               </div>
-            </div>
+            </section>
 
             {/* Admin User */}
-            <div className="border-t pt-6">
-              <h4 className="font-medium mb-3 flex items-center gap-2">
-                <Users className="w-4 h-4" />
+            <section className="border-t pt-6">
+              <h4 className="font-heading flex items-center gap-2 text-base font-semibold">
+                <Users className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
                 Usuario Administrador
               </h4>
-              <p className="text-sm text-zen-500 mb-4">
+              <p className="mt-1 text-sm text-muted-foreground">
                 Se creará un usuario ADMIN para este hotel
               </p>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label>Nombre del Admin</Label>
+              <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="admin-name">Nombre del Admin</Label>
                   <Input
+                    id="admin-name"
                     value={formData.admin_name}
                     onChange={(e) => setFormData(prev => ({ ...prev, admin_name: e.target.value }))}
                     placeholder="Juan Pérez"
-                    className="mt-1"
                   />
                 </div>
-                <div>
-                  <Label>Email del Admin *</Label>
+                <div className="space-y-2">
+                  <Label htmlFor="admin-email">Email del Admin *</Label>
                   <Input
+                    id="admin-email"
                     type="email"
                     value={formData.admin_email}
                     onChange={(e) => setFormData(prev => ({ ...prev, admin_email: e.target.value }))}
                     placeholder="admin@hotel.com"
-                    className="mt-1"
                   />
                 </div>
-                <div className="col-span-2">
-                  <Label>Contraseña *</Label>
+                <div className="space-y-2 sm:col-span-2">
+                  <Label htmlFor="admin-password">Contraseña *</Label>
                   <Input
+                    id="admin-password"
                     type="password"
                     value={formData.admin_password}
                     onChange={(e) => setFormData(prev => ({ ...prev, admin_password: e.target.value }))}
                     placeholder="Mínimo 8 caracteres"
-                    className="mt-1"
                   />
                 </div>
               </div>
-            </div>
+            </section>
           </div>
 
-          <DialogFooter>
+          <DialogFooter className="gap-2 sm:gap-0">
             <Button variant="outline" onClick={() => setShowCreateDialog(false)}>
               Cancelar
             </Button>
@@ -439,66 +451,67 @@ export function Tenants() {
       <Dialog open={showDetailDialog} onOpenChange={setShowDetailDialog}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>Detalle del Hotel</DialogTitle>
+            <DialogTitle className="font-heading">Detalle del Hotel</DialogTitle>
           </DialogHeader>
           {selectedTenant && (
-            <div className="space-y-4 py-4">
+            <div className="space-y-5 py-2">
               <div className="flex items-center gap-4">
-                <div className="w-16 h-16 bg-[hsl(var(--acento-turquesa)/0.12)] rounded-xl flex items-center justify-center">
-                  <Building2 className="w-8 h-8 text-[hsl(var(--acento-turquesa))]" />
+                <div className="grid h-14 w-14 shrink-0 place-items-center rounded-xl bg-[hsl(var(--acento-turquesa)/0.12)]">
+                  <Building2 className="h-7 w-7 text-[hsl(var(--acento-turquesa))]" aria-hidden="true" />
                 </div>
-                <div>
-                  <h3 className="text-xl font-bold">{selectedTenant.name}</h3>
-                  <p className="text-zen-500">{selectedTenant.nombre_comercial}</p>
+                <div className="min-w-0">
+                  <h3 className="font-heading truncate text-lg font-semibold">{selectedTenant.name}</h3>
+                  <p className="truncate text-sm text-muted-foreground">{selectedTenant.nombre_comercial}</p>
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4 pt-4 border-t">
+              <dl className="grid grid-cols-2 gap-4 border-t pt-5">
                 <div>
-                  <p className="text-sm text-zen-500">RUC</p>
-                  <p className="font-mono">{selectedTenant.ruc}</p>
+                  <dt className="text-xs font-medium text-muted-foreground">RUC</dt>
+                  <dd className="mt-1 font-mono text-sm tabular-nums">{selectedTenant.ruc}</dd>
                 </div>
                 <div>
-                  <p className="text-sm text-zen-500">Estado</p>
-                  <Badge className={selectedTenant.is_active !== false ? 'bg-emerald-100 text-emerald-700' : ''}>
-                    {selectedTenant.is_active !== false ? 'Activo' : 'Inactivo'}
-                  </Badge>
+                  <dt className="text-xs font-medium text-muted-foreground">Estado</dt>
+                  <dd className="mt-1">
+                    <InsigniaEstado activo={selectedTenant.is_active !== false} />
+                  </dd>
                 </div>
                 {selectedTenant.phone && (
                   <div>
-                    <p className="text-sm text-zen-500">Teléfono</p>
-                    <p>{selectedTenant.phone}</p>
+                    <dt className="text-xs font-medium text-muted-foreground">Teléfono</dt>
+                    <dd className="mt-1 text-sm">{selectedTenant.phone}</dd>
                   </div>
                 )}
                 {selectedTenant.email && (
-                  <div>
-                    <p className="text-sm text-zen-500">Email</p>
-                    <p>{selectedTenant.email}</p>
+                  <div className="min-w-0">
+                    <dt className="text-xs font-medium text-muted-foreground">Email</dt>
+                    <dd className="mt-1 break-words text-sm">{selectedTenant.email}</dd>
                   </div>
                 )}
                 {selectedTenant.address && (
                   <div className="col-span-2">
-                    <p className="text-sm text-zen-500">Dirección</p>
-                    <p>{selectedTenant.address}</p>
+                    <dt className="text-xs font-medium text-muted-foreground">Dirección</dt>
+                    <dd className="mt-1 text-sm">{selectedTenant.address}</dd>
                   </div>
                 )}
-              </div>
+              </dl>
 
               {/* Invoicing Config */}
-              <div className="pt-4 border-t">
-                <h4 className="font-medium mb-2">Configuración Facturación</h4>
-                <div className="p-3 bg-zen-50 rounded-lg">
-                  <p className="text-sm">
-                    <span className="text-zen-500">Modo NubeFact:</span>{' '}
-                    <Badge variant="outline">
-                      {selectedTenant.invoicing_mode || 'MOCK'}
-                    </Badge>
-                  </p>
+              <div className="border-t pt-5">
+                <h4 className="font-heading text-base font-semibold">Configuración Facturación</h4>
+                <div className="mt-2 flex items-center justify-between gap-3 text-sm">
+                  <span className="text-muted-foreground">Modo NubeFact:</span>
+                  <Badge
+                    variant="outline"
+                    className={selectedTenant.invoicing_mode === 'LIVE' ? 'status-vacant-clean' : 'status-dirty'}
+                  >
+                    {selectedTenant.invoicing_mode || 'MOCK'}
+                  </Badge>
                 </div>
               </div>
 
-              <div className="pt-4 border-t">
-                <p className="text-sm text-zen-500">
+              <div className="border-t pt-4">
+                <p className="text-sm text-muted-foreground">
                   Creado: {formatDate(selectedTenant.created_at)}
                 </p>
               </div>

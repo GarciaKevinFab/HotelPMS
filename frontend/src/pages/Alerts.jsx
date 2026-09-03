@@ -19,16 +19,51 @@ import {
   DialogHeader,
   DialogTitle,
 } from '../components/ui/dialog';
+import { EncabezadoPagina } from '../components/EncabezadoPagina';
+import { EstadoVacio } from '../components/EstadoVacio';
+import { EsqueletoLista } from '../components/Esqueleto';
 import { alertsAPI } from '../lib/api';
 import { formatDateTime, getStatusLabel, cn } from '../lib/utils';
 import { toast } from 'sonner';
+
+/* Severidad con los tokens de la marca: critica en fucsia, aviso en ambar e
+   informacion en turquesa. El chip lleva el fondo tenido y el icono el color
+   pleno; la insignia repite el matiz para que la severidad se lea sin el
+   borde lateral grueso que habia antes. */
+const SEVERIDAD = {
+  CRITICAL: {
+    Icono: XCircle,
+    icono: 'text-[hsl(var(--acento-fucsia))]',
+    chip: 'bg-[hsl(var(--status-occupied)/.10)]',
+    insignia: 'border-[hsl(var(--status-occupied)/.35)] bg-[hsl(var(--status-occupied)/.12)] text-[hsl(var(--insignia-fucsia))]',
+  },
+  WARN: {
+    Icono: AlertTriangle,
+    icono: 'text-[hsl(38_92%_30%)]',
+    chip: 'bg-[hsl(var(--chart-3)/.12)]',
+    insignia: 'border-[hsl(var(--chart-3)/.35)] bg-[hsl(var(--chart-3)/.12)] text-[hsl(38_92%_26%)]',
+  },
+  INFO: {
+    Icono: Info,
+    icono: 'text-[hsl(var(--acento-turquesa))]',
+    chip: 'bg-[hsl(var(--status-vacant-clean)/.10)]',
+    insignia: 'border-[hsl(var(--status-vacant-clean)/.35)] bg-[hsl(var(--status-vacant-clean)/.12)] text-[hsl(var(--insignia-turquesa))]',
+  },
+};
+
+const SEVERIDAD_NEUTRA = {
+  Icono: Bell,
+  icono: 'text-muted-foreground',
+  chip: 'bg-muted',
+  insignia: '',
+};
 
 export function Alerts() {
   const [alerts, setAlerts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('OPEN');
   const [severityFilter, setSeverityFilter] = useState('all');
-  
+
   const [showResolveDialog, setShowResolveDialog] = useState(false);
   const [selectedAlert, setSelectedAlert] = useState(null);
   const [resolveNotes, setResolveNotes] = useState('');
@@ -43,7 +78,7 @@ export function Alerts() {
       const params = {};
       if (statusFilter !== 'all') params.status = statusFilter;
       if (severityFilter !== 'all') params.severity = severityFilter;
-      
+
       const response = await alertsAPI.list(params);
       setAlerts(response.data);
     } catch (err) {
@@ -65,29 +100,7 @@ export function Alerts() {
     }
   };
 
-  /* EL AZUL DE "INFORMACION" SE QUEDA, Y ES A PROPOSITO
-     En el resto del sistema no queda ni un azul: la marca es turquesa,
-     fucsia, lima y oliva. Aqui si, porque informacion-aviso-error es un
-     codigo que la gente trae aprendido de fuera, como el rojo de "borrar".
-     Cambiarlo por un color de la marca haria mas bonita la pantalla y menos
-     legible la alerta, que es justo lo contrario de lo que se busca. */
-  const getSeverityIcon = (severity) => {
-    switch (severity) {
-      case 'CRITICAL': return <XCircle className="w-5 h-5 text-rose-500" />;
-      case 'WARN': return <AlertTriangle className="w-5 h-5 text-amber-500" />;
-      case 'INFO': return <Info className="w-5 h-5 text-blue-500" />;
-      default: return <Bell className="w-5 h-5 text-zen-500" />;
-    }
-  };
-
-  const getSeverityStyle = (severity) => {
-    switch (severity) {
-      case 'CRITICAL': return 'border-l-rose-500 bg-rose-50';
-      case 'WARN': return 'border-l-amber-500 bg-amber-50';
-      case 'INFO': return 'border-l-blue-500 bg-blue-50';
-      default: return 'border-l-zen-300 bg-zen-50';
-    }
-  };
+  const getSeverity = (severity) => SEVERIDAD[severity] || SEVERIDAD_NEUTRA;
 
   const stats = {
     total: alerts.length,
@@ -96,68 +109,40 @@ export function Alerts() {
     info: alerts.filter(a => a.severity === 'INFO' && a.status === 'OPEN').length,
   };
 
+  const hayFiltros = statusFilter !== 'all' || severityFilter !== 'all';
+
+  const tarjetas = [
+    { rotulo: 'Total', valor: stats.total, ...SEVERIDAD_NEUTRA, valorClase: '' },
+    { rotulo: 'Críticas', valor: stats.critical, ...SEVERIDAD.CRITICAL, valorClase: 'text-[hsl(var(--acento-fucsia))]' },
+    { rotulo: 'Advertencias', valor: stats.warn, ...SEVERIDAD.WARN, valorClase: 'text-[hsl(38_92%_30%)]' },
+    { rotulo: 'Información', valor: stats.info, ...SEVERIDAD.INFO, valorClase: 'text-[hsl(var(--acento-turquesa))]' },
+  ];
+
   return (
     <div className="space-y-6" data-testid="alerts-page">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-zen-900">Centro de Alertas</h1>
-          <p className="text-zen-500">Gestión de notificaciones del sistema</p>
-        </div>
-      </div>
+      <EncabezadoPagina titulo="Centro de Alertas" subtitulo="Gestión de notificaciones del sistema" />
 
       {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <Card className="p-4">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-zen-100 rounded-lg">
-              <Bell className="w-5 h-5 text-zen-600" />
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4 md:gap-4">
+        {tarjetas.map(({ rotulo, valor, Icono, icono, chip, valorClase }) => (
+          <Card key={rotulo} className="p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-xs font-medium text-muted-foreground">{rotulo}</p>
+                <p className={cn('mt-1 text-2xl font-semibold tracking-tight tabular-nums', valorClase)}>{valor}</p>
+              </div>
+              <div className={cn('grid h-10 w-10 shrink-0 place-items-center rounded-lg', chip)}>
+                <Icono className={cn('h-5 w-5', icono)} aria-hidden="true" />
+              </div>
             </div>
-            <div>
-              <p className="text-2xl font-bold">{stats.total}</p>
-              <p className="text-sm text-zen-500">Total</p>
-            </div>
-          </div>
-        </Card>
-        <Card className="p-4">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-rose-100 rounded-lg">
-              <XCircle className="w-5 h-5 text-rose-600" />
-            </div>
-            <div>
-              <p className="text-2xl font-bold text-rose-600">{stats.critical}</p>
-              <p className="text-sm text-zen-500">Críticas</p>
-            </div>
-          </div>
-        </Card>
-        <Card className="p-4">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-amber-100 rounded-lg">
-              <AlertTriangle className="w-5 h-5 text-amber-600" />
-            </div>
-            <div>
-              <p className="text-2xl font-bold text-amber-600">{stats.warn}</p>
-              <p className="text-sm text-zen-500">Advertencias</p>
-            </div>
-          </div>
-        </Card>
-        <Card className="p-4">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-blue-100 rounded-lg">
-              <Info className="w-5 h-5 text-blue-600" />
-            </div>
-            <div>
-              <p className="text-2xl font-bold text-blue-600">{stats.info}</p>
-              <p className="text-sm text-zen-500">Información</p>
-            </div>
-          </div>
-        </Card>
+          </Card>
+        ))}
       </div>
 
       {/* Filters */}
-      <div className="flex gap-4">
+      <div className="flex flex-col gap-3 sm:flex-row">
         <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-[150px]">
+          <SelectTrigger className="w-full sm:w-[150px]" aria-label="Estado">
             <SelectValue placeholder="Estado" />
           </SelectTrigger>
           <SelectContent>
@@ -167,7 +152,7 @@ export function Alerts() {
           </SelectContent>
         </Select>
         <Select value={severityFilter} onValueChange={setSeverityFilter}>
-          <SelectTrigger className="w-[150px]">
+          <SelectTrigger className="w-full sm:w-[150px]" aria-label="Severidad">
             <SelectValue placeholder="Severidad" />
           </SelectTrigger>
           <SelectContent>
@@ -181,63 +166,71 @@ export function Alerts() {
 
       {/* Alerts List */}
       {loading ? (
-        <div className="flex items-center justify-center py-12">
-          <div className="w-8 h-8 border-4 border-zen-200 border-t-zen-turquesa rounded-full animate-spin" />
-        </div>
+        <EsqueletoLista cantidad={5} />
       ) : alerts.length === 0 ? (
-        <Card className="p-12 text-center">
-          <Check className="w-16 h-16 text-emerald-500 mx-auto mb-4" />
-          <h3 className="text-xl font-medium mb-2">Sin alertas</h3>
-          <p className="text-zen-500">No hay alertas que mostrar con los filtros seleccionados</p>
+        <Card>
+          <EstadoVacio
+            icono={Bell}
+            titulo="Sin alertas"
+            descripcion="No hay alertas que mostrar con los filtros seleccionados"
+            accion={hayFiltros ? 'Ver todas las alertas' : undefined}
+            onAccion={hayFiltros ? () => { setStatusFilter('all'); setSeverityFilter('all'); } : undefined}
+          />
         </Card>
       ) : (
-        <div className="space-y-3">
-          {alerts.map(alert => (
-            <Card 
-              key={alert.id} 
-              className={cn(
-                "p-4 border-l-4 transition-all",
-                getSeverityStyle(alert.severity),
-                alert.status === 'RESOLVED' && 'opacity-60'
-              )}
-            >
-              <div className="flex items-start justify-between gap-4">
-                <div className="flex items-start gap-3">
-                  {getSeverityIcon(alert.severity)}
-                  <div>
-                    <div className="flex items-center gap-2 mb-1">
-                      <h3 className="font-medium">{alert.title}</h3>
-                      <Badge variant="secondary" className="text-xs">
-                        {getStatusLabel(alert.severity)}
-                      </Badge>
-                      {alert.status === 'RESOLVED' && (
-                        <Badge variant="outline" className="text-xs">
-                          Resuelta
-                        </Badge>
-                      )}
-                    </div>
-                    <p className="text-sm text-zen-600">{alert.message}</p>
-                    <p className="text-xs text-zen-500 mt-2">
-                      {formatDateTime(alert.created_at)}
-                      {alert.resolved_at && ` • Resuelta: ${formatDateTime(alert.resolved_at)}`}
-                    </p>
-                  </div>
-                </div>
-                {alert.status === 'OPEN' && (
-                  <Button 
-                    size="sm" 
-                    onClick={() => {
-                      setSelectedAlert(alert);
-                      setShowResolveDialog(true);
-                    }}
-                  >
-                    <Check className="w-4 h-4 mr-2" />
-                    Resolver
-                  </Button>
+        <div className="space-y-3 escalonado">
+          {alerts.map(alert => {
+            const sev = getSeverity(alert.severity);
+            return (
+              <Card
+                key={alert.id}
+                className={cn(
+                  "p-4 transition-shadow hover:shadow-md",
+                  alert.status === 'RESOLVED' && 'opacity-60'
                 )}
-              </div>
-            </Card>
-          ))}
+              >
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+                  <div className="flex min-w-0 items-start gap-3">
+                    <div className={cn('grid h-9 w-9 shrink-0 place-items-center rounded-lg', sev.chip)}>
+                      <sev.Icono className={cn('h-5 w-5', sev.icono)} aria-hidden="true" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="mb-1 flex flex-wrap items-center gap-2">
+                        <h3 className="font-medium">{alert.title}</h3>
+                        <Badge variant="outline" className={cn('text-xs', sev.insignia)}>
+                          {getStatusLabel(alert.severity)}
+                        </Badge>
+                        {alert.status === 'RESOLVED' && (
+                          <Badge variant="outline" className="text-xs">
+                            Resuelta
+                          </Badge>
+                        )}
+                      </div>
+                      <p className="break-words text-sm text-zen-600">{alert.message}</p>
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        {formatDateTime(alert.created_at)}
+                        {alert.resolved_at && ` • Resuelta: ${formatDateTime(alert.resolved_at)}`}
+                      </p>
+                    </div>
+                  </div>
+                  {alert.status === 'OPEN' && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="w-full shrink-0 sm:w-auto"
+                      onClick={() => {
+                        setSelectedAlert(alert);
+                        setShowResolveDialog(true);
+                      }}
+                    >
+                      <Check className="w-4 h-4 mr-2" />
+                      Resolver
+                    </Button>
+                  )}
+                </div>
+              </Card>
+            );
+          })}
         </div>
       )}
 
@@ -251,8 +244,8 @@ export function Alerts() {
             </DialogDescription>
           </DialogHeader>
           {selectedAlert && (
-            <div className="py-4 space-y-4">
-              <div className="p-3 bg-zen-50 rounded-lg">
+            <div className="space-y-4 py-4">
+              <div className="rounded-lg bg-muted p-3">
                 <p className="font-medium">{selectedAlert.title}</p>
                 <p className="text-sm text-zen-600">{selectedAlert.message}</p>
               </div>
