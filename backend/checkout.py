@@ -267,6 +267,112 @@ _ESTILOS = """
 }
 @media (min-width: 1080px) { .co-planes { grid-template-columns: repeat(4, 1fr); } }
 @media (max-width: 620px) { .co-planes { grid-template-columns: 1fr; } }
+
+/* --------------------------------------------------------------------------
+   EL COMPROBANTE QUE SE IMPRIME
+   --------------------------------------------------------------------------
+   La pagina del pedido enseña el resumen dentro de algo con forma de
+   impresora, y por su ranura sale el ticket con el detalle.
+
+   POR QUE clip-path Y NO transform
+
+   Lo primero que se probo fue mover el papel con translateY(-100%) -> 0
+   dentro de un contenedor con overflow:hidden. Se ve bien en una captura
+   fija, pero al mirar la animacion entera esta AL REVES: lo que asoma por la
+   ranura es el PIE del ticket, y la cabecera aparece la ultima. Una impresora
+   imprime de arriba abajo.
+
+   Con clip-path el papel no se mueve: se descubre de arriba hacia abajo. Sale
+   primero "COMPROBANTE", luego el numero de pedido, y el total al final --
+   que es el orden en que se imprimiria de verdad. Ademas el hueco ya esta
+   reservado desde el principio, asi que nada de la pagina da un salto.
+
+   steps() y no una curva suave: una termica alimenta el papel a tirones, y a
+   22 pasos se nota lo justo. Con `ease-out` el papel salia disparado y
+   frenaba, que es como se mueve un ascensor, no una impresora.
+
+   Todo es CSS. Ni una linea de JavaScript, igual que el resto del checkout:
+   estas paginas tienen que verse enteras con el motor apagado, que es lo que
+   Izipay comprueba (ver la cabecera de este modulo). */
+.tk-impresora {
+  background: linear-gradient(180deg, var(--superficie-alta), var(--superficie));
+  border: 1px solid var(--borde);
+  border-radius: var(--radio-tarjeta) var(--radio-tarjeta) 8px 8px;
+  padding: clamp(20px, 3vw, 26px);
+  position: relative; z-index: 2;
+}
+.tk-marca {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 16px; margin-bottom: 14px;
+}
+.tk-marca > span:first-child {
+  font-size: .72rem; letter-spacing: .16em; text-transform: uppercase;
+  color: var(--turquesa); font-weight: 700;
+}
+.tk-estado { display: inline-flex; align-items: center; gap: 7px;
+  font-size: .78rem; font-weight: 700; color: var(--turquesa); }
+.tk-estado::before { content: ""; width: 8px; height: 8px; border-radius: 50%;
+  background: currentColor; }
+.tk-estado.espera { color: var(--texto-suave); }
+.tk-cabecera { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; }
+.tk-cabecera strong { font-size: 1.05rem; font-weight: 700; }
+.tk-cabecera small { display: block; color: var(--texto-suave); font-weight: 400; font-size: .84rem; }
+.tk-cabecera .cifra {
+  font-family: var(--display); font-size: clamp(1.4rem, 3vw, 1.7rem); font-weight: 700;
+  letter-spacing: -.03em; font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+/* La ranura. Los margenes negativos la sacan hasta el borde de la caja. */
+.tk-ranura {
+  margin: 20px -6px -8px; height: 7px; border-radius: 4px; background: #060a08;
+  box-shadow: inset 0 2px 4px rgba(0,0,0,.9), 0 1px 0 rgba(255,255,255,.05);
+}
+.tk-salida { padding: 0 26px; }
+.tk-papel { animation: tk-imprimir 1.8s steps(22, end) .25s both; }
+@keyframes tk-imprimir {
+  from { clip-path: inset(0 0 100% 0); }
+  to   { clip-path: inset(0 0 0 0); }
+}
+/* El papel es claro aunque el tema sea oscuro: es papel, no una tarjeta mas. */
+.tk {
+  --papel: #f7f5ef; --tinta: #23282c; --gris: #6b7075;
+  background: var(--papel); color: var(--tinta);
+  font-family: ui-monospace, "SFMono-Regular", "Consolas", monospace;
+  font-size: .8rem; line-height: 1.7; padding: 22px 20px 16px;
+}
+/* El borde de papel arrancado. Va en su propio elemento para que la mascara
+   de los dientes no recorte tambien el texto del ticket. */
+.tk-borde {
+  height: 10px; background: #f7f5ef;
+  filter: drop-shadow(0 14px 26px rgba(0,0,0,.5));
+  -webkit-mask: conic-gradient(from -45deg at bottom, #0000, #000 1deg 89deg, #0000 90deg)
+                bottom / 12px 100% repeat-x;
+          mask: conic-gradient(from -45deg at bottom, #0000, #000 1deg 89deg, #0000 90deg)
+                bottom / 12px 100% repeat-x;
+}
+.tk-titulo { text-align: center; letter-spacing: .22em; font-weight: 700;
+  font-size: .74rem; margin: 0 0 4px; }
+.tk-sub { text-align: center; font-size: .68rem; color: var(--gris);
+  margin: 0 0 14px; letter-spacing: .04em; line-height: 1.5; }
+.tk-linea { border-top: 1px dashed #c9c5ba; margin: 12px 0; }
+.tk-fila { display: flex; justify-content: space-between; gap: 12px; }
+.tk-fila span:last-child { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tk-fila.tk-total { font-weight: 700; font-size: .96rem; padding-top: 4px; }
+.tk-barras {
+  height: 34px; margin: 14px 0 6px;
+  background: repeating-linear-gradient(90deg,
+    var(--tinta) 0 2px, transparent 2px 4px, var(--tinta) 4px 5px, transparent 5px 9px,
+    var(--tinta) 9px 12px, transparent 12px 13px, var(--tinta) 13px 14px, transparent 14px 18px);
+}
+.tk-codigo { text-align: center; font-size: .64rem; letter-spacing: .3em;
+  color: var(--gris); margin: 0; }
+.tk-pie { text-align: center; font-size: .66rem; color: var(--gris);
+  margin: 14px 0 0; line-height: 1.6; }
+.tk-pie a { color: var(--gris); }
+/* Quien pide menos movimiento ve el comprobante entero desde el primer
+   fotograma. La informacion es la misma; lo que sobra es el espectaculo. */
+@media (prefers-reduced-motion: reduce) {
+  .tk-papel { animation: none; }
+}
 </style>
 """
 
@@ -502,8 +608,9 @@ def pagina_checkout(plan: dict, periodo: str, importe: dict, error: str,
           <span>Total a pagar</span>
           <span class="cifra">{_e(total_txt)}</span>
         </div>
-        <p class="co-nota">Precio en soles con IGV incluido. Se renueva cada {_e(cada)}
-           y puedes cancelar cuando quieras.</p>
+        <p class="co-nota">Precio en soles con IGV incluido. Es un pago único por
+           {_e(cada)}: no guardamos tu tarjeta ni queda ningún cobro programado.
+           Te avisamos por correo antes de que venza.</p>
         {ahorro}
         <h2 style="margin-top:24px">Qué incluye</h2>
         <ul class="co-incluye">{puntos}</ul>
@@ -712,20 +819,56 @@ def pagina_pedido(pedido: dict, plan: dict, comercio: dict, modo: str) -> str:
           Entrar al sistema</a>
       </div>"""
 
+    # El desglose se calcula, no se guarda: `monto` ya lleva el IGV dentro, y
+    # desglose() lo separa en Decimal para que base + IGV sumen exactamente lo
+    # que se cobra. Ver su docstring sobre por que no se hace en float.
+    partes = desglose(pedido.get("monto") or 0)
+    pagado = pedido.get("estado") == "pagado"
+
     resumen = f"""
-    <section class="co-caja co-resumen" aria-labelledby="co-pedido">
-      <h2 id="co-pedido">Pedido {_e(pedido.get('numero'))}</h2>
-      <div class="co-fila">
-        <span><strong>ZenStay {_e(plan.get('nombre'))}</strong><br>Suscripción {_e(periodo)}</span>
-        <span class="cifra">{_soles(pedido.get('monto') or 0)}</span>
+    <section class="co-resumen" aria-labelledby="co-pedido">
+      <div class="tk-impresora">
+        <div class="tk-marca">
+          <span>ZenStay</span>
+          <span class="tk-estado{'' if pagado else ' espera'}">{_e(etiqueta)}</span>
+        </div>
+        <div class="tk-cabecera">
+          <strong id="co-pedido">{_e(plan.get('nombre'))}<small>Suscripción {_e(periodo)}</small></strong>
+          <span class="cifra">{_soles(pedido.get('monto') or 0)}</span>
+        </div>
+        <div class="tk-ranura"></div>
       </div>
-      <div class="co-fila"><span>Estado</span><span class="cifra">{_e(etiqueta)}</span></div>
-      <div class="co-total">
-        <span>Total</span>
-        <span class="cifra">{_soles(pedido.get('monto') or 0)}</span>
+      <div class="tk-salida">
+       <div class="tk-papel">
+        <div class="tk">
+          <p class="tk-titulo">COMPROBANTE</p>
+          <p class="tk-sub">{_e(comercio['razon_social'])}<br>RUC {_e(comercio['ruc'])}</p>
+
+          <div class="tk-fila"><span>Pedido</span><span>{_e(pedido.get('numero'))}</span></div>
+          <div class="tk-fila"><span>Estado</span><span>{_e(etiqueta.upper())}</span></div>
+
+          <div class="tk-linea"></div>
+
+          <div class="tk-fila">
+            <span>ZenStay {_e(plan.get('nombre'))} · {_e(periodo)}</span>
+            <span>{partes['base']}</span>
+          </div>
+          <div class="tk-fila"><span>IGV 18%</span><span>{partes['igv']}</span></div>
+
+          <div class="tk-linea"></div>
+
+          <div class="tk-fila tk-total">
+            <span>TOTAL S/</span><span>{partes['total']}</span>
+          </div>
+
+          <div class="tk-barras" aria-hidden="true"></div>
+          <p class="tk-codigo">{_e(pedido.get('numero'))}</p>
+          <p class="tk-pie">Guarda este número para cualquier consulta.<br>
+             <a href="mailto:{_e(comercio['email'])}">{_e(comercio['email'])}</a></p>
+        </div>
+        <div class="tk-borde" aria-hidden="true"></div>
+       </div>
       </div>
-      <p class="co-nota">Con IGV incluido. Cobra
-         {_e(comercio['razon_social'])}, RUC {_e(comercio['ruc'])}.</p>
     </section>"""
 
     interior = f"""

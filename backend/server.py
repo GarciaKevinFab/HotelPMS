@@ -34,6 +34,7 @@ import hashlib
 import db_pg
 import checkout
 import izipay
+import limites
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -526,23 +527,44 @@ async def create_audit_log(conn, tenant_id, user_id, entity: str, action: str, b
     MISMA transaccion que el cambio que describe. Antes eran dos escrituras
     sueltas, y si la segunda fallaba quedaba un cambio sin rastro (o al reves,
     un rastro de algo que no llego a pasar).
+
+    `before` y `after` van como dict y NO como json.dumps(...): el codec jsonb
+    de db_pg._init_connection ya serializa, y una cadena ya serializada se
+    guardaba serializada DOS veces. La columna terminaba con un jsonb de tipo
+    'string' -- el texto del JSON -- en vez de un objeto, asi que
+    `after_json->>'campo'`, `?`, `@>` y cualquier indice GIN sobre estas
+    columnas no encontraban nada. La bitacora se leia a ojo pero no se podia
+    consultar, que es justo para lo que existe.
+
+    Vale para las 26 llamadas del sistema, no para una. Los payloads salen de
+    db_pg.uno()/varias(), que ya pasan por _valor() y convierten UUID a str,
+    fechas a ISO y Decimal a float: json.dumps los digiere igual, lo llame el
+    codec o esta funcion.
+
+    Ver tambien db/migrations/004_auditoria_jsonb_doble_serializado.sql, que
+    endereza las filas escritas antes de este arreglo.
     """
     await conn.execute(
         """insert into audit_logs (tenant_id, user_id, entity, action, before_json, after_json)
            values ($1, $2, $3, $4, $5, $6)""",
         db_pg.a_uuid(tenant_id), db_pg.a_uuid(user_id), entity, action,
-        json.dumps(before) if before is not None else None,
-        json.dumps(after) if after is not None else None,
+        before, after,
     )
 
 # ============== ALERT HELPER ==============
 async def create_alert(conn, tenant_id, alert_type: str, severity: AlertSeverity, title: str, message: str, entity_ref: dict = None):
-    """Crea una alerta operativa. Tambien participa de la transaccion que la origina."""
+    """Crea una alerta operativa. Tambien participa de la transaccion que la origina.
+
+    `entity_ref` va como dict por lo mismo que before/after en create_audit_log:
+    con json.dumps(...) la referencia {entity, id} se guardaba como cadena y
+    `entity_ref->>'cash_shift_id'` no devolvia nada. Es el unico dato que dice
+    a que apunta la alerta.
+    """
     await conn.execute(
         """insert into alerts (tenant_id, type, severity, title, message, entity_ref, status)
            values ($1, $2, $3::alert_severity, $4, $5, $6, 'OPEN')""",
         db_pg.a_uuid(tenant_id), alert_type, severity.value, title, message,
-        json.dumps(entity_ref or {}),
+        entity_ref or {},
     )
 
 # ============== NUBEFACT MOCK SERVICE ==============
@@ -1305,7 +1327,14 @@ async def update_tenant_suscripcion(
                       settings = coalesce(settings, '{}'::jsonb)
                                  || jsonb_build_object('suscripcion_manual', $5::jsonb)
                 where id = $1""",
-            tid, data.plan_codigo, data.subscription_status, data.vence, json.dumps(manual),
+            # `manual` como dict: el cast explicito `$5::jsonb` NO evita el
+            # doble serializado. Postgres describe igual el parametro como
+            # jsonb -- comprobado con st.get_parameters() contra Postgres 16 --,
+            # asi que el codec de db_pg lo serializa por su cuenta y una cadena
+            # ya serializada acababa metiendo settings.suscripcion_manual como
+            # texto. jsonb_build_object la aceptaba sin queja: guardaba una
+            # cadena JSON donde tenia que haber un objeto.
+            tid, data.plan_codigo, data.subscription_status, data.vence, manual,
         )
         # El token trae user_id, no id: con ["id"] esto levantaba KeyError y
         # el endpoint respondia 500 despues de haber hecho el UPDATE (que la
@@ -2760,7 +2789,12 @@ async def close_cash_shift(shift_id: str, data: CashShiftClose, user: dict = Dep
                    status = 'CLOSED', totals = $2, counted_cash = $3,
                    difference = $4, closed_at = now(), closed_by = $5, notes = $6
                where id = $1""",
-            sid, json.dumps(arqueo["totales"]), data.counted_cash,
+            # `totales` ya es un dict {metodo: importe}: sale de una consulta
+            # sobre una columna jsonb, o sea que el codec de db_pg lo decodifico
+            # al leerlo. Volver a serializarlo al escribir dejaba cash_shifts
+            # .totals como cadena, y el arqueo por metodo de pago solo se podia
+            # leer entero -- no consultar `totals->>'EFECTIVO'`.
+            sid, arqueo["totales"], data.counted_cash,
             diferencia, id_valido(user["user_id"], "user_id"), data.notes,
         )
 
@@ -2969,7 +3003,11 @@ async def create_invoice(data: InvoiceCreate, user: dict = Depends(get_current_u
             data.client_doc_type.value, data.client_doc_number,
             data.client_name, data.client_address,
             subtotal, igv, total, estado,
-            json.dumps(nubefact_payload), json.dumps(nubefact_response),
+            # Los dos como dict: es lo que se manda a SUNAT y lo que contesta,
+            # y es la unica copia que queda de la conversacion. Serializado dos
+            # veces no se podia buscar por `nubefact_response->>'sunat_description'`
+            # ni por el codigo de error cuando SUNAT rechaza un comprobante.
+            nubefact_payload, nubefact_response,
             nubefact_response.get("enlace_del_pdf"),
             nubefact_response.get("enlace_del_xml"),
             nubefact_response.get("enlace_del_cdr"),
@@ -4671,6 +4709,23 @@ app.include_router(api_router)
 # validador de Izipay descarga el HTML y puede no ejecutar JavaScript (ver la
 # cabecera de backend/checkout.py).
 app.include_router(checkout.router)
+
+# Limite de peticiones por IP. Ver backend/limites.py para las reglas y el
+# porque de cada numero.
+#
+# EL ORDEN CON CORS NO ES INDIFERENTE
+#
+#   Starlette monta el ULTIMO middleware anadido como el mas EXTERNO. Este va
+#   antes que CORS en el codigo, o sea que CORS queda por fuera y el 429 sale
+#   con sus cabeceras puestas. Al reves -- limite por fuera -- el navegador
+#   recibiria la respuesta sin cabeceras CORS y la descartaria: el usuario
+#   veria un error de red sin explicacion en lugar de "demasiadas peticiones,
+#   reintenta en N segundos".
+#
+#   En produccion la SPA y la API comparten origen y CORS ni interviene, pero
+#   en desarrollo (React en :3000, backend en otro puerto) y para cualquier
+#   integracion desde fuera si, y ahi es donde el mensaje importa.
+app.add_middleware(limites.LimitePeticiones)
 
 # CORS. Los origenes se validan al arrancar (ver arriba): la lista nunca es '*',
 # porque las peticiones van con credenciales y esa combinacion la rechazan los
