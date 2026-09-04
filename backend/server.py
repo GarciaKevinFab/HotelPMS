@@ -34,6 +34,7 @@ import hashlib
 import db_pg
 import checkout
 import izipay
+import limites
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -4708,6 +4709,23 @@ app.include_router(api_router)
 # validador de Izipay descarga el HTML y puede no ejecutar JavaScript (ver la
 # cabecera de backend/checkout.py).
 app.include_router(checkout.router)
+
+# Limite de peticiones por IP. Ver backend/limites.py para las reglas y el
+# porque de cada numero.
+#
+# EL ORDEN CON CORS NO ES INDIFERENTE
+#
+#   Starlette monta el ULTIMO middleware anadido como el mas EXTERNO. Este va
+#   antes que CORS en el codigo, o sea que CORS queda por fuera y el 429 sale
+#   con sus cabeceras puestas. Al reves -- limite por fuera -- el navegador
+#   recibiria la respuesta sin cabeceras CORS y la descartaria: el usuario
+#   veria un error de red sin explicacion en lugar de "demasiadas peticiones,
+#   reintenta en N segundos".
+#
+#   En produccion la SPA y la API comparten origen y CORS ni interviene, pero
+#   en desarrollo (React en :3000, backend en otro puerto) y para cualquier
+#   integracion desde fuera si, y ahi es donde el mensaje importa.
+app.add_middleware(limites.LimitePeticiones)
 
 # CORS. Los origenes se validan al arrancar (ver arriba): la lista nunca es '*',
 # porque las peticiones van con credenciales y esa combinacion la rechazan los

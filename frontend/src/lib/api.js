@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { instalarCache } from './cache';
 
 // En produccion la SPA y la API viven en el MISMO origen -- el backend sirve
 // las dos cosas (ver servir_web en backend/server.py) --, asi que la ruta
@@ -56,6 +57,15 @@ api.interceptors.response.use(
     return Promise.reject(error);
   }
 );
+
+// Cache de lecturas. Va DESPUES de los dos interceptores de arriba a proposito:
+// axios ejecuta los de peticion en orden inverso al registro, asi que este
+// corre primero y decide si hace falta viajar, y el de la cabecera Authorization
+// corre despues sobre el mismo objeto de configuracion -- el token acaba puesto
+// igual en las peticiones que si salen a la red.
+//
+// Ver lib/cache.js para los TTL por ruta y el mapa de invalidacion.
+instalarCache(api);
 
 // Auth
 export const authAPI = {
