@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { authAPI, tenantsAPI } from '../lib/api';
+import { limpiarCache } from '../lib/cache';
 
 const AuthContext = createContext(null);
 
@@ -39,7 +40,14 @@ export function AuthProvider({ children }) {
     try {
       const response = await authAPI.login(email, password);
       const { access_token, user: userData } = response.data;
-      
+
+      // El cache de lecturas es de la sesion anterior. Si en esta pestaña ya
+      // entro otra persona -- el cambio de turno en recepcion es exactamente
+      // eso --, sus habitaciones y sus reservas siguen en memoria y la
+      // siguiente pantalla las pintaria como si fueran de quien acaba de
+      // entrar. Se tira antes de guardar el token nuevo.
+      limpiarCache();
+
       localStorage.setItem('token', access_token);
       localStorage.setItem('user', JSON.stringify(userData));
       setUser(userData);
@@ -70,6 +78,11 @@ export function AuthProvider({ children }) {
      estaba cargado pertenecia al otro contexto. */
   const cambiarSesion = useCallback(async (accessToken, destino) => {
     localStorage.setItem('token', accessToken);
+    // ANTES del /auth/me, no despues. Esa ruta se cachea 30 segundos, y entrar
+    // a un hotel es justo el caso en que el SUPER_ADMIN acaba de pedirla desde
+    // la consola: sin vaciar, /auth/me responderia desde memoria con el usuario
+    // del contexto ANTERIOR y eso es lo que quedaria guardado en localStorage.
+    limpiarCache();
     const response = await authAPI.me();
     localStorage.setItem('user', JSON.stringify(response.data));
     setUser(response.data);
