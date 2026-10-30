@@ -41,11 +41,62 @@ HOTEL_TEST_ADMIN_EMAIL = "admin@hoteltest.com"
 HOTEL_TEST_ADMIN_PASSWORD = "admin123test"
 
 
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers",
+        "no_necesita_servidor: prueba que corre sin instancia levantada ni base "
+        "de datos (las paginas puras de backend/checkout.py).",
+    )
+    config.addinivalue_line(
+        "markers",
+        "necesita_base: prueba que habla directamente con Postgres por asyncpg "
+        "y no necesita instancia levantada. Se salta sin "
+        "ZENSTAY_TEST_DATABASE_URL (ver test_auditoria_jsonb.py).",
+    )
+
+
+def pytest_collection_modifyitems(config, items):
+    """Cada prueba se salta por lo que le falta a ella, no por lo que falte.
+
+    Antes el fixture de abajo llamaba a pytest.skip() y, por ser autouse de
+    sesion, se llevaba por delante TODA la bateria. Las pruebas de las paginas
+    del checkout no tocan red ni base: no hay motivo para saltarselas cuando lo
+    unico que falta es REACT_APP_BACKEND_URL, y saltarselas significaria que en
+    la practica nunca corren.
+
+    Hay tres clases de prueba y dos ejes independientes:
+
+        (sin marcador)        necesita la instancia HTTP  -> REACT_APP_BACKEND_URL
+        necesita_base         necesita solo Postgres      -> ZENSTAY_TEST_DATABASE_URL
+        no_necesita_servidor  no necesita nada            -> corre siempre
+
+    Las de `necesita_base` no dependen de que haya un backend levantado:
+    importan server.py y llaman a las funciones con una conexion propia. Por
+    eso no se pueden saltar por el mismo motivo que las de HTTP.
+    """
+    sin_servidor = pytest.mark.skip(
+        reason="REACT_APP_BACKEND_URL sin definir: hace falta una instancia "
+               "efimera levantada (nunca produccion).")
+    sin_base = pytest.mark.skip(
+        reason="ZENSTAY_TEST_DATABASE_URL sin definir: hace falta un Postgres "
+               "efimero (nunca produccion). Ver la cabecera de "
+               "test_auditoria_jsonb.py.")
+
+    for item in items:
+        if "necesita_base" in item.keywords:
+            if not os.environ.get("ZENSTAY_TEST_DATABASE_URL"):
+                item.add_marker(sin_base)
+        elif "no_necesita_servidor" not in item.keywords and not BASE_URL:
+            item.add_marker(sin_servidor)
+
+
 @pytest.fixture(scope="session", autouse=True)
 def preparar_escenario():
     """Deja el sistema con un superadmin, el hotel demo y un segundo hotel."""
     if not BASE_URL:
-        pytest.skip("REACT_APP_BACKEND_URL sin definir")
+        # Las que necesitan servidor ya quedaron saltadas en la coleccion.
+        yield
+        return
 
     # 1. El superadmin. Si ya existe, /setup responde 400 y seguimos: es
     #    idempotente a proposito.

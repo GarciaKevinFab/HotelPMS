@@ -7,12 +7,13 @@ MongoDB Atlas; se migro porque el cluster dejo de existir y porque los importes
 en float no sirven para un sistema que emite comprobantes y cuadra caja.
 """
 
-from fastapi import FastAPI, APIRouter, Depends, HTTPException, Header, Query, Body
+from fastapi import FastAPI, APIRouter, Depends, HTTPException, Header, Query, Body, Request
 from fastapi.responses import StreamingResponse, FileResponse, RedirectResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 import os
+import re
 import logging
 from pathlib import Path
 from pydantic import BaseModel, Field, ConfigDict, EmailStr
@@ -31,6 +32,9 @@ import secrets
 import hashlib
 
 import db_pg
+import checkout
+import izipay
+import limites
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -351,7 +355,7 @@ def hash_password(password: str) -> str:
 def verify_password(password: str, hashed: str) -> bool:
     return bcrypt.checkpw(password.encode(), hashed.encode())
 
-def create_token(user_id: str, email: str, role: str, tenant_id: str = None) -> str:
+def create_token(user_id: str, email: str, role: str, tenant_id: str = None, extra: dict = None) -> str:
     payload = {
         "user_id": user_id,
         "email": email,
@@ -359,7 +363,24 @@ def create_token(user_id: str, email: str, role: str, tenant_id: str = None) -> 
         "tenant_id": tenant_id,
         "exp": datetime.now(timezone.utc) + timedelta(hours=JWT_EXPIRATION_HOURS)
     }
+    # `extra` lleva las marcas de "SUPER_ADMIN dentro de un hotel" (ver
+    # POST /tenants/{id}/entrar): en_otro_hotel y hotel_nombre. Van en el
+    # token y no en la base porque describen ESTA sesion, no al usuario.
+    if extra:
+        payload.update(extra)
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+
+def es_superadmin(user: dict) -> bool:
+    """SUPER_ADMIN de verdad, este o no dentro de un hotel.
+
+    Cuando entra a un hotel (POST /tenants/{id}/entrar) su token lleva rol
+    ADMIN para que RLS y los permisos lo traten como uno mas del hotel; pero
+    las cosas que un SUPER_ADMIN nunca sufre -la suscripcion suspendida, el
+    cupo de habitaciones- tampoco tienen que frenarlo ahi dentro: entro
+    justamente a arreglarlas.
+    """
+    return user.get("role") == Role.SUPER_ADMIN.value or bool(user.get("en_otro_hotel"))
 
 async def get_current_user(authorization: str = Header(None)) -> dict:
     if not authorization or not authorization.startswith("Bearer "):
@@ -424,7 +445,7 @@ async def exigir_suscripcion(user: dict = Depends(get_current_user)):
     El SUPER_ADMIN nunca se bloquea: es quien tiene que poder entrar a
     arreglarlo.
     """
-    if user.get("role") == Role.SUPER_ADMIN.value:
+    if es_superadmin(user):
         return user
 
     async with db_pg.tx(user) as conn:
@@ -450,7 +471,7 @@ async def exigir_cupo_habitaciones(conn, user: dict, cuantas: int = 1):
     baja y volver a crear seria una forma tonta de saltarse el plan... al reves,
     seria injusto cobrar por habitaciones que el hotel ya no usa.
     """
-    if user.get("role") == Role.SUPER_ADMIN.value:
+    if es_superadmin(user):
         return
 
     limite = await db_pg.uno(
@@ -506,23 +527,44 @@ async def create_audit_log(conn, tenant_id, user_id, entity: str, action: str, b
     MISMA transaccion que el cambio que describe. Antes eran dos escrituras
     sueltas, y si la segunda fallaba quedaba un cambio sin rastro (o al reves,
     un rastro de algo que no llego a pasar).
+
+    `before` y `after` van como dict y NO como json.dumps(...): el codec jsonb
+    de db_pg._init_connection ya serializa, y una cadena ya serializada se
+    guardaba serializada DOS veces. La columna terminaba con un jsonb de tipo
+    'string' -- el texto del JSON -- en vez de un objeto, asi que
+    `after_json->>'campo'`, `?`, `@>` y cualquier indice GIN sobre estas
+    columnas no encontraban nada. La bitacora se leia a ojo pero no se podia
+    consultar, que es justo para lo que existe.
+
+    Vale para las 26 llamadas del sistema, no para una. Los payloads salen de
+    db_pg.uno()/varias(), que ya pasan por _valor() y convierten UUID a str,
+    fechas a ISO y Decimal a float: json.dumps los digiere igual, lo llame el
+    codec o esta funcion.
+
+    Ver tambien db/migrations/004_auditoria_jsonb_doble_serializado.sql, que
+    endereza las filas escritas antes de este arreglo.
     """
     await conn.execute(
         """insert into audit_logs (tenant_id, user_id, entity, action, before_json, after_json)
            values ($1, $2, $3, $4, $5, $6)""",
         db_pg.a_uuid(tenant_id), db_pg.a_uuid(user_id), entity, action,
-        json.dumps(before) if before is not None else None,
-        json.dumps(after) if after is not None else None,
+        before, after,
     )
 
 # ============== ALERT HELPER ==============
 async def create_alert(conn, tenant_id, alert_type: str, severity: AlertSeverity, title: str, message: str, entity_ref: dict = None):
-    """Crea una alerta operativa. Tambien participa de la transaccion que la origina."""
+    """Crea una alerta operativa. Tambien participa de la transaccion que la origina.
+
+    `entity_ref` va como dict por lo mismo que before/after en create_audit_log:
+    con json.dumps(...) la referencia {entity, id} se guardaba como cadena y
+    `entity_ref->>'cash_shift_id'` no devolvia nada. Es el unico dato que dice
+    a que apunta la alerta.
+    """
     await conn.execute(
         """insert into alerts (tenant_id, type, severity, title, message, entity_ref, status)
            values ($1, $2, $3::alert_severity, $4, $5, $6, 'OPEN')""",
         db_pg.a_uuid(tenant_id), alert_type, severity.value, title, message,
-        json.dumps(entity_ref or {}),
+        entity_ref or {},
     )
 
 # ============== NUBEFACT MOCK SERVICE ==============
@@ -600,6 +642,22 @@ async def login(credentials: UserLogin):
     if not verify_password(credentials.password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Credenciales inválidas")
 
+    # Un hotel desactivado por el SUPER_ADMIN no entra, con ninguna cuenta.
+    # Se comprueba DESPUES de la contrasena para no revelar el estado del
+    # hotel a quien no la sabe. El SUPER_ADMIN no tiene hotel y nunca se
+    # bloquea: es quien tiene que poder entrar a reactivarlo.
+    if user.get("tenant_id") and user["role"] != Role.SUPER_ADMIN.value:
+        async with db_pg.tx(user) as conn:
+            hotel_activo = await db_pg.valor(
+                conn, "select is_active from tenants where id = $1",
+                db_pg.a_uuid(user["tenant_id"], "tenant_id"),
+            )
+        if hotel_activo is False:
+            raise HTTPException(
+                status_code=403,
+                detail="Este hotel está desactivado. Escribe a soporte@sisac.pe",
+            )
+
     token = create_token(user["id"], user["email"], user["role"], user.get("tenant_id"))
 
     return TokenResponse(
@@ -615,7 +673,16 @@ async def login(credentials: UserLogin):
 
 @api_router.get("/auth/me")
 async def get_me(user: dict = Depends(get_current_user)):
-    async with db_pg.tx(user) as conn:
+    en_otro_hotel = bool(user.get("en_otro_hotel"))
+    # Dentro de un hotel el token lleva el tenant del hotel, pero la fila del
+    # SUPER_ADMIN tiene tenant_id NULL: bajo el aislamiento del hotel no se ve.
+    # Se lee con la puerta global, acotada a UN id que ya viene firmado en el
+    # token.
+    contexto = (
+        db_pg.tx_global("superadmin dentro de un hotel: su propia fila no tiene tenant")
+        if en_otro_hotel else db_pg.tx(user)
+    )
+    async with contexto as conn:
         db_user = await db_pg.uno(
             conn,
             """select id, tenant_id, email, full_name, role, is_active, created_at
@@ -634,7 +701,91 @@ async def get_me(user: dict = Depends(get_current_user)):
                 id_valido(user["tenant_id"], "tenant_id"),
             )
 
+    if en_otro_hotel:
+        # La UI se comporta como la de un ADMIN del hotel, y ademas sabe que
+        # en realidad es el SUPER_ADMIN de visita (para la franja de aviso).
+        db_user["rol_real"] = db_user["role"]
+        db_user["role"] = Role.ADMIN.value
+        db_user["tenant_id"] = user.get("tenant_id")
+        db_user["en_otro_hotel"] = True
+        db_user["hotel_nombre"] = user.get("hotel_nombre")
+
     return db_user
+
+
+class CambioPassword(BaseModel):
+    actual: str
+    nueva: str = Field(min_length=8, max_length=128)
+
+
+@api_router.put("/auth/password")
+async def cambiar_mi_password(data: CambioPassword, user: dict = Depends(get_current_user)):
+    """Cualquier usuario cambia SU contrasena sabiendo la actual.
+
+    Hasta ahora solo existia el restablecimiento por un ADMIN, y el
+    SUPER_ADMIN -que no tiene ningun ADMIN por encima- no tenia forma de
+    cambiar la suya sin tocar la base.
+    """
+    if user.get("en_otro_hotel"):
+        raise HTTPException(status_code=400, detail="Sal del hotel antes de cambiar tu contraseña")
+
+    uid = id_valido(user["user_id"], "user_id")
+    # Puerta global a proposito: el usuario se identifica por el id firmado en
+    # su token, y el SUPER_ADMIN no tiene tenant con el que abrir tx().
+    async with db_pg.tx_global("cambiar la propia contrasena: fila unica por id del token") as conn:
+        fila = await db_pg.uno(conn, "select id, tenant_id, password_hash from users where id = $1", uid)
+        if not fila:
+            raise HTTPException(status_code=404, detail="Usuario no encontrado")
+        if not verify_password(data.actual, fila["password_hash"]):
+            raise HTTPException(status_code=400, detail="La contraseña actual no es correcta")
+        await conn.execute("update users set password_hash = $2 where id = $1", uid, hash_password(data.nueva))
+        if fila.get("tenant_id"):
+            await create_audit_log(conn, fila["tenant_id"], uid, "user", "PASSWORD_CHANGED_SELF",
+                                   None, {"user_id": str(uid)})
+    return {"message": "Contraseña actualizada"}
+
+
+class PerfilPropio(BaseModel):
+    full_name: str = Field(min_length=2, max_length=120)
+
+
+@api_router.put("/auth/perfil")
+async def actualizar_mi_perfil(data: PerfilPropio, user: dict = Depends(get_current_user)):
+    """El nombre con el que uno aparece en la app. Solo eso: el correo es la
+    identidad de acceso y lo cambia un ADMIN; el rol, ni hablar."""
+    if user.get("en_otro_hotel"):
+        raise HTTPException(status_code=400, detail="Sal del hotel antes de editar tu cuenta")
+    uid = id_valido(user["user_id"], "user_id")
+    async with db_pg.tx_global("editar el propio nombre: fila unica por id del token") as conn:
+        actualizado = await conn.fetchval(
+            "update users set full_name = $2 where id = $1 returning id", uid, data.full_name.strip()
+        )
+        if not actualizado:
+            raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    return {"message": "Nombre actualizado", "full_name": data.full_name.strip()}
+
+
+@api_router.post("/auth/salir-de-hotel")
+async def salir_de_hotel(user: dict = Depends(get_current_user)):
+    """Devuelve al SUPER_ADMIN su token global despues de visitar un hotel.
+
+    Es un endpoint propio, y no "entra a tu propio hotel", porque el camino
+    de vuelta tiene que funcionar aunque el hotel visitado se haya borrado o
+    desactivado mientras tanto.
+    """
+    if not user.get("en_otro_hotel"):
+        raise HTTPException(status_code=400, detail="No estás dentro de ningún hotel")
+
+    uid = id_valido(user["user_id"], "user_id")
+    async with db_pg.tx_global("salir de un hotel: comprobar que el id del token sigue siendo SUPER_ADMIN") as conn:
+        fila = await db_pg.uno(
+            conn, "select id, email, role, is_active from users where id = $1", uid
+        )
+    if not fila or fila["role"] != Role.SUPER_ADMIN.value or not fila.get("is_active", True):
+        raise HTTPException(status_code=403, detail="Esta sesión ya no pertenece a un Super Admin")
+
+    token = create_token(fila["id"], fila["email"], Role.SUPER_ADMIN.value, None)
+    return {"access_token": token, "token_type": "bearer", "message": "De vuelta en la consola"}
 
 # ============== PLANES Y ALTA PUBLICA ==============
 class RegistroHotel(BaseModel):
@@ -713,6 +864,128 @@ async def ver_suscripcion(user: dict = Depends(get_current_user)):
     return susc
 
 
+# ============== CONFIRMACION DEL PAGO (IPN DE IZIPAY) ==============
+# Cuantos dias suma cada periodo. Van aqui y no en la consulta para que el
+# numero se lea una sola vez y no haya un 30 escondido dentro de un SQL.
+DIAS_POR_PERIODO = {"mensual": 30, "anual": 365}
+
+
+@api_router.post("/checkout/izipay/ipn")
+async def izipay_ipn(request: Request):
+    """Confirmacion servidor-a-servidor de Izipay. Publica y sin sesion.
+
+    LA AUTENTICIDAD LA DA LA FIRMA, NO LA COOKIE
+
+      Este aviso llega desde los servidores de la pasarela, sin navegador y sin
+      sesion. Lo unico que distingue uno legitimo de uno que mande cualquiera
+      desde internet es el HMAC, asi que sin firma valida se responde 401 y no
+      se toca nada. izipay.verificar_firma() devuelve False cuando falta la
+      clave: falla cerrado a proposito.
+
+    ES IDEMPOTENTE, Y ESO NO ES UN DETALLE
+
+      Las pasarelas reenvian. El `and estado <> 'pagado'` del UPDATE es lo que
+      hace que la segunda notificacion del mismo pedido no encuentre fila que
+      actualizar y, por tanto, no vuelva a extender el periodo. Sin eso el bug
+      seria "a algunos hoteles se les regalan meses" y nadie lo reportaria.
+
+    Va con tx_global porque no hay usuario del que heredar el hotel: el numero
+    de orden es lo unico que dice a que hotel pertenece este pago.
+    """
+    crudo = await request.body()
+    # POR_CONFIRMAR: el nombre de la cabecera que trae la firma. Se aceptan las
+    # dos formas que aparecen en la documentacion.
+    firma = (request.headers.get("x-izipay-signature")
+             or request.headers.get("signature") or "")
+
+    if not izipay.verificar_firma(crudo, firma):
+        logger.warning("IPN de Izipay con firma invalida desde %s",
+                       request.client.host if request.client else "?")
+        raise HTTPException(status_code=401, detail="Firma inválida")
+
+    try:
+        datos = json.loads(crudo)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="El cuerpo no es JSON")
+
+    # POR_CONFIRMAR: los nombres exactos de los campos del aviso.
+    respuesta = datos.get("response") if isinstance(datos.get("response"), dict) else {}
+    numero = (datos.get("orderNumber") or datos.get("order_number")
+              or respuesta.get("orderNumber"))
+    if not numero:
+        raise HTTPException(status_code=400, detail="Sin número de orden")
+
+    aprobado = (str(datos.get("code")) == "00"
+                or datos.get("status") in ("PAID", "AUTHORIZED"))
+    if not aprobado:
+        logger.info("IPN de %s indica pago no aprobado: %s", numero, datos.get("message"))
+        # 200 igualmente: el aviso se recibio y se entendio. Un 4xx haria que
+        # Izipay lo reintentara para siempre.
+        return {"ok": True, "aplicado": False, "motivo": "pago no aprobado"}
+
+    transaction_id = datos.get("transactionId") or respuesta.get("transactionId")
+
+    async with db_pg.tx_global("IPN de Izipay: llega sin sesion y sin hotel conocido") as conn:
+        pago = await db_pg.uno(
+            conn,
+            """update pagos_suscripcion
+                  set estado = 'pagado', confirmado_en = now(),
+                      izipay_transaction_id = $2,
+                      respuesta = coalesce(respuesta, '{}'::jsonb) || $3::jsonb
+                where izipay_order_number = $1 and estado <> 'pagado'
+            returning id, tenant_id, plan_codigo, periodo, monto""",
+            # dict y no json.dumps: el codec jsonb de db_pg ya serializa, y
+            # una cadena ya serializada se guardaria como cadena JSON --
+            # ademas de convertir el `||` de arriba en un array en vez de una
+            # fusion de objetos.
+            numero, transaction_id, {"ipn": datos},
+        )
+        if not pago:
+            # O ya estaba confirmado, o el numero no existe. En los dos casos
+            # se responde 200: no hay nada que reintentar.
+            logger.info("IPN %s ya aplicado o pedido inexistente: no se repite", numero)
+            return {"ok": True, "aplicado": False, "motivo": "ya aplicado o desconocido"}
+
+        dias = DIAS_POR_PERIODO.get(pago["periodo"], 30)
+        # greatest(...) para que renovar antes de tiempo SUME al periodo que
+        # queda en vez de recortarlo, y coalesce por los hoteles que nunca
+        # pagaron (subscription_ends_at NULL).
+        # db_pg.uno() ya convirtio el uuid a texto al salir; para volver a
+        # consultar por el hay que devolverlo a uuid o asyncpg no lo acepta.
+        tid = db_pg.a_uuid(pago["tenant_id"], "tenant_id")
+        antes = await db_pg.uno(
+            conn,
+            "select plan_codigo, subscription_status, subscription_ends_at "
+            "from tenants where id = $1", tid)
+        await conn.execute(
+            """update tenants
+                  set plan_codigo = $2,
+                      subscription_status = 'activa',
+                      subscription_ends_at =
+                          greatest(coalesce(subscription_ends_at, now()), now())
+                          + ($3 || ' days')::interval
+                where id = $1""",
+            tid, pago["plan_codigo"], str(dias),
+        )
+        despues = await db_pg.uno(
+            conn,
+            "select plan_codigo, subscription_status, subscription_ends_at "
+            "from tenants where id = $1", tid)
+
+        # user_id None: no lo hizo una persona de este sistema, lo hizo la
+        # pasarela. Dejarlo en blanco es mas honesto que atribuirselo a alguien.
+        await create_audit_log(
+            conn, tid, None, "suscripcion_pago", "confirm",
+            before=antes,
+            after={**despues, "numero_orden": numero, "monto": pago["monto"],
+                   "izipay_transaction_id": transaction_id},
+        )
+
+    logger.info("IPN: pago %s confirmado, hotel %s activo hasta %s",
+                numero, pago["tenant_id"], despues.get("subscription_ends_at"))
+    return {"ok": True, "aplicado": True}
+
+
 # ============== TENANT ENDPOINTS ==============
 @api_router.post("/tenants")
 async def create_tenant(data: TenantCreate, user: dict = Depends(require_roles(Role.SUPER_ADMIN))):
@@ -766,7 +1039,16 @@ async def create_tenant(data: TenantCreate, user: dict = Depends(require_roles(R
 @api_router.get("/tenants")
 async def list_tenants(user: dict = Depends(require_roles(Role.SUPER_ADMIN))):
     async with db_pg.tx(user) as conn:
-        return await db_pg.varias(conn, "select * from tenants order by name")
+        # Dos conteos por hotel para la tabla de la consola. Son subconsultas
+        # correlacionadas sobre indices por tenant_id: con decenas de hoteles
+        # cuesta lo mismo que el select a secas.
+        return await db_pg.varias(
+            conn,
+            """select t.*,
+                      (select count(*) from rooms r where r.tenant_id = t.id and r.is_active) as habitaciones,
+                      (select count(*) from users u where u.tenant_id = t.id) as usuarios
+               from tenants t order by t.name""",
+        )
 
 @api_router.get("/tenants/{tenant_id}")
 async def get_tenant(tenant_id: str, user: dict = Depends(get_current_user)):
@@ -779,6 +1061,320 @@ async def get_tenant(tenant_id: str, user: dict = Depends(get_current_user)):
     if not tenant:
         raise HTTPException(status_code=404, detail="Hotel no encontrado")
     return tenant
+
+
+class TenantUpdate(BaseModel):
+    """Datos editables de un hotel. Todo opcional: lo que no viene no cambia.
+
+    El plan, el estado de suscripcion y is_active NO estan aqui a proposito:
+    tienen sus propios endpoints, solo para SUPER_ADMIN, con su propia
+    auditoria. Asi un ADMIN puede editar la ficha de su hotel con este mismo
+    modelo sin que exista la tentacion de colar un campo de mas.
+    """
+    name: Optional[str] = Field(default=None, min_length=2, max_length=120)
+    razon_social: Optional[str] = Field(default=None, max_length=160)
+    nombre_comercial: Optional[str] = Field(default=None, max_length=120)
+    ruc: Optional[str] = Field(default=None, min_length=11, max_length=11)
+    address: Optional[str] = Field(default=None, max_length=200)
+    phone: Optional[str] = Field(default=None, max_length=40)
+    email: Optional[EmailStr] = None
+    checkin_time: Optional[str] = Field(default=None, pattern=r"^\d{2}:\d{2}$")
+    checkout_time: Optional[str] = Field(default=None, pattern=r"^\d{2}:\d{2}$")
+
+
+@api_router.put("/tenants/{tenant_id}")
+async def update_tenant(
+    tenant_id: str, data: TenantUpdate,
+    user: dict = Depends(require_roles(Role.SUPER_ADMIN, Role.ADMIN)),
+):
+    if user["role"] != Role.SUPER_ADMIN.value and user.get("tenant_id") != tenant_id:
+        raise HTTPException(status_code=403, detail="Acceso denegado")
+    if data.ruc is not None and not data.ruc.isdigit():
+        raise HTTPException(status_code=400, detail="El RUC debe ser numérico, de 11 dígitos")
+
+    cambios = {k: v for k, v in data.model_dump().items() if v is not None}
+    if not cambios:
+        raise HTTPException(status_code=400, detail="No hay campos válidos para actualizar")
+
+    tid = id_valido(tenant_id, "tenant_id")
+    # tx(user): para el ADMIN la politica RLS de `tenants` solo deja pasar su
+    # propia fila, asi que aunque el 403 de arriba fallara, el UPDATE no
+    # tocaria otro hotel. Para el SUPER_ADMIN pasa todo.
+    async with db_pg.tx(user) as conn:
+        antes = await db_pg.uno(
+            conn,
+            """select name, razon_social, nombre_comercial, ruc, address, phone, email,
+                      checkin_time, checkout_time from tenants where id = $1""",
+            tid,
+        )
+        if not antes:
+            raise HTTPException(status_code=404, detail="Hotel no encontrado")
+
+        # Las columnas salen de las claves del modelo (lista blanca), los
+        # valores viajan como parametros.
+        asignaciones = [f"{col} = ${i}" for i, col in enumerate(cambios, start=2)]
+        try:
+            await conn.execute(
+                f"update tenants set {', '.join(asignaciones)} where id = $1",
+                tid, *cambios.values(),
+            )
+        except db_pg.UniqueViolationError:
+            raise HTTPException(status_code=400, detail="Ya existe otro hotel con ese RUC")
+
+        await create_audit_log(
+            conn, tid, user["user_id"], "tenant", "UPDATE",
+            before={k: antes.get(k) for k in cambios}, after=cambios,
+        )
+    return {"message": "Hotel actualizado"}
+
+
+class TenantActivo(BaseModel):
+    is_active: bool
+
+
+@api_router.put("/tenants/{tenant_id}/activo")
+async def set_tenant_activo(
+    tenant_id: str, data: TenantActivo,
+    user: dict = Depends(require_roles(Role.SUPER_ADMIN)),
+):
+    """Apaga o enciende un hotel entero. Desactivado, nadie de ese hotel puede
+    iniciar sesion (ver POST /auth/login); sus datos se quedan intactos."""
+    tid = id_valido(tenant_id, "tenant_id")
+    async with db_pg.tx(user) as conn:
+        antes = await db_pg.valor(conn, "select is_active from tenants where id = $1", tid)
+        if antes is None:
+            raise HTTPException(status_code=404, detail="Hotel no encontrado")
+        await conn.execute("update tenants set is_active = $2 where id = $1", tid, data.is_active)
+        await create_audit_log(conn, tid, user["user_id"], "tenant",
+                               "ACTIVATE" if data.is_active else "DEACTIVATE",
+                               {"is_active": antes}, {"is_active": data.is_active})
+    return {"message": "Hotel activado" if data.is_active else "Hotel desactivado", "is_active": data.is_active}
+
+
+@api_router.delete("/tenants/{tenant_id}")
+async def delete_tenant(tenant_id: str, user: dict = Depends(require_roles(Role.SUPER_ADMIN))):
+    """Elimina un hotel con TODOS sus datos. No hay vuelta atras.
+
+    Mismo enfoque que CargoXprez: en vez de mantener a mano una lista ordenada
+    de tablas -que se desincroniza en cuanto alguien agrega una-, se recorren
+    todas las que tienen tenant_id y se reintentan las que fallan por clave
+    foranea. En cada vuelta caen las hojas y en la siguiente sus padres. Si una
+    vuelta entera no avanza, hay un ciclo y se aborta sin dejar el hotel a
+    medias (todo va en una transaccion).
+
+    La auditoria se escribe ANTES de borrar y en la propia bitacora del hotel
+    -audit_logs.tenant_id es NOT NULL con cascade-, asi que desaparece con el.
+    Queda ademas en el log del servidor, que es lo que sobrevive.
+    """
+    tid = id_valido(tenant_id, "tenant_id")
+    async with db_pg.tx_global("eliminar un hotel: hay que barrer todas sus tablas") as conn:
+        hotel = await db_pg.uno(conn, "select id, name, ruc from tenants where id = $1", tid)
+        if not hotel:
+            raise HTTPException(status_code=404, detail="Hotel no encontrado")
+
+        await create_audit_log(conn, tid, user["user_id"], "tenant", "DELETE",
+                               {"name": hotel["name"], "ruc": hotel["ruc"]}, None)
+        logger.warning("SUPER_ADMIN %s elimina el hotel %s (%s, RUC %s) con todos sus datos",
+                       user.get("email"), tid, hotel["name"], hotel["ruc"])
+
+        pendientes = [r["t"] for r in await conn.fetch(
+            "select table_name as t from information_schema.columns "
+            "where table_schema = 'public' and column_name = 'tenant_id'"
+        )]
+        while pendientes:
+            quedan = []
+            for tabla in pendientes:
+                try:
+                    async with conn.transaction():  # savepoint: el fallo no aborta todo
+                        await conn.execute(f'delete from "{tabla}" where tenant_id = $1', tid)
+                except db_pg.ForeignKeyViolationError:
+                    quedan.append(tabla)
+            if len(quedan) == len(pendientes):
+                raise HTTPException(
+                    status_code=500,
+                    detail="No se pudo eliminar el hotel: dependencias sin resolver en " + ", ".join(quedan),
+                )
+            pendientes = quedan
+
+        await conn.execute("delete from tenants where id = $1", tid)
+
+    return {"message": "Hotel y todos sus datos eliminados"}
+
+
+@api_router.get("/tenants/{tenant_id}/stats")
+async def get_tenant_stats(tenant_id: str, user: dict = Depends(require_roles(Role.SUPER_ADMIN, Role.ADMIN))):
+    if user["role"] != Role.SUPER_ADMIN.value and user.get("tenant_id") != tenant_id:
+        raise HTTPException(status_code=403, detail="Acceso denegado")
+    tid = id_valido(tenant_id, "tenant_id")
+    async with db_pg.tx(user) as conn:
+        if not await db_pg.valor(conn, "select 1 from tenants where id = $1", tid):
+            raise HTTPException(status_code=404, detail="Hotel no encontrado")
+        fila = await db_pg.uno(
+            conn,
+            """select
+                 (select count(*) from rooms where tenant_id = $1 and is_active) as habitaciones,
+                 (select count(*) from reservations where tenant_id = $1
+                     and created_at >= date_trunc('month', now())) as reservas_mes,
+                 (select count(*) from reservations where tenant_id = $1
+                     and status = 'CHECKED_IN') as estancias_activas,
+                 (select count(*) from guests where tenant_id = $1) as huespedes,
+                 (select count(*) from users where tenant_id = $1) as usuarios,
+                 (select count(*) from users where tenant_id = $1 and is_active) as usuarios_activos,
+                 greatest(
+                   (select max(created_at) from audit_logs where tenant_id = $1),
+                   (select max(created_at) from reservations where tenant_id = $1)
+                 ) as ultima_actividad""",
+            tid,
+        )
+    return fila
+
+
+@api_router.post("/tenants/{tenant_id}/entrar")
+async def entrar_en_hotel(tenant_id: str, user: dict = Depends(require_roles(Role.SUPER_ADMIN))):
+    """El SUPER_ADMIN entra a un hotel para dar soporte.
+
+    Devuelve un token con el tenant del hotel y rol ADMIN efectivo: dentro se
+    comporta como un administrador mas, RLS incluido, y todo lo que haga queda
+    en los datos y la bitacora de ESE hotel. La marca en_otro_hotel es lo que
+    permite volver con POST /auth/salir-de-hotel.
+    """
+    tid = id_valido(tenant_id, "tenant_id")
+    async with db_pg.tx(user) as conn:
+        hotel = await db_pg.uno(conn, "select id, name, nombre_comercial, is_active from tenants where id = $1", tid)
+        if not hotel:
+            raise HTTPException(status_code=404, detail="Hotel no encontrado")
+        # Que un SUPER_ADMIN entre en los datos de un cliente deja rastro, y
+        # el rastro va en la bitacora del hotel visitado.
+        await create_audit_log(conn, tid, user["user_id"], "tenant", "SUPERADMIN_ENTER",
+                               None, {"superadmin": user.get("email")})
+
+    nombre = hotel.get("nombre_comercial") or hotel["name"]
+    token = create_token(
+        user["user_id"], user["email"], Role.ADMIN.value, str(hotel["id"]),
+        extra={"en_otro_hotel": True, "hotel_nombre": nombre},
+    )
+    return {"access_token": token, "token_type": "bearer", "hotel_nombre": nombre,
+            "tenant_id": str(hotel["id"]), "message": f"Dentro de {nombre}"}
+
+class TenantSuscripcion(BaseModel):
+    """Plan y estado puestos A MANO por el SUPER_ADMIN.
+
+    Existe porque no todo el mundo paga por la pasarela: hay hoteles que pagan
+    en efectivo, por Yape o por transferencia, y otros a los que se les regala
+    un periodo. Sin esto, el unico camino para activar un plan era la pasarela,
+    y el dueno del producto no tenia forma de honrar un pago que ya recibio.
+    """
+    plan_codigo: str
+    subscription_status: Literal["prueba", "activa", "vencida", "suspendida", "cancelada"]
+    # Hasta cuando esta pagado (o hasta cuando dura la prueba). Se guarda en
+    # tenants.subscription_ends_at, la MISMA columna que escribe el IPN de
+    # Izipay: las dos vias de cobro -- la pasarela y el efectivo/Yape que
+    # registra el dueno a mano -- tienen que dejar el hotel en el mismo estado,
+    # o "hasta cuando ha pagado este hotel" dependeria de por donde pago.
+    vence: Optional[date] = None
+    nota: Optional[str] = Field(default=None, max_length=300)
+
+
+@api_router.put("/tenants/{tenant_id}/suscripcion")
+async def update_tenant_suscripcion(
+    tenant_id: str, data: TenantSuscripcion,
+    user: dict = Depends(require_roles(Role.SUPER_ADMIN)),
+):
+    tid = id_valido(tenant_id, "tenant_id")
+    async with db_pg.tx(user) as conn:
+        if not await db_pg.uno(conn, "select 1 from planes where codigo = $1 and activo", data.plan_codigo):
+            raise HTTPException(status_code=400, detail="Ese plan no existe o no esta activo")
+        antes = await db_pg.uno(
+            conn,
+            "select plan_codigo, subscription_status, trial_ends_at, "
+            "subscription_ends_at from tenants where id = $1",
+            tid,
+        )
+        if not antes:
+            raise HTTPException(status_code=404, detail="Hotel no encontrado")
+
+        manual = {
+            "plan_codigo": data.plan_codigo,
+            "estado": data.subscription_status,
+            "vence": data.vence.isoformat() if data.vence else None,
+            "nota": (data.nota or "").strip() or None,
+            "por": user.get("email"),
+            "en": datetime.now(timezone.utc).isoformat(),
+        }
+        # `vence` alimenta DOS columnas y no una:
+        #
+        #   trial_ends_at         solo cuando el estado es 'prueba'
+        #   subscription_ends_at  siempre que se indique, porque es la columna
+        #                         que consulta el sistema para saber hasta
+        #                         cuando esta pagado -- la misma que escribe el
+        #                         IPN de Izipay.
+        #
+        # Sin la segunda, un hotel al que el dueno le activa el plan a mano
+        # (efectivo, Yape, transferencia) quedaba 'activa' con
+        # subscription_ends_at en NULL, es decir: indistinguible de uno que
+        # nunca pago. La nota en settings.suscripcion_manual se conserva igual,
+        # pero es una nota, no un dato comparable.
+        await conn.execute(
+            """update tenants
+                  set plan_codigo = $2,
+                      subscription_status = $3,
+                      trial_ends_at = case when $3 = 'prueba' and $4::date is not null
+                                           then ($4::date + interval '23 hours 59 minutes')
+                                           else trial_ends_at end,
+                      subscription_ends_at = case when $4::date is not null
+                                                  then ($4::date + interval '23 hours 59 minutes')
+                                                  else subscription_ends_at end,
+                      settings = coalesce(settings, '{}'::jsonb)
+                                 || jsonb_build_object('suscripcion_manual', $5::jsonb)
+                where id = $1""",
+            # `manual` como dict: el cast explicito `$5::jsonb` NO evita el
+            # doble serializado. Postgres describe igual el parametro como
+            # jsonb -- comprobado con st.get_parameters() contra Postgres 16 --,
+            # asi que el codec de db_pg lo serializa por su cuenta y una cadena
+            # ya serializada acababa metiendo settings.suscripcion_manual como
+            # texto. jsonb_build_object la aceptaba sin queja: guardaba una
+            # cadena JSON donde tenia que haber un objeto.
+            tid, data.plan_codigo, data.subscription_status, data.vence, manual,
+        )
+        # El token trae user_id, no id: con ["id"] esto levantaba KeyError y
+        # el endpoint respondia 500 despues de haber hecho el UPDATE (que la
+        # transaccion revertia). El plan a mano nunca llegaba a guardarse.
+        await create_audit_log(
+            conn, tid, user["user_id"], "tenant_suscripcion", "update",
+            before={"plan_codigo": antes["plan_codigo"],
+                    "subscription_status": antes["subscription_status"],
+                    "subscription_ends_at": antes["subscription_ends_at"]},
+            after={"plan_codigo": data.plan_codigo, "subscription_status": data.subscription_status,
+                   "vence": manual["vence"], "nota": manual["nota"]},
+        )
+    return {"message": "Suscripcion actualizada", "suscripcion_manual": manual}
+
+
+@api_router.get("/tenants/{tenant_id}/pagos")
+async def listar_pagos_tenant(
+    tenant_id: str, user: dict = Depends(require_roles(Role.SUPER_ADMIN)),
+):
+    """Historial de pagos de un hotel, para el detalle de la consola.
+
+    Solo SUPER_ADMIN: son los cobros que el dueno del producto le hizo a ese
+    hotel, no datos del hotel. Se limita a 50 -- una suscripcion mensual tarda
+    cuatro anos en llegar ahi -- porque esto se pinta dentro de un dialogo y
+    nadie va a leer mas.
+    """
+    tid = id_valido(tenant_id, "tenant_id")
+    async with db_pg.tx(user) as conn:
+        return await db_pg.varias(
+            conn,
+            """select id, plan_codigo, periodo, monto, moneda, estado, metodo,
+                      izipay_order_number, izipay_transaction_id,
+                      created_at, confirmado_en
+                 from pagos_suscripcion
+                where tenant_id = $1
+                order by created_at desc
+                limit 50""",
+            tid,
+        )
+
 
 @api_router.put("/tenants/{tenant_id}/invoicing")
 async def update_tenant_invoicing(tenant_id: str, config: TenantInvoicingConfig, user: dict = Depends(require_roles(Role.SUPER_ADMIN, Role.ADMIN))):
@@ -823,23 +1419,61 @@ async def create_user(data: UserCreate, user: dict = Depends(require_roles(Role.
         data.tenant_id = user["tenant_id"]
         if data.role == Role.SUPER_ADMIN:
             raise HTTPException(status_code=403, detail="No puede crear Super Admins")
-    
+    if len(data.password) < 8:
+        raise HTTPException(status_code=400, detail="La contraseña necesita al menos 8 caracteres")
+
+    # La coherencia rol/hotel la exige tambien la tabla (users_tenant_coherente),
+    # pero un 400 con explicacion vale mas que un 500 de constraint.
+    if data.role == Role.SUPER_ADMIN:
+        data.tenant_id = None
+    elif not data.tenant_id:
+        raise HTTPException(status_code=400, detail="Indica el hotel al que pertenece el usuario")
+
     async with db_pg.tx_global("alta de usuario: el email es unico entre todos los hoteles") as conn:
         if await conn.fetchval("select 1 from users where email = $1", data.email):
             raise HTTPException(status_code=400, detail="Email ya registrado")
+        tid = db_pg.a_uuid(data.tenant_id, "tenant_id") if data.tenant_id else None
+        if tid and not await conn.fetchval("select 1 from tenants where id = $1", tid):
+            raise HTTPException(status_code=404, detail="Hotel no encontrado")
 
         nuevo_id = await conn.fetchval(
             """insert into users (tenant_id, email, password_hash, full_name, role)
                values ($1, $2, $3, $4, $5::user_role)
                returning id""",
-            db_pg.a_uuid(data.tenant_id, "tenant_id"), data.email,
+            tid, data.email,
             hash_password(data.password), data.full_name, data.role.value,
         )
+        if tid:
+            await create_audit_log(conn, tid, user["user_id"], "user", "CREATE", None,
+                                   {"user_id": str(nuevo_id), "email": data.email, "role": data.role.value})
     return {"id": str(nuevo_id), "message": "Usuario creado exitosamente"}
 
+
+async def _es_ultimo_admin(conn, objetivo: dict) -> bool:
+    """True si `objetivo` es el unico ADMIN activo de su hotel.
+
+    Borrarlo o desactivarlo dejaria al hotel sin nadie que pueda crear
+    usuarios, y la unica salida seria que el SUPER_ADMIN entrara a mano.
+    """
+    if objetivo.get("role") != Role.ADMIN.value or not objetivo.get("tenant_id"):
+        return False
+    otros = await conn.fetchval(
+        "select count(*) from users where tenant_id = $1 and role = 'ADMIN' and is_active and id <> $2",
+        db_pg.a_uuid(objetivo["tenant_id"], "tenant_id"), db_pg.a_uuid(objetivo["id"], "id"),
+    )
+    return otros == 0
+
+
 @api_router.get("/users")
-async def list_users(user: dict = Depends(require_roles(Role.SUPER_ADMIN, Role.ADMIN))):
+async def list_users(
+    tenant_id: Optional[str] = None,
+    user: dict = Depends(require_roles(Role.SUPER_ADMIN, Role.ADMIN)),
+):
     tid = tenant_de(user)
+    # El SUPER_ADMIN puede pedir los usuarios de UN hotel (consola de Hoteles).
+    # Para un ADMIN el parametro se ignora: su hotel es el del token, siempre.
+    if tid is None and tenant_id:
+        tid = id_valido(tenant_id, "tenant_id")
     async with db_pg.tx(user) as conn:
         # Nunca se selecciona password_hash: era la proyeccion {"password_hash": 0}
         # de Mongo, y aca se consigue simplemente no nombrando la columna.
@@ -880,16 +1514,38 @@ async def update_user(user_id: str, data: dict = Body(...), user: dict = Depends
     if not cambios:
         raise HTTPException(status_code=400, detail="No hay campos válidos para actualizar")
 
-    if "role" in cambios and cambios["role"] == Role.SUPER_ADMIN.value and user["role"] != Role.SUPER_ADMIN.value:
-        raise HTTPException(status_code=403, detail="No autorizado para asignar rol Super Admin")
+    if "role" in cambios and cambios["role"] not in [r.value for r in Role]:
+        raise HTTPException(status_code=400, detail="Rol no válido")
+    if "role" in cambios and cambios["role"] == Role.SUPER_ADMIN.value:
+        # Un SUPER_ADMIN no tiene hotel (users_tenant_coherente); convertir a
+        # alguien de un hotel en SUPER_ADMIN por aqui rompe la tabla. Se crea
+        # aparte, con POST /users y tenant_id nulo.
+        raise HTTPException(status_code=400, detail="El rol Super Admin no se asigna desde aquí")
+
+    es_uno_mismo = str(user_id) == str(user["user_id"])
+    if es_uno_mismo and (cambios.get("is_active") is False or "role" in cambios):
+        raise HTTPException(status_code=400, detail="No puedes desactivarte ni cambiar tu propio rol")
 
     async with db_pg.tx_global("editar usuario: el email es unico entre todos los hoteles") as conn:
-        objetivo = await db_pg.uno(conn, "select id, tenant_id, role from users where id = $1", uid)
+        objetivo = await db_pg.uno(conn, "select id, tenant_id, role, is_active from users where id = $1", uid)
         if not objetivo:
             raise HTTPException(status_code=404, detail="Usuario no encontrado")
 
         if user["role"] != Role.SUPER_ADMIN.value and str(objetivo.get("tenant_id")) != str(user.get("tenant_id")):
             raise HTTPException(status_code=403, detail="Sin permisos para modificar este usuario")
+        if objetivo.get("role") == Role.SUPER_ADMIN.value and user["role"] != Role.SUPER_ADMIN.value:
+            raise HTTPException(status_code=403, detail="No autorizado para modificar a un Super Admin")
+
+        # Que el hotel no se quede sin administrador: ni desactivando al
+        # ultimo ni bajandolo de rol.
+        pierde_admin = cambios.get("is_active") is False or (
+            "role" in cambios and cambios["role"] != Role.ADMIN.value
+        )
+        if pierde_admin and objetivo.get("is_active") and await _es_ultimo_admin(conn, objetivo):
+            raise HTTPException(
+                status_code=400,
+                detail="Es el único administrador activo del hotel. Nombra otro antes.",
+            )
 
         if "email" in cambios and await conn.fetchval(
             "select 1 from users where email = $1 and id <> $2", cambios["email"], uid
@@ -915,16 +1571,21 @@ async def update_user(user_id: str, data: dict = Body(...), user: dict = Depends
 async def reset_user_password(user_id: str, body: dict = Body(...), current_user: dict = Depends(get_current_user)):
     """Reset a user's password (admin only)"""
     new_password = body.get('password')
-    if not new_password or len(new_password) < 6:
-        raise HTTPException(status_code=400, detail="La contraseña debe tener al menos 6 caracteres")
+    if not new_password or len(new_password) < 8:
+        raise HTTPException(status_code=400, detail="La contraseña debe tener al menos 8 caracteres")
 
     uid = id_valido(user_id, "user_id")
     async with db_pg.tx(current_user) as conn:
-        objetivo = await db_pg.uno(conn, "select id, tenant_id from users where id = $1", uid)
+        objetivo = await db_pg.uno(conn, "select id, tenant_id, role from users where id = $1", uid)
         if not objetivo:
             raise HTTPException(status_code=404, detail="Usuario no encontrado")
 
         if current_user['role'] != Role.SUPER_ADMIN.value and str(objetivo.get('tenant_id')) != str(current_user.get('tenant_id')):
+            raise HTTPException(status_code=403, detail="No autorizado")
+        # Un ADMIN no le reescribe la clave a un SUPER_ADMIN (seria quedarse
+        # con la cuenta de la plataforma). Con RLS la fila ni se ve, pero que
+        # lo diga el codigo.
+        if objetivo.get('role') == Role.SUPER_ADMIN.value and current_user['role'] != Role.SUPER_ADMIN.value:
             raise HTTPException(status_code=403, detail="No autorizado")
 
         await conn.execute("update users set password_hash = $2 where id = $1",
@@ -952,6 +1613,12 @@ async def delete_user(user_id: str, current_user: dict = Depends(get_current_use
 
         if objetivo.get('role') == Role.SUPER_ADMIN.value and current_user['role'] != Role.SUPER_ADMIN.value:
             raise HTTPException(status_code=403, detail="No autorizado para eliminar Super Administradores")
+
+        if await _es_ultimo_admin(conn, objetivo):
+            raise HTTPException(
+                status_code=400,
+                detail="Es el único administrador activo del hotel. Nombra otro antes de eliminarlo.",
+            )
 
         # La auditoria se escribe ANTES del borrado: las tablas que referencian
         # al usuario (created_by, opened_by...) tienen FK contra users, asi que
@@ -2122,7 +2789,12 @@ async def close_cash_shift(shift_id: str, data: CashShiftClose, user: dict = Dep
                    status = 'CLOSED', totals = $2, counted_cash = $3,
                    difference = $4, closed_at = now(), closed_by = $5, notes = $6
                where id = $1""",
-            sid, json.dumps(arqueo["totales"]), data.counted_cash,
+            # `totales` ya es un dict {metodo: importe}: sale de una consulta
+            # sobre una columna jsonb, o sea que el codec de db_pg lo decodifico
+            # al leerlo. Volver a serializarlo al escribir dejaba cash_shifts
+            # .totals como cadena, y el arqueo por metodo de pago solo se podia
+            # leer entero -- no consultar `totals->>'EFECTIVO'`.
+            sid, arqueo["totales"], data.counted_cash,
             diferencia, id_valido(user["user_id"], "user_id"), data.notes,
         )
 
@@ -2331,7 +3003,11 @@ async def create_invoice(data: InvoiceCreate, user: dict = Depends(get_current_u
             data.client_doc_type.value, data.client_doc_number,
             data.client_name, data.client_address,
             subtotal, igv, total, estado,
-            json.dumps(nubefact_payload), json.dumps(nubefact_response),
+            # Los dos como dict: es lo que se manda a SUNAT y lo que contesta,
+            # y es la unica copia que queda de la conversacion. Serializado dos
+            # veces no se podia buscar por `nubefact_response->>'sunat_description'`
+            # ni por el codigo de error cuando SUNAT rechaza un comprobante.
+            nubefact_payload, nubefact_response,
             nubefact_response.get("enlace_del_pdf"),
             nubefact_response.get("enlace_del_xml"),
             nubefact_response.get("enlace_del_cdr"),
@@ -4024,6 +4700,33 @@ async def health_check():
 # Include router
 app.include_router(api_router)
 
+# La compra publica: /precios, /comprar/{plan} y /comprar/pedido/{numero}.
+#
+# Va DESPUES de api_router y ANTES del catch-all de abajo, y el orden es lo
+# unico que hace que funcione: el catch-all `@app.get("/{ruta:path}")` atrapa
+# cualquier cosa, asi que un router montado despues de el no recibiria nunca
+# una peticion. Estas paginas se construyen enteras en el servidor porque el
+# validador de Izipay descarga el HTML y puede no ejecutar JavaScript (ver la
+# cabecera de backend/checkout.py).
+app.include_router(checkout.router)
+
+# Limite de peticiones por IP. Ver backend/limites.py para las reglas y el
+# porque de cada numero.
+#
+# EL ORDEN CON CORS NO ES INDIFERENTE
+#
+#   Starlette monta el ULTIMO middleware anadido como el mas EXTERNO. Este va
+#   antes que CORS en el codigo, o sea que CORS queda por fuera y el 429 sale
+#   con sus cabeceras puestas. Al reves -- limite por fuera -- el navegador
+#   recibiria la respuesta sin cabeceras CORS y la descartaria: el usuario
+#   veria un error de red sin explicacion en lugar de "demasiadas peticiones,
+#   reintenta en N segundos".
+#
+#   En produccion la SPA y la API comparten origen y CORS ni interviene, pero
+#   en desarrollo (React en :3000, backend en otro puerto) y para cualquier
+#   integracion desde fuera si, y ahi es donde el mensaje importa.
+app.add_middleware(limites.LimitePeticiones)
+
 # CORS. Los origenes se validan al arrancar (ver arriba): la lista nunca es '*',
 # porque las peticiones van con credenciales y esa combinacion la rechazan los
 # navegadores ademas de ser insegura.
@@ -4055,7 +4758,7 @@ LANDING = ROOT_DIR / "landing"
 # La landing es HTML estatico y no parte de la SPA a proposito. Es la pagina
 # que tiene que vender: carga al instante, la lee un buscador, y no obliga a
 # descargar el megabyte de JavaScript del sistema a alguien que todavia no sabe
-# si le interesa. El sistema vive en /app.
+# si le interesa. El sistema vive en la raiz: /login, /dashboard, /reservations...
 if LANDING.exists():
     app.mount("/landing-assets", StaticFiles(directory=LANDING), name="landing_assets")
 
@@ -4072,11 +4775,13 @@ def _version_css() -> str:
     Se calcula al vuelo y no una vez al arrancar: el contenedor se reconstruye
     en cada despliegue, asi que da igual en cuanto a coste, y en desarrollo
     permite editar el CSS sin reiniciar.
+
+    Delega en checkout.version_css() y no calcula lo suyo: las paginas de la
+    compra cargan ESE MISMO archivo, y si cada modulo sacara su propia huella
+    un despliegue podria dejar el checkout apuntando a una version y la landing
+    a otra.
     """
-    archivo = LANDING / "estilo.css"
-    if not archivo.is_file():
-        return "0"
-    return hashlib.md5(archivo.read_bytes()).hexdigest()[:10]
+    return checkout.version_css()
 
 
 def _pagina_landing(archivo: Path) -> HTMLResponse:
@@ -4092,15 +4797,8 @@ def _pagina_landing(archivo: Path) -> HTMLResponse:
     return HTMLResponse(html, headers={"Cache-Control": "no-cache, must-revalidate"})
 
 if FRONTEND_BUILD.exists():
-    # Los assets con hash en el nombre (JS, CSS).
-    #
-    # Se montan DOS veces sobre el mismo directorio, y hace falta:
-    # package.json declara homepage="/app", asi que el index.html generado pide
-    # /app/static/js/main.<hash>.js. Con un unico mount en /static, esa ruta
-    # caia en el catch-all, no encontraba el archivo y devolvia el index.html
-    # -- el navegador recibia HTML donde esperaba JavaScript y la aplicacion no
-    # arrancaba nunca, sin un solo error en el log del servidor.
-    app.mount("/app/static", StaticFiles(directory=FRONTEND_BUILD / "static"), name="app_static")
+    # Los assets con hash en el nombre (JS, CSS). package.json declara
+    # homepage="/", asi que el index.html pide /static/js/main.<hash>.js.
     app.mount("/static", StaticFiles(directory=FRONTEND_BUILD / "static"), name="static")
 
 
@@ -4141,27 +4839,46 @@ def _cache_del_build(ruta: Path) -> str:
     return f"public, max-age={_UN_DIA_SPA}, stale-while-revalidate={_UN_DIA_SPA * 7}"
 
 
-@app.get("/{ruta:path}")
-async def servir_web(ruta: str):
+# HEAD ademas de GET: FastAPI no la anade sola, y sin ella un HEAD sobre la
+# portada o sobre /terminos devolvia 405. Se comprobo con una peticion real.
+# Es la misma respuesta sin cuerpo, y a un rastreador que sondea antes de
+# descargar -- el validador de una pasarela, por ejemplo -- un 405 le dice
+# que la pagina no existe.
+@app.api_route("/{ruta:path}", methods=["GET", "HEAD"])
+async def servir_web(ruta: str, request: Request):
     """Reparte entre la landing y la aplicacion.
 
         /            -> landing (comercial)
-        /precios     -> landing
-        /registro    -> landing
-        /app/...     -> la SPA
+        /privacidad, /terminos, /reclamaciones -> landing
+        /app/...     -> 301 a la misma ruta sin /app (enlaces y marcadores viejos)
         /algo.ext    -> archivo del build si existe (favicon, logos, manifest)
+        lo demas     -> la SPA (/login, /registro, /dashboard, /reservations...)
 
     El catch-all va DESPUES de include_router, asi que /api ya esta resuelto y
     no pasa por aqui.
     """
-    # 1. Paginas de la landing. Los precios NO son una pagina aparte: van en la
-    #    misma portada, porque partir "que es esto" de "cuanto cuesta" en dos
-    #    cargas pierde gente por el camino. /precios existe igual y lleva al
-    #    ancla, para que el enlace se pueda compartir.
+    # 0. La aplicacion vivio bajo /app hasta septiembre de 2026. Los
+    #    recepcionistas tienen /app/dashboard en marcadores y hay enlaces por
+    #    correo: un 301 los lleva a la ruta nueva conservando la consulta.
+    if ruta == "app" or ruta.startswith("app/"):
+        destino = "/" + ruta[4:]
+        if request.url.query:
+            destino += "?" + request.url.query
+        return RedirectResponse(destino, status_code=301)
+
+    # 1. Paginas de la landing.
+    #
+    #    /precios YA NO esta aqui ni redirige al ancla /#planes: ahora es una
+    #    pagina de verdad, construida en el servidor por backend/checkout.py y
+    #    montada antes que este catch-all. El ancla no servia como catalogo
+    #    para nadie de fuera -- ni para la pasarela, ni para un buscador, ni
+    #    para un enlace por WhatsApp -- porque los precios de la portada los
+    #    pinta un fetch desde el navegador.
     if LANDING.exists():
+        # /registro ya NO esta aqui: el alta es una pantalla de la SPA, con la
+        # misma concha que el login, y la resuelve React.
         paginas = {
             "": "index.html",
-            "registro": "registro.html",
             "terminos": "terminos.html",
             "privacidad": "privacidad.html",
             "reclamaciones": "reclamaciones.html",
@@ -4170,28 +4887,16 @@ async def servir_web(ruta: str):
             archivo = LANDING / paginas[ruta]
             if archivo.is_file():
                 return _pagina_landing(archivo)
-        if ruta == "precios":
-            return RedirectResponse("/#planes", status_code=307)
 
     if not FRONTEND_BUILD.exists():
         raise HTTPException(status_code=404, detail="No encontrado")
 
     # 2. Un archivo real del build (logo.png, manifest.json, favicon...).
     #
-    #    Se prueba la ruta tal cual Y sin el prefijo "app/": el package.json
-    #    declara homepage="/app", asi que CRA reescribe %PUBLIC_URL% y el HTML
-    #    pide /app/logo-zenstay.png, /app/manifest.json... pero esos archivos
-    #    viven en la RAIZ del build, no en un subdirectorio app/. Sin esta
-    #    equivalencia, el logotipo salia roto en todo el sistema y el manifest
-    #    de la PWA no cargaba -- devolvian el index.html con un 200, asi que no
-    #    aparecia como error en ningun sitio.
-    #
     #    resolve() y el chequeo de prefijo evitan que una ruta con ../ se escape
     #    del directorio del build y sirva archivos del contenedor.
-    for candidata in (ruta, ruta[4:] if ruta.startswith("app/") else None):
-        if not candidata:
-            continue
-        candidato = FRONTEND_BUILD / candidata
+    if ruta:
+        candidato = FRONTEND_BUILD / ruta
         if candidato.is_file() and str(candidato.resolve()).startswith(str(FRONTEND_BUILD.resolve())):
             return FileResponse(
                 candidato, headers={"Cache-Control": _cache_del_build(candidato)}
@@ -4210,7 +4915,7 @@ async def servir_web(ruta: str):
 
     # 4. Cualquier otra cosa es una ruta de la SPA. Se devuelve el index.html y
     #    React resuelve el enrutado: es lo que hace falta para que recargar
-    #    /app/reservations o entrar por un enlace directo no de 404.
+    #    /reservations o entrar por un enlace directo no de 404.
     indice = FRONTEND_BUILD / "index.html"
     return FileResponse(indice, headers={"Cache-Control": _cache_del_build(indice)})
 
