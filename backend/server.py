@@ -7,7 +7,8 @@ MongoDB Atlas; se migro porque el cluster dejo de existir y porque los importes
 en float no sirven para un sistema que emite comprobantes y cuadra caja.
 """
 
-from fastapi import FastAPI, APIRouter, Depends, HTTPException, Header, Query, Body, Request
+from fastapi import (FastAPI, APIRouter, Depends, HTTPException, Header, Query, Body, Request,
+                     Form, File, UploadFile)
 from fastapi.responses import StreamingResponse, FileResponse, RedirectResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
@@ -24,7 +25,6 @@ from enum import Enum
 import bcrypt
 import jwt
 import base64
-import json
 import io
 import asyncio
 import plantillas_correo
@@ -33,8 +33,11 @@ import hashlib
 
 import db_pg
 import checkout
-import izipay
+import comprobantes
 import limites
+import mercadopago
+import suscripciones
+import webhooks_mercadopago
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -419,6 +422,8 @@ async def estado_suscripcion(conn, tenant_id):
     fila = await db_pg.uno(
         conn,
         """select t.subscription_status, t.trial_ends_at, t.grace_ends_at,
+                  t.subscription_ends_at, t.cancelada_en,
+                  (t.mp_preapproval_id is not null) as cobro_automatico,
                   p.codigo as plan_codigo, p.nombre as plan_nombre,
                   p.precio_mensual, p.max_habitaciones,
                   p.facturacion_sunat, p.reportes_avanzados,
@@ -430,7 +435,20 @@ async def estado_suscripcion(conn, tenant_id):
     )
     if not fila:
         return None
-    fila["tiene_acceso"] = fila["subscription_status"] in ESTADOS_CON_ACCESO
+    # El estado guardado no basta: 'activa' con el periodo pagado ya vencido es
+    # 'vencida' (gracia), y pasada la gracia 'suspendida'. Lo deduce
+    # suscripciones.estado_efectivo_de() de las fechas, porque no hay ningun
+    # proceso que mueva el estado de noche. Sin fechas -- los hoteles de antes
+    # de cobrar -- el estado guardado manda, como siempre.
+    vence = suscripciones.vence_de(fila)
+    efectivo = suscripciones.estado_efectivo_de(
+        fila["subscription_status"], vence, gracia_hasta=fila.get("grace_ends_at")
+        if fila.get("subscription_ends_at") else None)
+    fila["estado_efectivo"] = efectivo
+    fila["vence"] = vence.isoformat() if vence else None
+    fila["en_gracia"] = efectivo == "vencida"
+    fila["tiene_acceso"] = suscripciones.tiene_acceso(
+        efectivo, vence, con_acceso=ESTADOS_CON_ACCESO)
     return fila
 
 
@@ -854,136 +872,172 @@ async def registro_publico(data: RegistroHotel):
 
 @api_router.get("/suscripcion")
 async def ver_suscripcion(user: dict = Depends(get_current_user)):
-    """Estado de la suscripcion del hotel, para la barra de aviso y Ajustes."""
+    """Estado de la suscripcion del hotel, para la barra de aviso y Ajustes.
+
+    Ademas del estado, dice si hay cobro automatico vivo en Mercado Pago y si
+    a este usuario se le ofrece pagar con el (en modo `prueba` solo a los
+    correos de prueba).
+    """
     if user.get("role") == Role.SUPER_ADMIN.value:
         return {"subscription_status": "activa", "plan_nombre": "Super Admin", "tiene_acceso": True}
     async with db_pg.tx(user) as conn:
         susc = await estado_suscripcion(conn, user["tenant_id"])
     if not susc:
         raise HTTPException(status_code=404, detail="Hotel no encontrado")
+    susc["mercadopago_disponible"] = mercadopago.disponible_para(user.get("email"))
+    susc["renovacion_automatica"] = mercadopago.cobro_recurrente()
     return susc
 
 
-# ============== CONFIRMACION DEL PAGO (IPN DE IZIPAY) ==============
-# Cuantos dias suma cada periodo. Van aqui y no en la consulta para que el
-# numero se lea una sola vez y no haya un 30 escondido dentro de un SQL.
-DIAS_POR_PERIODO = {"mensual": 30, "anual": 365}
+# ============== SUSCRIPCION DESDE LA CUENTA DEL HOTEL ==============
+# Lo que el hotel hace con SU suscripcion: ver sus cobros y comprobantes,
+# elegir boleta o factura, descargar el PDF y cancelar el cobro automatico.
+# Solo el ADMIN del hotel (o el SUPER_ADMIN que entro como el): son decisiones
+# de pago, no de recepcion.
+
+def _admin_del_hotel(user: dict = Depends(get_current_user)) -> dict:
+    if user.get("role") != Role.ADMIN.value or not user.get("tenant_id"):
+        raise HTTPException(status_code=403, detail="Solo el administrador del hotel")
+    return user
 
 
-@api_router.post("/checkout/izipay/ipn")
-async def izipay_ipn(request: Request):
-    """Confirmacion servidor-a-servidor de Izipay. Publica y sin sesion.
+class DatosFacturacion(BaseModel):
+    tipo: Literal["boleta", "factura"] = "boleta"
+    documento: Optional[str] = Field(default=None, max_length=20)
 
-    LA AUTENTICIDAD LA DA LA FIRMA, NO LA COOKIE
 
-      Este aviso llega desde los servidores de la pasarela, sin navegador y sin
-      sesion. Lo unico que distingue uno legitimo de uno que mande cualquiera
-      desde internet es el HMAC, asi que sin firma valida se responde 401 y no
-      se toca nada. izipay.verificar_firma() devuelve False cuando falta la
-      clave: falla cerrado a proposito.
+@api_router.get("/suscripcion/pagos")
+async def mis_pagos_suscripcion(user: dict = Depends(_admin_del_hotel)):
+    """Los cobros del hotel con el estado de su comprobante, y los datos de
+    facturacion con los que se emitiran los proximos."""
+    return {
+        "pagos": await comprobantes.pagos_del_hotel(user),
+        "facturacion": await comprobantes.datos_de(user),
+    }
 
-    ES IDEMPOTENTE, Y ESO NO ES UN DETALLE
 
-      Las pasarelas reenvian. El `and estado <> 'pagado'` del UPDATE es lo que
-      hace que la segunda notificacion del mismo pedido no encuentre fila que
-      actualizar y, por tanto, no vuelva a extender el periodo. Sin eso el bug
-      seria "a algunos hoteles se les regalan meses" y nadie lo reportaria.
+@api_router.put("/suscripcion/facturacion")
+async def guardar_facturacion(data: DatosFacturacion, user: dict = Depends(_admin_del_hotel)):
+    """Boleta o factura para los PROXIMOS cobros. Los ya cobrados no cambian:
+    el disparador de la migracion 005 tomo la foto al cobrarlos."""
+    datos, motivo = comprobantes.validar(data.tipo, data.documento or "")
+    if motivo:
+        raise HTTPException(status_code=400, detail=motivo)
+    await comprobantes.guardar_datos(user["tenant_id"], datos, user=user)
+    return {"message": "Datos de facturación guardados",
+            "facturacion": await comprobantes.datos_de(user)}
 
-    Va con tx_global porque no hay usuario del que heredar el hotel: el numero
-    de orden es lo unico que dice a que hotel pertenece este pago.
+
+@api_router.get("/suscripcion/comprobante/{pago_id}")
+async def descargar_comprobante(pago_id: str, user: dict = Depends(_admin_del_hotel)):
+    """El PDF del comprobante, solo si el cobro es de este hotel. Si no, 404."""
+    pid = id_valido(pago_id, "pago_id")
+    contenido = await comprobantes.pdf_del_cliente(user, pid)
+    if not contenido:
+        raise HTTPException(status_code=404, detail="No encontramos ese comprobante")
+    return StreamingResponse(
+        io.BytesIO(contenido), media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="comprobante-zenstay-{pid}.pdf"',
+                 "Cache-Control": "no-store"})
+
+
+@api_router.post("/suscripcion/cancelar")
+async def cancelar_suscripcion(user: dict = Depends(_admin_del_hotel)):
+    """Cancela el cobro automatico. El acceso se conserva hasta el fin del periodo.
+
+    EL ORDEN IMPORTA: PRIMERO MERCADO PAGO
+
+      Marcar la cancelacion aqui y fallar alli dejaria a Mercado Pago cobrando
+      cada periodo a un hotel que ve "cancelada" en su cuenta: un cargo que no
+      espera y que nuestra propia pantalla desmiente. Al reves -- cancelar
+      alli y fallar aqui -- deja un hotel que dice "activa" y ya no se cobra,
+      que se corrige solo al vencer.
     """
-    crudo = await request.body()
-    # POR_CONFIRMAR: el nombre de la cabecera que trae la firma. Se aceptan las
-    # dos formas que aparecen en la documentacion.
-    firma = (request.headers.get("x-izipay-signature")
-             or request.headers.get("signature") or "")
+    tid = user["tenant_id"]
+    mp_id = await suscripciones.preapproval_de(tid)
+    if mp_id:
+        try:
+            await mercadopago.cancelar(mp_id)
+        except mercadopago.ErrorMercadoPago as e:
+            logger.error("No se pudo cancelar %s en Mercado Pago: %s", mp_id, e)
+            raise HTTPException(
+                status_code=502,
+                detail="No pudimos cancelar el cobro automático. No hemos tocado nada: "
+                       "vuelve a intentarlo o escríbenos y lo cancelamos nosotros.")
+        logger.info("Suscripcion %s de Mercado Pago cancelada por el hotel %s", mp_id, tid)
 
-    if not izipay.verificar_firma(crudo, firma):
-        logger.warning("IPN de Izipay con firma invalida desde %s",
-                       request.client.host if request.client else "?")
-        raise HTTPException(status_code=401, detail="Firma inválida")
+    cancelada = await suscripciones.marcar_cancelada(tid)
+    if not mp_id and not cancelada:
+        raise HTTPException(status_code=400,
+                            detail="Este hotel no tiene una suscripción pagada que cancelar.")
+    async with db_pg.tx(user) as conn:
+        susc = await estado_suscripcion(conn, tid)
+    return {"message": "Suscripción cancelada. Conservas el acceso hasta el fin del "
+                       "periodo pagado.", "suscripcion": susc}
 
-    try:
-        datos = json.loads(crudo)
-    except (ValueError, TypeError):
-        raise HTTPException(status_code=400, detail="El cuerpo no es JSON")
 
-    # POR_CONFIRMAR: los nombres exactos de los campos del aviso.
-    respuesta = datos.get("response") if isinstance(datos.get("response"), dict) else {}
-    numero = (datos.get("orderNumber") or datos.get("order_number")
-              or respuesta.get("orderNumber"))
-    if not numero:
-        raise HTTPException(status_code=400, detail="Sin número de orden")
+# ============== COMPROBANTES: CONSOLA DEL DUENO ==============
+# El dueno del producto es el SUPER_ADMIN (require_roles(SUPER_ADMIN)). El que
+# "entro como" un hotel lleva rol ADMIN en el token y aqui no pasa: estas son
+# operaciones sobre los cobros de TODOS los hoteles.
 
-    aprobado = (str(datos.get("code")) == "00"
-                or datos.get("status") in ("PAID", "AUTHORIZED"))
-    if not aprobado:
-        logger.info("IPN de %s indica pago no aprobado: %s", numero, datos.get("message"))
-        # 200 igualmente: el aviso se recibio y se entendio. Un 4xx haria que
-        # Izipay lo reintentara para siempre.
-        return {"ok": True, "aplicado": False, "motivo": "pago no aprobado"}
+@api_router.get("/admin/comprobantes")
+async def admin_comprobantes(user: dict = Depends(require_roles(Role.SUPER_ADMIN))):
+    return await comprobantes.panel(user)
 
-    transaction_id = datos.get("transactionId") or respuesta.get("transactionId")
 
-    async with db_pg.tx_global("IPN de Izipay: llega sin sesion y sin hotel conocido") as conn:
-        pago = await db_pg.uno(
-            conn,
-            """update pagos_suscripcion
-                  set estado = 'pagado', confirmado_en = now(),
-                      izipay_transaction_id = $2,
-                      respuesta = coalesce(respuesta, '{}'::jsonb) || $3::jsonb
-                where izipay_order_number = $1 and estado <> 'pagado'
-            returning id, tenant_id, plan_codigo, periodo, monto""",
-            # dict y no json.dumps: el codec jsonb de db_pg ya serializa, y
-            # una cadena ya serializada se guardaria como cadena JSON --
-            # ademas de convertir el `||` de arriba en un array en vez de una
-            # fusion de objetos.
-            numero, transaction_id, {"ipn": datos},
-        )
-        if not pago:
-            # O ya estaba confirmado, o el numero no existe. En los dos casos
-            # se responde 200: no hay nada que reintentar.
-            logger.info("IPN %s ya aplicado o pedido inexistente: no se repite", numero)
-            return {"ok": True, "aplicado": False, "motivo": "ya aplicado o desconocido"}
+@api_router.post("/admin/comprobantes/{pago_id}/emitido")
+async def admin_comprobante_emitido(
+    pago_id: str,
+    serie: str = Form(""),
+    numero: str = Form(""),
+    emitido: str = Form(""),
+    pdf: Optional[UploadFile] = File(None),
+    user: dict = Depends(require_roles(Role.SUPER_ADMIN)),
+):
+    """Registra serie, numero, fecha y PDF del comprobante emitido en BSNegocios."""
+    pid = id_valido(pago_id, "pago_id")
+    fecha = None
+    if emitido.strip():
+        try:
+            fecha = date.fromisoformat(emitido.strip())
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Fecha no válida")
+    contenido = None
+    if pdf is not None and pdf.filename:
+        contenido = await pdf.read(comprobantes.MAX_PDF + 1)
+    motivo = await comprobantes.registrar(user, pid, serie, numero, fecha, contenido)
+    if motivo:
+        raise HTTPException(status_code=400, detail=motivo)
+    logger.info("%s registro el comprobante del cobro %s", user.get("email"), pid)
+    return {"message": "Comprobante registrado"}
 
-        dias = DIAS_POR_PERIODO.get(pago["periodo"], 30)
-        # greatest(...) para que renovar antes de tiempo SUME al periodo que
-        # queda en vez de recortarlo, y coalesce por los hoteles que nunca
-        # pagaron (subscription_ends_at NULL).
-        # db_pg.uno() ya convirtio el uuid a texto al salir; para volver a
-        # consultar por el hay que devolverlo a uuid o asyncpg no lo acepta.
-        tid = db_pg.a_uuid(pago["tenant_id"], "tenant_id")
-        antes = await db_pg.uno(
-            conn,
-            "select plan_codigo, subscription_status, subscription_ends_at "
-            "from tenants where id = $1", tid)
-        await conn.execute(
-            """update tenants
-                  set plan_codigo = $2,
-                      subscription_status = 'activa',
-                      subscription_ends_at =
-                          greatest(coalesce(subscription_ends_at, now()), now())
-                          + ($3 || ' days')::interval
-                where id = $1""",
-            tid, pago["plan_codigo"], str(dias),
-        )
-        despues = await db_pg.uno(
-            conn,
-            "select plan_codigo, subscription_status, subscription_ends_at "
-            "from tenants where id = $1", tid)
 
-        # user_id None: no lo hizo una persona de este sistema, lo hizo la
-        # pasarela. Dejarlo en blanco es mas honesto que atribuirselo a alguien.
-        await create_audit_log(
-            conn, tid, None, "suscripcion_pago", "confirm",
-            before=antes,
-            after={**despues, "numero_orden": numero, "monto": pago["monto"],
-                   "izipay_transaction_id": transaction_id},
-        )
+class NotaNoAplica(BaseModel):
+    nota: str = Field(min_length=1, max_length=300)
 
-    logger.info("IPN: pago %s confirmado, hotel %s activo hasta %s",
-                numero, pago["tenant_id"], despues.get("subscription_ends_at"))
-    return {"ok": True, "aplicado": True}
+
+@api_router.post("/admin/comprobantes/{pago_id}/no-aplica")
+async def admin_comprobante_no_aplica(
+    pago_id: str, data: NotaNoAplica,
+    user: dict = Depends(require_roles(Role.SUPER_ADMIN)),
+):
+    motivo = await comprobantes.no_aplica(user, id_valido(pago_id, "pago_id"), data.nota)
+    if motivo:
+        raise HTTPException(status_code=400, detail=motivo)
+    return {"message": "Marcado sin comprobante"}
+
+
+@api_router.get("/admin/comprobantes/{pago_id}/pdf")
+async def admin_comprobante_pdf(pago_id: str, user: dict = Depends(require_roles(Role.SUPER_ADMIN))):
+    pid = id_valido(pago_id, "pago_id")
+    contenido = await comprobantes.pdf_para_el_dueno(user, pid)
+    if not contenido:
+        raise HTTPException(status_code=404, detail="Ese cobro no tiene PDF")
+    return StreamingResponse(
+        io.BytesIO(contenido), media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="comprobante-{pid}.pdf"',
+                 "Cache-Control": "no-store"})
 
 
 # ============== TENANT ENDPOINTS ==============
@@ -1168,9 +1222,19 @@ async def delete_tenant(tenant_id: str, user: dict = Depends(require_roles(Role.
     """
     tid = id_valido(tenant_id, "tenant_id")
     async with db_pg.tx_global("eliminar un hotel: hay que barrer todas sus tablas") as conn:
-        hotel = await db_pg.uno(conn, "select id, name, ruc from tenants where id = $1", tid)
+        hotel = await db_pg.uno(
+            conn, "select id, name, ruc, mp_preapproval_id from tenants where id = $1", tid)
         if not hotel:
             raise HTTPException(status_code=404, detail="Hotel no encontrado")
+        # Borrar el hotel no para el cobro en Mercado Pago: seguiria cobrando a
+        # un hotel que ya no existe, y el aviso no encontraria a quien aplicar
+        # el pago. Primero se cancela el cobro (desde la cuenta del hotel o en
+        # el panel de Mercado Pago) y despues se borra.
+        if hotel.get("mp_preapproval_id"):
+            raise HTTPException(
+                status_code=409,
+                detail="Este hotel tiene un cobro automático vivo en Mercado Pago. "
+                       "Cancélalo antes de eliminar el hotel.")
 
         await create_audit_log(conn, tid, user["user_id"], "tenant", "DELETE",
                                {"name": hotel["name"], "ruc": hotel["ruc"]}, None)
@@ -1267,8 +1331,8 @@ class TenantSuscripcion(BaseModel):
     plan_codigo: str
     subscription_status: Literal["prueba", "activa", "vencida", "suspendida", "cancelada"]
     # Hasta cuando esta pagado (o hasta cuando dura la prueba). Se guarda en
-    # tenants.subscription_ends_at, la MISMA columna que escribe el IPN de
-    # Izipay: las dos vias de cobro -- la pasarela y el efectivo/Yape que
+    # tenants.subscription_ends_at, la MISMA columna que escribe el webhook de
+    # Mercado Pago: las dos vias de cobro -- la pasarela y el efectivo/Yape que
     # registra el dueno a mano -- tienen que dejar el hotel en el mismo estado,
     # o "hasta cuando ha pagado este hotel" dependeria de por donde pago.
     vence: Optional[date] = None
@@ -1307,7 +1371,10 @@ async def update_tenant_suscripcion(
         #   subscription_ends_at  siempre que se indique, porque es la columna
         #                         que consulta el sistema para saber hasta
         #                         cuando esta pagado -- la misma que escribe el
-        #                         IPN de Izipay.
+        #                         webhook de Mercado Pago.
+        #   grace_ends_at         siete dias despues de `vence`, para que la
+        #                         gracia cuadre con la fecha puesta a mano y no
+        #                         con la de un cobro anterior.
         #
         # Sin la segunda, un hotel al que el dueno le activa el plan a mano
         # (efectivo, Yape, transferencia) quedaba 'activa' con
@@ -1324,6 +1391,10 @@ async def update_tenant_suscripcion(
                       subscription_ends_at = case when $4::date is not null
                                                   then ($4::date + interval '23 hours 59 minutes')
                                                   else subscription_ends_at end,
+                      grace_ends_at = case when $4::date is not null
+                                           then ($4::date + interval '23 hours 59 minutes'
+                                                 + interval '7 days')
+                                           else grace_ends_at end,
                       settings = coalesce(settings, '{}'::jsonb)
                                  || jsonb_build_object('suscripcion_manual', $5::jsonb)
                 where id = $1""",
@@ -1366,7 +1437,8 @@ async def listar_pagos_tenant(
         return await db_pg.varias(
             conn,
             """select id, plan_codigo, periodo, monto, moneda, estado, metodo,
-                      izipay_order_number, izipay_transaction_id,
+                      izipay_order_number, izipay_transaction_id, mp_payment_id,
+                      comp_estado, comp_serie, comp_numero,
                       created_at, confirmado_en
                  from pagos_suscripcion
                 where tenant_id = $1
@@ -4706,9 +4778,13 @@ app.include_router(api_router)
 # unico que hace que funcione: el catch-all `@app.get("/{ruta:path}")` atrapa
 # cualquier cosa, asi que un router montado despues de el no recibiria nunca
 # una peticion. Estas paginas se construyen enteras en el servidor porque el
-# validador de Izipay descarga el HTML y puede no ejecutar JavaScript (ver la
-# cabecera de backend/checkout.py).
+# validador de una pasarela descarga el HTML y puede no ejecutar JavaScript
+# (ver la cabecera de backend/checkout.py).
 app.include_router(checkout.router)
+
+# El aviso de Mercado Pago: POST /webhooks/mercadopago, fuera de /api y exento
+# del limitador (ver backend/webhooks_mercadopago.py y limites.EXENTAS).
+app.include_router(webhooks_mercadopago.router)
 
 # Limite de peticiones por IP. Ver backend/limites.py para las reglas y el
 # porque de cada numero.
@@ -4928,6 +5004,45 @@ if not FRONTEND_BUILD.exists():
     )
 
 
+# ---------------------------------------------------------------------------
+# Aviso al dueno de los comprobantes que tiene que emitir
+# ---------------------------------------------------------------------------
+# Cada 10 minutos mira si entro un cobro sin comprobante y le escribe a
+# ZENSTAY_ADMIN_EMAIL; los atrasados se recuerdan cada 24 h (ver
+# comprobantes.avisar). Una tarea dentro del proceso y no un cron: el
+# contenedor corre UN solo uvicorn (ver backend/Dockerfile), asi que no hay
+# dos copias que avisen dos veces, y no hace falta otra pieza que vigilar.
+# COMPROBANTES_AVISOS=0 la apaga (desarrollo, pruebas).
+AVISOS_CADA_SEGUNDOS = 600
+_tarea_avisos = None
+
+
+async def _bucle_avisos_comprobantes():
+    await asyncio.sleep(30)  # que el arranque y el healthcheck vayan primero
+    while True:
+        try:
+            enviados = await comprobantes.avisar(send_email_async)
+            if enviados:
+                logger.info("Avisos de comprobante enviados: %s", enviados)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            # Un fallo de base o de SMTP no puede matar el bucle: el siguiente
+            # intento es en diez minutos y los no enviados siguen pendientes.
+            logger.exception("Fallo la revision de comprobantes pendientes")
+        await asyncio.sleep(AVISOS_CADA_SEGUNDOS)
+
+
+@app.on_event("startup")
+async def arrancar_avisos_comprobantes():
+    global _tarea_avisos
+    if os.environ.get("COMPROBANTES_AVISOS", "1").strip() == "0":
+        return
+    _tarea_avisos = asyncio.create_task(_bucle_avisos_comprobantes())
+
+
 @app.on_event("shutdown")
 async def cerrar_conexiones():
+    if _tarea_avisos is not None:
+        _tarea_avisos.cancel()
     await db_pg.close_pool()

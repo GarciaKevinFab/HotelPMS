@@ -20,6 +20,7 @@ import {
   Tag,
   UsersRound,
   UserCog,
+  FileText,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { cn } from '../../lib/utils';
@@ -76,6 +77,7 @@ const secciones = [
       { path: '/employees', icon: UserCog, label: 'Empleados', roles: ['SUPER_ADMIN', 'ADMIN'] },
       { path: '/settings', icon: Settings, label: 'Configuración', roles: ['SUPER_ADMIN', 'ADMIN', 'RECEPTIONIST', 'HOUSEKEEPING', 'SECURITY'] },
       { path: '/tenants', icon: Building2, label: 'Hoteles', roles: ['SUPER_ADMIN'] },
+      { path: '/comprobantes', icon: FileText, label: 'Comprobantes', roles: ['SUPER_ADMIN'] },
     ],
   },
 ];

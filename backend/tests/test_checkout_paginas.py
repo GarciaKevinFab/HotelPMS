@@ -2,7 +2,7 @@
 
 POR QUE ESTAS PRUEBAS Y NO UNAS DE INTEGRACION
 
-  Lo que Izipay rechazo no fue una consulta SQL: fue lo que se ve al descargar
+  Lo que la pasarela anterior rechazo no fue una consulta SQL: fue lo que se ve al descargar
   el HTML. Por eso lo que se prueba aqui es exactamente eso -- la cadena de
   texto que sale del servidor -- y por eso las funciones de backend/checkout.py
   reciben diccionarios en vez de ir a buscar los datos ellas mismas.
@@ -112,7 +112,7 @@ def test_el_plan_gratuito_no_tiene_precio():
 # --- LA prueba: nada de esto depende de JavaScript --------------------------
 
 def test_ninguna_pagina_lleva_javascript():
-    """El validador de Izipay descarga el HTML y puede no ejecutarlo.
+    """Un validador de pasarela descarga el HTML y puede no ejecutarlo.
 
     Es literalmente por lo que existe backend/checkout.py: la portada pinta sus
     precios con fetch() y desde fuera se ve "Cargando planes…". Si alguien
@@ -127,7 +127,7 @@ def test_ninguna_pagina_lleva_javascript():
 
 
 def test_el_checkout_ensena_pedido_total_y_boton_sin_javascript():
-    """Las tres cosas que Izipay dijo que no encontraba."""
+    """Las tres cosas que la pasarela anterior dijo que no encontraba."""
     pagina = _checkout()
     assert "Tu pedido" in pagina
     assert "Total a pagar" in pagina
@@ -157,7 +157,24 @@ def test_el_checkout_identifica_a_quien_cobra():
         assert f'href="{enlace}"' in pagina
     for marca in ("VISA", "Mastercard", "American Express", "Diners Club", "PEN"):
         assert f">{marca}<" in pagina
-    assert "Izipay" in pagina
+    # Quien cobra es Mercado Pago, y ninguna otra pasarela.
+    assert "Mercado Pago" in pagina
+    assert "Izipay" not in pagina
+
+
+def test_el_checkout_pide_boleta_o_factura_en_los_dos_formularios():
+    pagina = _checkout()
+    assert pagina.count('name="comprobante" value="boleta"') == 2
+    assert pagina.count('name="comprobante" value="factura"') == 2
+    assert 'id="documento-nuevo"' in pagina and 'id="documento-existente"' in pagina
+
+
+def test_la_renovacion_automatica_solo_se_promete_en_produccion():
+    plano = " ".join(_checkout().split())
+    assert "Mercado Pago la cobra sola" not in plano
+    pagina = co.pagina_checkout(PRO, "mensual", co.desglose(119), "", co.COMERCIO,
+                                recurrente=True)
+    assert "Mercado Pago la cobra sola cada mes" in " ".join(pagina.split())
 
 
 # --- Errores en linea ------------------------------------------------------
@@ -202,33 +219,23 @@ def test_en_simulado_se_dice_que_todavia_no_se_cobra():
     # El texto va partido en varias lineas en la plantilla: se normalizan los
     # espacios antes de buscarlo, que es como lo lee una persona.
     plano = " ".join(pagina.split())
-    assert "El cobro con tarjeta se activa cuando la pasarela confirme la afiliación." in plano
+    assert "El cobro con tarjeta todavía no está activo." in plano
     assert "prueba de 14 días" in plano
     assert "Entrar al sistema" in pagina
     assert "<form" not in pagina
-    assert "Continuar a Izipay" not in pagina
+    assert "Pagar con Mercado Pago" not in pagina
 
 
-def test_sin_destino_confirmado_no_se_pinta_boton_de_pagar():
-    """Hay credenciales pero falta la URL de la pasarela (POR_CONFIRMAR)."""
+def test_con_mercadopago_un_pedido_viejo_manda_a_contratar_otra_vez():
+    """Un pedido pendiente de la epoca simulada no se paga en esta pagina:
+    se ofrece el checkout, que es el que abre Mercado Pago."""
     pagina = co.pagina_pedido(
         {"numero": "ZS2609031422AAA111", "estado": "pendiente",
-         "monto": 119.00, "periodo": "mensual", "token_pasarela": "tok_x"},
+         "monto": 119.00, "periodo": "mensual"},
         PRO, co.COMERCIO, "produccion")
-    assert "Continuar a Izipay" not in pagina
+    assert 'href="/comprar/pro?periodo=mensual"' in pagina
+    assert "Pagar con Mercado Pago" in pagina
     assert "<form" not in pagina
-    assert "no podemos abrir el formulario de tarjeta" in pagina
-
-
-def test_con_token_y_destino_si_hay_formulario_de_pago():
-    pagina = co.pagina_pedido(
-        {"numero": "ZS2609031422AAA111", "estado": "pendiente",
-         "monto": 119.00, "periodo": "mensual",
-         "token_pasarela": "tok_x", "url_pasarela": "https://pasarela.example/pago"},
-        PRO, co.COMERCIO, "produccion")
-    assert 'action="https://pasarela.example/pago"' in pagina
-    assert 'name="formToken" value="tok_x"' in pagina
-    assert "Continuar a Izipay · S/ 119.00" in pagina
 
 
 def test_un_pedido_pagado_lo_dice_y_no_vuelve_a_pedir_pago():
@@ -237,7 +244,7 @@ def test_un_pedido_pagado_lo_dice_y_no_vuelve_a_pedir_pago():
          "monto": 1190.00, "periodo": "anual"}, PRO, co.COMERCIO, "produccion")
     assert "Pago confirmado" in pagina
     assert "S/ 1,190.00" in pagina
-    assert "Continuar a Izipay" not in pagina
+    assert "Pagar con Mercado Pago" not in pagina
 
 
 # --- La cascara ------------------------------------------------------------

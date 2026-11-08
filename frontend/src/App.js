@@ -22,6 +22,7 @@ import Alerts from './pages/Alerts';
 import Reports from './pages/Reports';
 import Settings from './pages/Settings';
 import Tenants from './pages/Tenants';
+import Comprobantes from './pages/Comprobantes';
 import Rates from './pages/Rates';
 import Employees from './pages/Employees';
 
@@ -63,6 +64,7 @@ function App() {
             <Route path="/employees" element={<Employees />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="/tenants" element={<Tenants />} />
+            <Route path="/comprobantes" element={<Comprobantes />} />
           </Route>
           
           {/* Default redirect */}
