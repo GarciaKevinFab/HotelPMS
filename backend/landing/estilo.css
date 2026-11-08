@@ -602,3 +602,48 @@ p  { margin: 0 0 1rem; }
   .tablero { transform: none; }
 }
 
+
+/* --- Titulos de pagina ----------------------------------------------------
+   Precios y contratar llevan su titulo en <h1> (uno por pagina, como pide un
+   buscador), pero con el tamano de un titulo de seccion: el h1 grande es el de
+   la portada. */
+.seccion-titulo h1 { font-size: clamp(2.1rem, 4.4vw, 3.4rem); letter-spacing: -.038em; }
+
+/* --- Confianza: quien vende y como hablar con una persona -----------------
+   Va junto a los precios. Ver backend/contacto.py. */
+.confianza {
+  margin-top: 28px; padding: clamp(22px, 3vw, 30px);
+  border: 1px solid var(--borde); border-radius: var(--radio-tarjeta);
+  background: var(--superficie);
+}
+.confianza-titulo { font-size: clamp(1.25rem, 2.2vw, 1.55rem); letter-spacing: -.02em; margin-bottom: 14px; }
+.confianza-lista { margin: 0; padding-left: 1.15em; color: var(--texto-suave); }
+.confianza-lista li { margin: 6px 0; }
+.confianza-lista strong { color: var(--texto); }
+.confianza-lista a { color: var(--turquesa); }
+.confianza-acciones { margin-top: 18px; display: flex; flex-wrap: wrap; gap: 12px; }
+
+/* Boton de WhatsApp: el verde de WhatsApp en el borde, para que se reconozca
+   sin competir con el fucsia de "Contratar". */
+.boton-wa { display: inline-flex; align-items: center; gap: .5em; border-color: #25d366; }
+.boton-wa .wa-icono { color: #25d366; flex: none; }
+.boton-wa:hover { border-color: #25d366; color: var(--texto); background: rgba(37,211,102,.1); }
+
+/* Flotante discreto en la esquina inferior derecha. El credito de SISAC se
+   pasa a la izquierda cuando este aparece (.sb-izquierda). */
+.wa-flotante {
+  position: fixed; right: 1rem; bottom: 1rem; z-index: 30;
+  display: inline-flex; align-items: center; gap: .45rem;
+  padding: .55rem .9rem; border-radius: var(--radio-pastilla);
+  background: #25d366; color: #06210f; text-decoration: none;
+  font-weight: 700; font-size: .9rem; line-height: 1;
+  box-shadow: 0 4px 16px rgba(0,0,0,.35);
+  opacity: .92; transition: opacity .18s ease, transform .18s ease;
+}
+.wa-flotante:hover, .wa-flotante:focus-visible { opacity: 1; transform: translateY(-1px); }
+@media (max-width: 30rem) {
+  .wa-flotante { right: .6rem; bottom: .6rem; padding: .6rem; }
+  .wa-flotante-texto { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { .wa-flotante { transition: none; } }
+@media print { .wa-flotante { display: none; } }

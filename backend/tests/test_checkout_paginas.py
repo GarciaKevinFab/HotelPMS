@@ -21,6 +21,7 @@ LA PRUEBA QUE IMPORTA
   estas paginas, se cae. Es la unica forma de que la razon por la que existe
   este modulo no se pierda en seis meses.
 """
+import json
 import re
 import sys
 from decimal import Decimal
@@ -119,7 +120,16 @@ def test_ninguna_pagina_lleva_javascript():
     vuelve a meter un <script> aqui, esta prueba lo para.
     """
     for nombre, pagina in _todas_las_paginas().items():
-        assert "<script" not in pagina.lower(), f"{nombre} lleva un <script>"
+        # La unica etiqueta <script> admitida es la de datos estructurados
+        # (application/ld+json): el navegador no la ejecuta, la leen los
+        # buscadores. Se quita antes de buscar y se exige que sea JSON valido,
+        # para que nadie cuele codigo con ese disfraz.
+        for bloque in re.findall(
+                r'<script type="application/ld\+json">(.*?)</script>', pagina, re.S):
+            json.loads(bloque)
+        sin_datos = re.sub(r'<script type="application/ld\+json">.*?</script>', "",
+                           pagina, flags=re.S)
+        assert "<script" not in sin_datos.lower(), f"{nombre} lleva un <script>"
         # onerror del logotipo es la unica excepcion, y es puramente cosmetica:
         # esconde una imagen que no cargo. Nada del pedido depende de ella.
         atributos = re.findall(r'\son(?!error=")[a-z]+\s*=', pagina)
@@ -252,7 +262,7 @@ def test_un_pedido_pagado_lo_dice_y_no_vuelve_a_pedir_pago():
 def test_todas_las_paginas_son_documentos_completos_con_el_css_de_la_landing():
     for nombre, pagina in _todas_las_paginas().items():
         assert pagina.startswith("<!doctype html>"), nombre
-        assert '<html lang="es">' in pagina, nombre
+        assert '<html lang="es-PE">' in pagina, nombre
         assert "<title>" in pagina, nombre
         assert 'name="viewport"' in pagina, nombre
         # Versionado: sin la huella, Cloudflare sirve el CSS anterior.

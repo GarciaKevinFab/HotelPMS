@@ -98,3 +98,5 @@ frontend/node_modules/.cache/default-development/7.pack
 # vacia para que la SPA llame a /api con rutas relativas. Tiene que viajar con
 # el repo, o quien clone compilara apuntando a localhost:8000.
 !frontend/.env.production
+# backend/.env.example es solo una plantilla, sin valores reales.
+!backend/.env.example

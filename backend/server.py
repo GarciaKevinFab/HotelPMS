@@ -36,6 +36,7 @@ import checkout
 import comprobantes
 import limites
 import mercadopago
+import seo
 import suscripciones
 import webhooks_mercadopago
 
@@ -4860,16 +4861,23 @@ def _version_css() -> str:
     return checkout.version_css()
 
 
-def _pagina_landing(archivo: Path) -> HTMLResponse:
+async def _pagina_landing(archivo: Path, ruta: str) -> HTMLResponse:
     """Sirve una pagina de la landing con el CSS versionado.
 
     El HTML va con `no-cache` a proposito: es lo que apunta a la version nueva
     del CSS, asi que cachearlo dejaria clavada la referencia vieja y no habria
     servido de nada versionar nada.
+
+    Ademas pasa por seo.preparar_landing: canonical, Open Graph, lang es-PE y,
+    en la portada, el JSON-LD con los planes de la base, el bloque de
+    confianza y el WhatsApp de ventas (solo con WHATSAPP_VENTAS definida).
+    Los planes solo se leen para la portada, que es la unica que los usa.
     """
     html = archivo.read_text(encoding="utf-8").replace(
         "/landing-assets/estilo.css", f"/landing-assets/estilo.css?v={_version_css()}"
     )
+    planes = await checkout.planes_o_nada() if ruta == "" else []
+    html = seo.preparar_landing(html, ruta, planes, checkout.COMERCIO)
     return HTMLResponse(html, headers={"Cache-Control": "no-cache, must-revalidate"})
 
 if FRONTEND_BUILD.exists():
@@ -4962,7 +4970,7 @@ async def servir_web(ruta: str, request: Request):
         if ruta in paginas:
             archivo = LANDING / paginas[ruta]
             if archivo.is_file():
-                return _pagina_landing(archivo)
+                return await _pagina_landing(archivo, ruta)
 
     if not FRONTEND_BUILD.exists():
         raise HTTPException(status_code=404, detail="No encontrado")
