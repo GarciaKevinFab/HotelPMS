@@ -36,6 +36,7 @@ import checkout
 import comprobantes
 import limites
 import mercadopago
+import seo
 import suscripciones
 import webhooks_mercadopago
 
@@ -408,8 +409,10 @@ def require_roles(*roles: Role):
 # Ver db/migrations/002_suscripciones.sql para los estados y por que existe la
 # gracia. Aqui vive la parte que se consulta en caliente.
 
-DIAS_PRUEBA = 14
-DIAS_GRACIA = 7
+# Viven en suscripciones.py: las lee tambien el bloque de confianza de las
+# paginas publicas (backend/dudas.py), que no puede importar este modulo.
+DIAS_PRUEBA = suscripciones.DIAS_PRUEBA
+DIAS_GRACIA = suscripciones.DIAS_GRACIA
 
 # `vencida` SIGUE teniendo acceso: es la gracia. Solo 'suspendida' y
 # 'cancelada' cortan. Un hotel con huespedes dentro no puede quedarse sin poder
@@ -4860,16 +4863,23 @@ def _version_css() -> str:
     return checkout.version_css()
 
 
-def _pagina_landing(archivo: Path) -> HTMLResponse:
+async def _pagina_landing(archivo: Path, ruta: str) -> HTMLResponse:
     """Sirve una pagina de la landing con el CSS versionado.
 
     El HTML va con `no-cache` a proposito: es lo que apunta a la version nueva
     del CSS, asi que cachearlo dejaria clavada la referencia vieja y no habria
     servido de nada versionar nada.
+
+    Ademas pasa por seo.preparar_landing: canonical, Open Graph, lang es-PE y,
+    en la portada, el JSON-LD con los planes de la base, el bloque de
+    confianza.
+    Los planes solo se leen para la portada, que es la unica que los usa.
     """
     html = archivo.read_text(encoding="utf-8").replace(
         "/landing-assets/estilo.css", f"/landing-assets/estilo.css?v={_version_css()}"
     )
+    planes = await checkout.planes_o_nada() if ruta == "" else []
+    html = seo.preparar_landing(html, ruta, planes, checkout.COMERCIO)
     return HTMLResponse(html, headers={"Cache-Control": "no-cache, must-revalidate"})
 
 if FRONTEND_BUILD.exists():
@@ -4962,7 +4972,7 @@ async def servir_web(ruta: str, request: Request):
         if ruta in paginas:
             archivo = LANDING / paginas[ruta]
             if archivo.is_file():
-                return _pagina_landing(archivo)
+                return await _pagina_landing(archivo, ruta)
 
     if not FRONTEND_BUILD.exists():
         raise HTTPException(status_code=404, detail="No encontrado")

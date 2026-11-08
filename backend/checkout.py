@@ -79,11 +79,13 @@ from pathlib import Path
 from urllib.parse import quote
 
 from fastapi import APIRouter, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
 
 import comprobantes
 import db_pg
+import dudas
 import mercadopago
+import seo
 import suscripciones
 
 log = logging.getLogger("zenstay.checkout")
@@ -97,7 +99,7 @@ PERIODOS = ("mensual", "anual")
 # (590 / 1190 / 1990) y sale del precio mensual de la tabla, asi que cambiar un
 # precio sigue siendo un UPDATE y nada mas. Se dice en la pagina: "pagas 10
 # meses, usas 12".
-MESES_DEL_ANUAL = 10
+MESES_DEL_ANUAL = suscripciones.MESES_DEL_ANUAL
 
 IGV = Decimal("0.18")
 CENTIMO = Decimal("0.01")
@@ -123,7 +125,7 @@ COMERCIO = {
 
 def url_publica() -> str:
     """Origen publico del sitio, para el retorno desde Mercado Pago."""
-    return os.getenv("ZENSTAY_URL_PUBLICA", "https://zenstay.sisac.pe").rstrip("/")
+    return seo.url_publica()
 
 
 def nuevo_numero_orden(prefijo: str = "ZS") -> str:
@@ -486,15 +488,27 @@ def _pie(comercio: dict) -> str:
 </div>"""
 
 
-def _documento(titulo: str, descripcion: str, interior: str, comercio: dict) -> str:
-    """Pagina completa. Nada de esto depende de JavaScript."""
+def _documento(titulo: str, descripcion: str, interior: str, comercio: dict,
+               ruta: str | None = None, jsonld: dict | None = None) -> str:
+    """Pagina completa. Nada de esto depende de JavaScript.
+
+    `ruta` es la direccion canonica (sin barra inicial). Sin ruta la pagina
+    sale con noindex: es el caso del pedido, que es de un solo cliente.
+    `jsonld` es un bloque de datos estructurados (application/ld+json, que el
+    navegador no ejecuta).
+    """
+    cabecera_seo = seo.etiquetas_cabecera(ruta or "", titulo, descripcion,
+                                          indexable=ruta is not None)
+    if jsonld:
+        cabecera_seo += "\n" + seo.bloque_jsonld(jsonld)
     return f"""<!doctype html>
-<html lang="es">
+<html lang="es-PE">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{_e(titulo)}</title>
 <meta name="description" content="{_e(descripcion)}">
+{cabecera_seo}
 <link rel="icon" href="/favicon.ico" sizes="any">
 <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
 <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
@@ -574,12 +588,13 @@ def pagina_precios(planes: list, comercio: dict) -> str:
     interior = f"""
   <section class="seccion" style="border-top:0">
     <div class="seccion-titulo">
-      <h2>Precios claros, en soles</h2>
+      <h1>Precios claros, en soles</h1>
       <p>Con IGV incluido. Sin costo de instalación ni permanencia. Cancelas cuando quieras.</p>
     </div>
     <div class="co-planes">
       {"".join(tarjetas)}
     </div>
+    {dudas.seccion_preguntas(comercio)}
     <p class="co-nota" style="margin-top:28px">
       Todos los precios son mensuales y en soles, con IGV incluido. Al contratar
       puedes elegir pago anual: pagas {MESES_DEL_ANUAL} meses y usas 12.
@@ -588,10 +603,19 @@ def pagina_precios(planes: list, comercio: dict) -> str:
     </p>
   </section>"""
 
+    desde = seo.precio_desde(planes)
+    if desde is not None:
+        titulo = f"Precios de ZenStay: planes desde {seo.soles(desde)} al mes"
+        descripcion = (f"Planes de ZenStay en soles, con IGV incluido, desde {seo.soles(desde)} "
+                       "al mes. Prueba 14 días gratis, sin instalación ni permanencia. "
+                       "Emitimos boleta o factura.")
+    else:
+        titulo = "Precios de ZenStay: planes en soles con IGV incluido"
+        descripcion = ("Planes de ZenStay en soles, con IGV incluido. Prueba 14 días gratis, "
+                       "sin instalación ni permanencia. Emitimos boleta o factura.")
     return _documento(
-        "Precios · ZenStay",
-        "Planes y precios de ZenStay en soles, con IGV incluido. Desde S/ 59 al mes.",
-        interior, comercio,
+        titulo, descripcion, interior, comercio,
+        ruta="precios", jsonld=seo.grafo(planes, comercio, preguntas=True),
     )
 
 
@@ -707,6 +731,7 @@ def pagina_checkout(plan: dict, periodo: str, importe: dict, error: str,
           <a href="mailto:{_e(comercio['email'])}">{_e(comercio['email'])}</a>
         </p>
       </section>
+      {dudas.bloque_confianza(comercio, registro=f"/registro?plan={codigo}")}
     </div>"""
 
     accion = f"""
@@ -779,7 +804,7 @@ def pagina_checkout(plan: dict, periodo: str, importe: dict, error: str,
   <section class="seccion" style="border-top:0">
     <p class="co-migas"><a href="/precios">&larr; Volver a los planes</a></p>
     <div class="seccion-titulo" style="margin-bottom:28px">
-      <h2>Contratar {_e(nombre)}</h2>
+      <h1>Contratar {_e(nombre)}</h1>
       <p>{_e(total_txt)} al {_e(cada)}, con IGV incluido.</p>
     </div>
     <div class="co-rejilla">
@@ -789,9 +814,11 @@ def pagina_checkout(plan: dict, periodo: str, importe: dict, error: str,
   </section>"""
 
     return _documento(
-        f"Contratar {nombre} · ZenStay",
-        f"Contrata ZenStay {nombre} por {total_txt} al {cada}, con IGV incluido.",
+        f"Contratar ZenStay {nombre}: {total_txt} al {cada}",
+        f"Contrata ZenStay {nombre} por {total_txt} al {cada}, con IGV incluido. "
+        f"Pago seguro con Mercado Pago y boleta o factura electrónica.",
         interior, comercio,
+        ruta=f"comprar/{codigo}",
     )
 
 
@@ -925,7 +952,7 @@ def pagina_pedido(pedido: dict, plan: dict, comercio: dict, modo: str) -> str:
     interior = f"""
   <section class="seccion" style="border-top:0">
     <div class="seccion-titulo" style="margin-bottom:28px">
-      <h2>Pedido registrado</h2>
+      <h1>Pedido registrado</h1>
       <p>Guarda este número: <strong>{_e(pedido.get('numero'))}</strong></p>
     </div>
     <div class="co-rejilla">
@@ -1280,3 +1307,43 @@ async def pedido(numero: str):
     pedido_vista = {"numero": fila["numero"], "estado": fila["estado"],
                     "monto": fila["monto"], "periodo": fila["periodo"]}
     return _sin_cache(pagina_pedido(pedido_vista, plan, COMERCIO, mercadopago.modo()))
+
+
+# ---------------------------------------------------------------------------
+# Lo que leen los buscadores y los asistentes: sitemap, robots y llms.txt
+# ---------------------------------------------------------------------------
+# Viven aqui porque necesitan los planes de la base (los /comprar/{plan} del
+# sitemap y los precios del llms.txt) y este modulo ya sabe leerlos. El texto
+# lo arma backend/seo.py, en funciones puras.
+#
+# Si la base no responde no se devuelve un 500: un sitemap sin las paginas de
+# compra, o un llms.txt que remite a /precios, siguen siendo correctos. Un
+# precio inventado no lo seria.
+
+async def planes_o_nada() -> list:
+    """Los planes activos, o [] si la base no responde."""
+    try:
+        return await _planes()
+    except Exception:  # noqa: BLE001 -- un buscador no puede tumbar nada
+        log.exception("No se pudieron leer los planes para sitemap/llms/portada")
+        return []
+
+
+_UNA_HORA = "public, max-age=3600"
+
+
+@router.api_route("/sitemap.xml", methods=["GET", "HEAD"])
+async def sitemap_xml():
+    return Response(seo.sitemap(await planes_o_nada()), media_type="application/xml",
+                    headers={"Cache-Control": _UNA_HORA})
+
+
+@router.api_route("/robots.txt", methods=["GET", "HEAD"])
+async def robots_txt():
+    return PlainTextResponse(seo.robots(), headers={"Cache-Control": _UNA_HORA})
+
+
+@router.api_route("/llms.txt", methods=["GET", "HEAD"])
+async def llms_txt():
+    return PlainTextResponse(seo.llms(await planes_o_nada(), COMERCIO),
+                             headers={"Cache-Control": _UNA_HORA})

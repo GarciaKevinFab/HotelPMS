@@ -39,7 +39,11 @@ import db_pg
 
 log = logging.getLogger("zenstay.suscripciones")
 
+#: Dias de la prueba gratuita al registrarse (sin tarjeta: /api/registro no la pide).
+DIAS_PRUEBA = 14
 DIAS_GRACIA = 7
+#: El pago anual son DIEZ mensualidades por doce meses (ver checkout.precio_de).
+MESES_DEL_ANUAL = 10
 ESTADOS = ("prueba", "activa", "vencida", "suspendida", "cancelada")
 #: Lo que se suma por cada cobro aprobado. Ver la cabecera: meses, no dias.
 INTERVALO = {"mensual": "1 month", "anual": "12 months"}
