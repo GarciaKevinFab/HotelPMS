@@ -39,6 +39,8 @@ import db_pg
 
 log = logging.getLogger("zenstay.suscripciones")
 
+#: Dias de la prueba gratuita al registrarse (sin tarjeta: /api/registro no la pide).
+DIAS_PRUEBA = 14
 DIAS_GRACIA = 7
 ESTADOS = ("prueba", "activa", "vencida", "suspendida", "cancelada")
 #: Lo que se suma por cada cobro aprobado. Ver la cabecera: meses, no dias.

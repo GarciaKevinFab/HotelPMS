@@ -409,8 +409,10 @@ def require_roles(*roles: Role):
 # Ver db/migrations/002_suscripciones.sql para los estados y por que existe la
 # gracia. Aqui vive la parte que se consulta en caliente.
 
-DIAS_PRUEBA = 14
-DIAS_GRACIA = 7
+# Viven en suscripciones.py: las lee tambien el bloque de confianza de las
+# paginas publicas (backend/contacto.py), que no puede importar este modulo.
+DIAS_PRUEBA = suscripciones.DIAS_PRUEBA
+DIAS_GRACIA = suscripciones.DIAS_GRACIA
 
 # `vencida` SIGUE teniendo acceso: es la gracia. Solo 'suspendida' y
 # 'cancelada' cortan. Un hotel con huespedes dentro no puede quedarse sin poder

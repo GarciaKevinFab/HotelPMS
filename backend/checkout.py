@@ -489,14 +489,13 @@ def _pie(comercio: dict) -> str:
 
 
 def _documento(titulo: str, descripcion: str, interior: str, comercio: dict,
-               ruta: str | None = None, jsonld: dict | None = None,
-               flotante: str = "") -> str:
+               ruta: str | None = None, jsonld: dict | None = None) -> str:
     """Pagina completa. Nada de esto depende de JavaScript.
 
     `ruta` es la direccion canonica (sin barra inicial). Sin ruta la pagina
     sale con noindex: es el caso del pedido, que es de un solo cliente.
     `jsonld` es un bloque de datos estructurados (application/ld+json, que el
-    navegador no ejecuta). `flotante` es el WhatsApp de la esquina.
+    navegador no ejecuta).
     """
     cabecera_seo = seo.etiquetas_cabecera(ruta or "", titulo, descripcion,
                                           indexable=ruta is not None)
@@ -525,7 +524,6 @@ def _documento(titulo: str, descripcion: str, interior: str, comercio: dict,
 {interior}
 </div>
 {_pie(comercio)}
-{flotante}
 </body>
 </html>
 """
@@ -596,7 +594,7 @@ def pagina_precios(planes: list, comercio: dict) -> str:
     <div class="co-planes">
       {"".join(tarjetas)}
     </div>
-    {contacto.bloque_confianza(comercio, contacto.MENSAJES["precios"])}
+    {contacto.bloque_confianza(comercio, mensaje_whatsapp=contacto.MENSAJE_PRECIOS)}
     <p class="co-nota" style="margin-top:28px">
       Todos los precios son mensuales y en soles, con IGV incluido. Al contratar
       puedes elegir pago anual: pagas {MESES_DEL_ANUAL} meses y usas 12.
@@ -618,7 +616,6 @@ def pagina_precios(planes: list, comercio: dict) -> str:
     return _documento(
         titulo, descripcion, interior, comercio,
         ruta="precios", jsonld=seo.grafo(planes, comercio),
-        flotante=contacto.flotante_whatsapp(contacto.MENSAJES["precios"]),
     )
 
 
@@ -735,7 +732,8 @@ def pagina_checkout(plan: dict, periodo: str, importe: dict, error: str,
           <a href="mailto:{_e(comercio['email'])}">{_e(comercio['email'])}</a>
         </p>
       </section>
-      {contacto.bloque_confianza(comercio, mensaje)}
+      {contacto.bloque_confianza(comercio, registro=f"/registro?plan={codigo}",
+                                 mensaje_whatsapp=mensaje)}
     </div>"""
 
     accion = f"""
@@ -823,7 +821,6 @@ def pagina_checkout(plan: dict, periodo: str, importe: dict, error: str,
         f"Pago seguro con Mercado Pago y boleta o factura electrónica.",
         interior, comercio,
         ruta=f"comprar/{codigo}",
-        flotante=contacto.flotante_whatsapp(mensaje),
     )
 
 

@@ -16,20 +16,32 @@ se aplica al reiniciar el contenedor. El número no está escrito en el código.
 Si el valor no tiene el formato correcto se trata como si faltara y queda un
 aviso en el log.
 
-Con el número definido aparecen:
+Con el número definido aparece un enlace pequeño "¿Dudas? Escríbenos por
+WhatsApp", con un mensaje ya escrito según la página o el plan, **solo** en
+`/precios` y `/comprar/{plan}`. No hay botón flotante, y la portada y las
+páginas legales no llevan WhatsApp. El número tampoco va en el JSON-LD.
 
-- "Escríbenos por WhatsApp" en el bloque de confianza de la portada, `/precios`
-  y `/comprar/{plan}`, con un mensaje ya escrito según la página o el plan.
-- Un botón flotante discreto en la esquina inferior derecha de esas tres
-  páginas (el crédito de SISAC pasa a la izquierda).
-- Los enlaces "te enviamos una cotización" (empresas que pagan con orden de
-  compra o transferencia) y "agenda una demo de 20 minutos".
-- El teléfono en el `ContactPoint` del JSON-LD.
+## Bloque de confianza
 
-Sin el número, el bloque de confianza sigue saliendo (razón social, RUC y
-"emitimos boleta o factura electrónica"), y la cotización y la demo van a
-`mailto:soporte@sisac.pe`. Es solo contacto: el pago sigue siendo el checkout
-de Mercado Pago.
+Va junto a los precios en la portada, `/precios` y `/comprar/{plan}`. Responde
+las dudas de quien compra, en orden, y termina en el botón **Empieza gratis**
+(al registro; desde `/comprar/{plan}` lleva `?plan=`):
+
+1. Pruébalo 14 días gratis, sin tarjeta (`suscripciones.DIAS_PRUEBA`; el
+   registro no pide medio de pago).
+2. Al terminar eliges tu plan y pagas en línea (checkout de Mercado Pago).
+3. Factura electrónica a tu RUC, o boleta si la prefieres.
+4. Sin contrato: cancelas cuando quieras desde tu cuenta
+   (`POST /api/suscripcion/cancelar`, botón en Configuración).
+5. Si no contratas: `DIAS_GRACIA` días más con el sistema completo; después no
+   se pueden registrar reservas ni cobros, pero los datos se conservan para
+   consultarlos (`server.exigir_suscripcion` solo bloquea escrituras).
+
+Debajo, en letra pequeña, la razón social y el RUC. Si cambia alguna de esas
+reglas en el código, hay que cambiar la frase en `backend/contacto.py`.
+
+No hay demos agendadas ni cotizaciones manuales: la prueba gratis cumple ese
+papel y el pago es siempre el checkout de Mercado Pago, que no cambia.
 
 ## Lo que leen los buscadores y los asistentes
 

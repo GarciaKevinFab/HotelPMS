@@ -119,8 +119,11 @@ def test_llms_resume_el_producto_con_los_precios_de_la_base(cliente):
     for plan in PLANES[1:]:
         assert f"{plan['nombre']}: S/ {plan['precio_mensual']:.0f} al mes" in texto
     assert "SOLUCIONES INFORMÁTICAS MDD S.A.C." in texto and "20490042068" in texto
-    assert "boleta o factura" in texto
-    assert "orden de compra o transferencia" in texto
+    assert "factura electrónica al RUC" in texto
+    assert "14 días, sin tarjeta" in texto
+    assert "cancela desde la propia cuenta" in texto
+    for fuera in ("demo", "cotización", "orden de compra"):
+        assert fuera not in texto
 
 
 def test_llms_sin_base_no_inventa_precios():
@@ -203,23 +206,51 @@ def test_el_precio_desde_sale_de_la_base():
     assert "S/ 65" in titulo
 
 
+# --- El bloque de confianza ------------------------------------------------
+
+def test_el_bloque_responde_las_dudas_en_orden_con_empieza_gratis():
+    for nombre, pagina in _paginas().items():
+        if nombre in ("terminos.html", "privacidad.html"):
+            assert 'class="confianza"' not in pagina, nombre
+            continue
+        bloque = pagina[pagina.index('<aside class="confianza"'):]
+        bloque = bloque[:bloque.index("</aside>")]
+        orden = ["14 días gratis, sin tarjeta",
+                 "Al terminar eliges tu plan y pagas en línea",
+                 "Factura electrónica a tu RUC",
+                 "cancelas cuando quieras desde tu cuenta",
+                 "no pierdes lo que cargaste",
+                 "Empieza gratis",
+                 "SOLUCIONES INFORMÁTICAS MDD S.A.C. · RUC 20490042068"]
+        posiciones = [bloque.index(t) for t in orden]
+        assert posiciones == sorted(posiciones), nombre
+        assert "registro" in bloque, nombre
+        # Lo que Kevin quito: nada de demos ni cotizaciones manuales.
+        for fuera in ("demo", "cotización", "orden de compra", "Yape"):
+            assert fuera not in bloque, f"{nombre}: {fuera}"
+
+
+def test_los_dias_del_bloque_salen_del_codigo(monkeypatch):
+    import suscripciones
+    monkeypatch.setattr(suscripciones, "DIAS_PRUEBA", 30)
+    monkeypatch.setattr(suscripciones, "DIAS_GRACIA", 5)
+    pagina = co.pagina_precios(PLANES, co.COMERCIO)
+    assert "30 días gratis" in pagina and "5 días" in pagina
+
+
+def test_empieza_gratis_desde_contratar_lleva_el_plan():
+    pagina = co.pagina_checkout(PRO, "mensual", co.desglose(co.precio_de(PRO, "mensual")),
+                                "", co.COMERCIO)
+    assert '<a href="/registro?plan=pro" class="boton boton-lleno">Empieza gratis</a>' in pagina
+
+
 # --- WhatsApp de ventas ----------------------------------------------------
 
 def test_sin_whatsapp_ventas_no_aparece_ningun_whatsapp():
     for nombre, pagina in _paginas().items():
         assert "wa.me" not in pagina, nombre
-        assert "wa-flotante" not in pagina.replace(".wa-flotante", ""), nombre
         assert "WhatsApp" not in pagina, nombre
         assert "<!-- zs:" not in pagina, f"{nombre}: marcador sin reemplazar"
-
-
-def test_sin_whatsapp_la_demo_y_la_cotizacion_van_al_correo():
-    pagina = co.pagina_precios(PLANES, co.COMERCIO)
-    assert "mailto:soporte@sisac.pe?subject=" in pagina
-    assert "Emitimos boleta o factura electrónica" in pagina
-    assert "20490042068" in pagina
-    assert "orden de compra o transferencia" in pagina
-    assert "demo de 20 minutos" in pagina
 
 
 @pytest.mark.parametrize("malo", ["987654321", "+51987654321", "51 987 654 321",
@@ -230,23 +261,23 @@ def test_un_numero_mal_escrito_tampoco_se_muestra(monkeypatch, malo):
     assert "wa.me" not in co.pagina_precios(PLANES, co.COMERCIO)
 
 
-def test_con_whatsapp_ventas_aparece_en_portada_precios_y_contratar(monkeypatch):
+def test_con_whatsapp_es_un_enlace_pequeno_solo_en_precios_y_contratar(monkeypatch):
     monkeypatch.setenv("WHATSAPP_VENTAS", NUMERO)
     paginas = _paginas()
-    for nombre in ("index.html", "precios", "checkout"):
+    for nombre in ("precios", "checkout"):
         pagina = paginas[nombre]
-        assert f"https://wa.me/{NUMERO}?text=" in pagina, nombre
-        assert 'class="wa-flotante"' in pagina, nombre
-        assert "Escríbenos por WhatsApp" in pagina, nombre
+        assert pagina.count(f"https://wa.me/{NUMERO}?text=") == 1, nombre
+        assert '<p class="confianza-dudas">¿Dudas? <a href=' in pagina, nombre
+        assert "Escríbenos por WhatsApp</a>" in pagina, nombre
     # El mensaje del checkout dice que plan se estaba mirando.
     assert "ZenStay%20Pro" in paginas["checkout"]
-    # El credito de SISAC deja libre la esquina del flotante.
-    assert "sb-credito sb-oscuro sb-izquierda" in paginas["index.html"]
-    # Las legales no llevan flotante.
-    assert "wa-flotante" not in paginas["terminos.html"].split("</style>")[-1]
-    # Y el Organization del JSON-LD lleva el telefono.
-    (datos,) = _jsonld(paginas["precios"])
-    assert f"+{NUMERO}" in json.dumps(datos)
+    # Ni en la portada ni en las legales, y en ningun sitio un flotante.
+    for nombre in ("index.html", "terminos.html", "privacidad.html"):
+        assert "wa.me" not in paginas[nombre], nombre
+    for pagina in paginas.values():
+        assert "wa-flotante" not in pagina
+    # El JSON-LD no publica el numero.
+    assert NUMERO not in json.dumps(_jsonld(paginas["precios"]))
 
 
 def test_el_checkout_de_mercado_pago_sigue_igual(monkeypatch):

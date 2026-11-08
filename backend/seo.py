@@ -26,6 +26,7 @@ from decimal import Decimal
 from xml.sax.saxutils import escape as xml_escape
 
 import contacto
+import suscripciones
 
 MESES_DEL_ANUAL = 10  # el mismo trato que checkout.MESES_DEL_ANUAL
 
@@ -125,14 +126,11 @@ def _id(fragmento: str) -> str:
 def organizacion(comercio: dict) -> dict:
     punto = {
         "@type": "ContactPoint",
-        "contactType": "sales",
+        "contactType": "customer support",
         "email": comercio["email"],
         "areaServed": "PE",
         "availableLanguage": "es",
     }
-    numero = contacto.whatsapp_ventas()
-    if numero:
-        punto["telephone"] = f"+{numero}"
     return {
         "@type": "Organization",
         "@id": _id("organizacion"),
@@ -221,8 +219,8 @@ def preparar_landing(pagina: str, ruta: str, planes: list, comercio: dict) -> st
 
     - lang="es-PE", canonical, Open Graph y Twitter (titulo y descripcion
       salen de los que ya tiene la pagina, para que no puedan separarse).
-    - En la portada: JSON-LD con los planes de la base, el bloque de confianza
-      y el WhatsApp flotante (solo si hay WHATSAPP_VENTAS).
+    - En la portada: JSON-LD con los planes de la base y el bloque de
+      confianza (sin WhatsApp: ese enlace va solo en /precios y /comprar).
     """
     pagina = pagina.replace('<html lang="es">', '<html lang="es-PE">', 1)
 
@@ -237,16 +235,7 @@ def preparar_landing(pagina: str, ruta: str, planes: list, comercio: dict) -> st
         cabecera += "\n" + bloque_jsonld(grafo(planes, comercio))
     pagina = pagina.replace("</head>", cabecera + "\n</head>", 1)
 
-    mensaje = contacto.MENSAJES["inicio"]
-    pagina = pagina.replace("<!-- zs:confianza -->",
-                            contacto.bloque_confianza(comercio, mensaje))
-    flotante = contacto.flotante_whatsapp(mensaje) if ruta == "" else ""
-    if flotante:
-        # El credito de SISAC ocupa la misma esquina: se pasa a la izquierda
-        # (para eso existe .sb-izquierda).
-        pagina = pagina.replace('class="sb-credito sb-oscuro"',
-                                'class="sb-credito sb-oscuro sb-izquierda"')
-    pagina = pagina.replace("<!-- zs:whatsapp-flotante -->", flotante)
+    pagina = pagina.replace("<!-- zs:confianza -->", contacto.bloque_confianza(comercio))
     return pagina
 
 
@@ -317,17 +306,19 @@ def llms(planes: list, comercio: dict) -> str:
         "",
         "## Planes y precios",
         "",
-        "- Prueba gratuita de 14 días, sin tarjeta.",
+        f"- Prueba gratuita de {suscripciones.DIAS_PRUEBA} días, sin tarjeta.",
         *lineas_planes,
         "- Sin costo de instalación ni permanencia.",
         "",
         "## Cómo se contrata y se paga",
         "",
-        "- En línea con tarjeta, como suscripción procesada por Mercado Pago.",
-        "- Por la suscripción se emite boleta o factura electrónica.",
-        "- Empresas que pagan con orden de compra o transferencia: escribir a ventas "
-        f"para recibir una cotización ({comercio['email']}).",
-        "- Se puede pedir una demo de 20 minutos.",
+        "- Al terminar la prueba se elige un plan y se paga en línea con tarjeta, "
+        "como suscripción procesada por Mercado Pago.",
+        "- Por la suscripción se emite factura electrónica al RUC, o boleta.",
+        "- Sin contrato: la suscripción se cancela desde la propia cuenta.",
+        f"- Si no se contrata al terminar la prueba, el sistema sigue completo "
+        f"{suscripciones.DIAS_GRACIA} días más; después ya no permite registrar reservas "
+        "ni cobros, pero los datos se conservan y se pueden consultar.",
         "",
         "## Empresa",
         "",
