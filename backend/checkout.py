@@ -43,12 +43,26 @@ LAS PAGINAS SON FUNCIONES PURAS
   390 px, y con JavaScript desactivado -- y asi hay pruebas de la parte que
   decide que se ve, no solo de la que consulta.
 
+EL COBRO: MERCADO PAGO SUSCRIPCIONES (NOVIEMBRE DE 2026)
+
+  Izipay se retiro: su adaptador nunca se verifico contra la API real. Ahora
+  POST /comprar, con Mercado Pago encendido para ese correo (ver
+  backend/mercadopago.py: modos simulado / prueba / produccion), crea una
+  suscripcion pendiente y manda al hotel a pagar al `init_point` de Mercado
+  Pago. El plan se activa cuando llega el aviso firmado del pago aprobado
+  (backend/webhooks_mercadopago.py), nunca por volver del sitio de pago.
+
+  El importe sale SIEMPRE de la tabla `planes` (precio_de), en el servidor:
+  el formulario solo dice que plan y que periodo.
+
+  Boleta o factura: el formulario pregunta y se guarda en datos_facturacion
+  (backend/comprobantes.py). El dueno emite el comprobante a mano.
+
 LO QUE ESTAS PAGINAS **NO** HACEN, Y POR QUE NO ES UN ENGANO
 
-  Mientras Izipay no entregue credenciales, izipay.modo() vale "simulado" y la
-  pagina del pedido lo dice con todas las letras: el hotel queda creado con su
-  prueba de 14 dias y el cobro con tarjeta se activa cuando la pasarela
-  confirme la afiliacion.
+  En modo "simulado" no se cobra nada y la pagina del pedido lo dice con todas
+  las letras: el hotel queda creado con su prueba de 14 dias y el cobro con
+  tarjeta todavia no esta activo.
 
   No se pinta un boton "Pagar con tarjeta" que en realidad no cobre. Enganar
   justo a quien viene a comprobar que el checkout es real es la forma mas
@@ -57,6 +71,9 @@ LO QUE ESTAS PAGINAS **NO** HACEN, Y POR QUE NO ES UN ENGANO
 import hashlib
 import html
 import logging
+import os
+import secrets
+from datetime import datetime, timezone
 from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 from urllib.parse import quote
@@ -64,8 +81,10 @@ from urllib.parse import quote
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
+import comprobantes
 import db_pg
-import izipay
+import mercadopago
+import suscripciones
 
 log = logging.getLogger("zenstay.checkout")
 router = APIRouter()
@@ -89,7 +108,7 @@ CENTIMO = Decimal("0.01")
 # ---------------------------------------------------------------------------
 # Va escrito aqui y no en variables de entorno a proposito: son los mismos
 # datos que ya estan en el pie de la landing y en /terminos, y tienen que
-# coincidir LETRA POR LETRA con el contrato de comercio de Izipay. Un
+# coincidir LETRA POR LETRA con los datos del comercio en Mercado Pago. Un
 # marcador de posicion colado en produccion es exactamente la clase de detalle
 # que tumba una validacion por segunda vez; un valor que falta porque nadie
 # puso la variable, tambien.
@@ -100,6 +119,21 @@ COMERCIO = {
                   "Tambopata, Madre de Dios, Perú"),
     "email": "soporte@sisac.pe",
 }
+
+
+def url_publica() -> str:
+    """Origen publico del sitio, para el retorno desde Mercado Pago."""
+    return os.getenv("ZENSTAY_URL_PUBLICA", "https://zenstay.sisac.pe").rstrip("/")
+
+
+def nuevo_numero_orden(prefijo: str = "ZS") -> str:
+    """Numero de pedido unico del checkout sin pasarela (modo simulado).
+
+    Vivia en izipay.py. La unicidad la garantiza ADEMAS la base
+    (pagos_suscripcion.izipay_order_number es unique, columna que se conserva
+    con su nombre viejo; ver la migracion 005).
+    """
+    return f"{prefijo}{datetime.now(timezone.utc):%y%m%d%H%M%S}{secrets.token_hex(3).upper()}"
 
 
 def version_css() -> str:
@@ -293,7 +327,7 @@ _ESTILOS = """
 
    Todo es CSS. Ni una linea de JavaScript, igual que el resto del checkout:
    estas paginas tienen que verse enteras con el motor apagado, que es lo que
-   Izipay comprueba (ver la cabecera de este modulo). */
+   un validador comprueba (ver la cabecera de este modulo). */
 .tk-impresora {
   background: linear-gradient(180deg, var(--superficie-alta), var(--superficie));
   border: 1px solid var(--borde);
@@ -561,8 +595,33 @@ def pagina_precios(planes: list, comercio: dict) -> str:
     )
 
 
+def _campos_comprobante(sufijo: str, v: dict) -> str:
+    """Boleta o factura, sin JavaScript: dos radios y un campo de documento.
+
+    `sufijo` separa los id de los dos formularios de la pagina: dos <input>
+    con el mismo id romperian el <label for>.
+    """
+    factura = v.get("comprobante") == "factura"
+    return f"""
+        <fieldset class="campo" style="border:0;padding:0;margin:0 0 14px">
+          <legend style="font-weight:600;margin-bottom:6px">Comprobante</legend>
+          <label style="margin-right:18px"><input type="radio" name="comprobante" value="boleta"
+                 {'' if factura else 'checked'}> Boleta</label>
+          <label><input type="radio" name="comprobante" value="factura"
+                 {'checked' if factura else ''}> Factura</label>
+        </fieldset>
+        <div class="campo">
+          <label for="documento-{sufijo}">DNI o RUC para el comprobante</label>
+          <input id="documento-{sufijo}" name="documento" inputmode="numeric" maxlength="11"
+                 pattern="[0-9]{{8}}|[0-9]{{11}}" value="{_e(v.get('documento'))}">
+          <p class="ayuda">Factura: RUC (la razón social la tomamos del padrón de SUNAT).
+             Boleta: DNI, o vacío.</p>
+        </div>"""
+
+
 def pagina_checkout(plan: dict, periodo: str, importe: dict, error: str,
-                    comercio: dict, valores: dict | None = None) -> str:
+                    comercio: dict, valores: dict | None = None,
+                    recurrente: bool = False) -> str:
     """Resumen del pedido y formulario de pago. Publica: no exige sesion.
 
     LOS DOS MODOS SON DOS FORMULARIOS DE VERDAD, NO UNA PESTANA
@@ -590,6 +649,19 @@ def pagina_checkout(plan: dict, periodo: str, importe: dict, error: str,
         ahorro = (f'<p class="co-nota">Pagas {MESES_DEL_ANUAL} meses y usas 12: '
                   f'dos meses sin costo frente al pago mensual.</p>')
 
+    # `recurrente` es mercadopago.cobro_recurrente(): solo en produccion se
+    # promete una renovacion automatica, porque solo entonces es lo que le
+    # pasa a cualquiera que pague.
+    if recurrente:
+        nota_cobro = (f'<p class="co-nota">Precio en soles con IGV incluido. Es una '
+                      f'suscripción: Mercado Pago la cobra sola cada {_e(cada)} hasta que '
+                      f'la canceles desde tu cuenta (Configuración › Suscripción). '
+                      f'No guardamos tu tarjeta.</p>')
+    else:
+        nota_cobro = (f'<p class="co-nota">Precio en soles con IGV incluido. Es un pago '
+                      f'por {_e(cada)}: no guardamos tu tarjeta. Te avisamos por correo '
+                      f'antes de que venza.</p>')
+
     # El resumen y el "quien cobra" comparten columna: son las dos cosas que
     # se miran antes de teclear nada, y juntas dejan de dejar media pagina
     # vacia a la derecha en una pantalla ancha.
@@ -608,9 +680,7 @@ def pagina_checkout(plan: dict, periodo: str, importe: dict, error: str,
           <span>Total a pagar</span>
           <span class="cifra">{_e(total_txt)}</span>
         </div>
-        <p class="co-nota">Precio en soles con IGV incluido. Es un pago único por
-           {_e(cada)}: no guardamos tu tarjeta ni queda ningún cobro programado.
-           Te avisamos por correo antes de que venza.</p>
+        {nota_cobro}
         {ahorro}
         <h2 style="margin-top:24px">Qué incluye</h2>
         <ul class="co-incluye">{puntos}</ul>
@@ -623,9 +693,9 @@ def pagina_checkout(plan: dict, periodo: str, importe: dict, error: str,
           <span>Diners Club</span><span>PEN</span>
         </div>
         <p class="co-legal">
-          El cobro con tarjeta lo procesa <strong>Izipay</strong> sobre conexión
-          cifrada. Los datos de tu tarjeta viajan directos a la pasarela:
-          ZenStay nunca los ve ni los guarda.<br>
+          El cobro con tarjeta lo procesa <strong>Mercado Pago</strong>, en su
+          propio sitio y sobre conexión cifrada. Los datos de tu tarjeta van
+          directos a Mercado Pago: ZenStay nunca los ve ni los guarda.<br>
           <a href="/terminos">Términos del servicio</a> ·
           <a href="/privacidad">Política de privacidad</a> ·
           <a href="/reclamaciones">Libro de Reclamaciones</a>
@@ -681,6 +751,7 @@ def pagina_checkout(plan: dict, periodo: str, importe: dict, error: str,
                  minlength="8" autocomplete="new-password">
           <p class="ayuda">Mínimo 8 caracteres. Con ella entras al sistema.</p>
         </div>
+        {_campos_comprobante("nuevo", v)}
         <button type="submit" class="boton boton-lleno">Pagar {_e(total_txt)}</button>
       </form>
 
@@ -699,6 +770,7 @@ def pagina_checkout(plan: dict, periodo: str, importe: dict, error: str,
           <input id="password" name="password" type="password" required
                  autocomplete="current-password">
         </div>
+        {_campos_comprobante("existente", v)}
         <button type="submit" class="boton boton-linea">Pagar {_e(total_txt)}</button>
       </form>
     </div>"""
@@ -735,11 +807,17 @@ def pagina_pedido(pedido: dict, plan: dict, comercio: dict, modo: str) -> str:
       La alternativa -- un boton "Pagar con tarjeta" que no lleva a ningun
       cobro -- seria mentir justo a quien viene a comprobar que el checkout
       funciona. Y a un cliente de verdad le dejaria creyendo que pago.
+
+      Con Mercado Pago encendido el checkout ya no pasa por aqui: manda
+      directo al `init_point`. Un pedido pendiente que se abra entonces es de
+      la epoca simulada y no se paga desde esta pagina; se ofrece contratar
+      otra vez, que si abre el pago.
     """
     estados = {
         "pendiente": "Pendiente de pago",
         "pagado": "Pagado",
-        "fallido": "Rechazado por la pasarela",
+        "fallido": "Rechazado por Mercado Pago",
+        "devuelto": "Devuelto",
         "anulado": "Anulado",
     }
     etiqueta = estados.get(pedido.get("estado", ""), "Pendiente de pago")
@@ -750,7 +828,7 @@ def pagina_pedido(pedido: dict, plan: dict, comercio: dict, modo: str) -> str:
       <div class="co-caja co-accion">
         <h2>Pago confirmado</h2>
         <div class="aviso bien" role="status" style="margin-bottom:16px">
-          Izipay confirmó el cobro. El plan {_e(plan.get('nombre'))} ya está
+          Recibimos el pago. El plan {_e(plan.get('nombre'))} ya está
           activo en tu hotel.
         </div>
         <a href="/login" class="boton boton-lleno" style="width:100%;text-align:center">
@@ -761,13 +839,12 @@ def pagina_pedido(pedido: dict, plan: dict, comercio: dict, modo: str) -> str:
       <div class="co-caja co-accion">
         <h2>Sobre el cobro</h2>
         <div class="aviso bien" role="status" style="margin-bottom:16px">
-          El cobro con tarjeta se activa cuando la pasarela confirme la
-          afiliación. Tu hotel ya quedó creado con la prueba de 14 días y
-          puedes entrar ahora.
+          El cobro con tarjeta todavía no está activo. Tu hotel ya quedó
+          creado con la prueba de 14 días y puedes entrar ahora.
         </div>
         <p class="co-nota" style="margin-top:0">
-          Guardamos este pedido con el número de arriba. Cuando Izipay habilite
-          el cobro te escribimos a tu correo con el enlace para pagarlo, y el
+          Guardamos este pedido con el número de arriba. Cuando el cobro con
+          tarjeta quede habilitado te escribimos a tu correo para pagarlo, y el
           plan {_e(plan.get('nombre'))} queda activo sin que pierdas nada de lo
           que hayas cargado durante la prueba.
         </p>
@@ -775,48 +852,22 @@ def pagina_pedido(pedido: dict, plan: dict, comercio: dict, modo: str) -> str:
           Entrar al sistema</a>
         <a href="/precios" class="plan-segundo">Ver los otros planes</a>
       </div>"""
-    elif pedido.get("token_pasarela") and pedido.get("url_pasarela"):
-        # Hay credenciales, token de sesion y destino confirmado: el boton
-        # lleva a un cobro de verdad.
-        #
-        # POR_CONFIRMAR: el nombre del campo del token y la URL de destino. El
-        # formulario de tarjeta lo sirve Izipay dentro de un iframe suyo -- es
-        # lo que mantiene los datos de tarjeta fuera de este servidor -- y su
-        # montaje SI necesita JavaScript, por diseno de la pasarela.
-        bloque_pago = f"""
-      <div class="co-caja co-accion">
-        <h2>Pagar con tarjeta</h2>
-        <p class="co-nota" style="margin-top:0">
-          El formulario de tarjeta lo sirve <strong>Izipay</strong> en su propio
-          iframe: es lo que mantiene los datos de tu tarjeta fuera de nuestros
-          servidores, y necesita JavaScript activado.
-        </p>
-        <form method="post" action="{_e(pedido['url_pasarela'])}">
-          <input type="hidden" name="formToken" value="{_e(pedido['token_pasarela'])}">
-          <button type="submit" class="boton boton-lleno" style="width:100%">
-            Continuar a Izipay · {_soles(pedido.get('monto') or 0)}</button>
-        </form>
-        <a href="/login" class="plan-segundo">Entrar al sistema</a>
-      </div>"""
     else:
-        # Hay credenciales pero la pasarela no dio token, o todavia falta
-        # confirmar a que URL se manda. NO se pinta un boton de pagar: uno que
-        # no lleva a ningun cobro es peor que decir que ahora mismo no se
-        # puede.
+        # Mercado Pago encendido y un pedido pendiente de la epoca simulada:
+        # se paga contratando otra vez, que crea la suscripcion. Un enlace y
+        # no un formulario: aqui no hay nada que enviar.
         bloque_pago = f"""
       <div class="co-caja co-accion">
-        <h2>Sobre el cobro</h2>
-        <div class="aviso error" role="status" style="margin-bottom:16px">
-          Ahora mismo no podemos abrir el formulario de tarjeta. Tu pedido
-          quedó guardado con el número de arriba.
-        </div>
+        <h2>Pagar este plan</h2>
         <p class="co-nota" style="margin-top:0">
-          Escríbenos a <a href="mailto:{_e(comercio['email'])}" style="color:var(--turquesa)">{_e(comercio['email'])}</a>
-          con ese número y lo resolvemos. Si tu hotel está en prueba, sigue
-          funcionando con normalidad.
+          El pago con tarjeta ya está activo y se hace en Mercado Pago. Para
+          pagar este plan, contrátalo otra vez con «Ya tengo cuenta»: no
+          tendrás que volver a crear el hotel.
         </p>
-        <a href="/login" class="boton boton-linea" style="width:100%;text-align:center">
-          Entrar al sistema</a>
+        <a href="/comprar/{_e(plan.get('codigo'))}?periodo={_e(periodo)}"
+           class="boton boton-lleno" style="width:100%;text-align:center">
+          Pagar con Mercado Pago</a>
+        <a href="/login" class="plan-segundo">Entrar al sistema</a>
       </div>"""
 
     # El desglose se calcula, no se guarda: `monto` ya lleva el IGV dentro, y
@@ -958,7 +1009,8 @@ async def checkout(plan_codigo: str, periodo: str = "mensual", error: str = ""):
         return RedirectResponse("/precios", status_code=303)
 
     return _sin_cache(pagina_checkout(
-        plan, periodo, desglose(precio_de(plan, periodo)), error, COMERCIO))
+        plan, periodo, desglose(precio_de(plan, periodo)), error, COMERCIO,
+        recurrente=mercadopago.cobro_recurrente()))
 
 
 def _pagina_con_error(plan: dict, periodo: str, mensaje: str, valores: dict) -> HTMLResponse:
@@ -968,7 +1020,8 @@ def _pagina_con_error(plan: dict, periodo: str, mensaje: str, valores: dict) -> 
     dejaria en el historial del navegador y en cualquier cache intermedia.
     """
     return _sin_cache(pagina_checkout(
-        plan, periodo, desglose(precio_de(plan, periodo)), mensaje, COMERCIO, valores))
+        plan, periodo, desglose(precio_de(plan, periodo)), mensaje, COMERCIO, valores,
+        recurrente=mercadopago.cobro_recurrente()))
 
 
 @router.post("/comprar")
@@ -984,6 +1037,8 @@ async def confirmar(
     admin_password: str = Form(""),
     email: str = Form(""),
     password: str = Form(""),
+    comprobante: str = Form("boleta"),
+    documento: str = Form(""),
 ):
     """Del boton de pagar al pedido, creando el hotel por el camino si falta.
 
@@ -1004,6 +1059,18 @@ async def confirmar(
     Se responde 200 con la pagina de vuelta, no un 4xx: es el mismo patron que
     el checkout sin JavaScript de CargoXprez, y evita que un intermediario
     convierta un error de formulario en su propia pagina de error.
+
+    CON MERCADO PAGO ENCENDIDO
+
+      Despues de resolver el hotel se crea la suscripcion (preapproval) y se
+      manda al cliente al `init_point`, en el sitio de Mercado Pago. Aqui no
+      se cobra ni se activa nada: el plan se activa cuando llega el webhook
+      del primer cobro aprobado. El importe es `precio_de(plan, periodo)`,
+      leido de la tabla `planes`; el formulario no lleva ningun monto.
+
+      En modo `prueba` solo va a Mercado Pago quien esta en
+      MERCADOPAGO_CORREOS_PRUEBA; el resto sigue por el camino simulado, que
+      registra el pedido y no cobra.
     """
     periodo = periodo if periodo in PERIODOS else "mensual"
     modo = "existente" if modo == "existente" else "nuevo"
@@ -1019,7 +1086,8 @@ async def confirmar(
     admin_email = (admin_email or "").strip().lower()
     email = (email or "").strip().lower()
     valores = {"hotel_name": hotel_name, "ruc": ruc, "admin_name": admin_name,
-               "admin_email": admin_email, "email": email}
+               "admin_email": admin_email, "email": email,
+               "comprobante": comprobante, "documento": documento}
 
     def con_error(mensaje: str):
         return _pagina_con_error(elegido, periodo, mensaje, valores)
@@ -1029,6 +1097,14 @@ async def confirmar(
     # superior seria un ciclo. Cuando llega una peticion, server ya esta
     # cargado del todo.
     import server
+
+    # Factura sin documento al crear el hotel: el RUC es el del propio hotel.
+    if (comprobante == "factura" and modo == "nuevo"
+            and not (documento or "").strip()):
+        documento = ruc
+    datos_comprobante, motivo = comprobantes.validar(comprobante, documento)
+    if motivo:
+        return con_error(motivo)
 
     if modo == "nuevo":
         if len(hotel_name) < 2:
@@ -1083,6 +1159,10 @@ async def confirmar(
                              f"{COMERCIO['email']}.")
         if not usuario.get("tenant_id"):
             return con_error("Esa cuenta no pertenece a ningún hotel.")
+        # Contratar es decision de pago, como cancelar (que tambien es solo del
+        # ADMIN): una recepcionista no abre un cobro recurrente para el hotel.
+        if usuario.get("role") != "ADMIN":
+            return con_error("Solo el administrador del hotel puede contratar un plan.")
 
         async with db_pg.tx_global("checkout publico: comprobar el hotel del que ya tiene cuenta") as conn:
             activo = await conn.fetchval(
@@ -1094,13 +1174,24 @@ async def confirmar(
         tenant_id = db_pg.a_uuid(usuario["tenant_id"], "tenant_id")
         correo_pedido = email
 
-    numero = izipay.nuevo_numero_orden()
+    # Boleta o factura para los cobros de este hotel. Nunca bloquea la compra:
+    # si falla, el hotel la elige luego en Configuracion > Suscripcion.
+    try:
+        await comprobantes.guardar_datos(tenant_id, datos_comprobante)
+    except Exception:
+        log.exception("No se guardaron los datos de comprobante del checkout")
+
+    if mercadopago.disponible_para(correo_pedido):
+        return await _a_mercadopago(tenant_id, elegido, periodo, monto,
+                                    correo_pedido, con_error)
+
+    numero = nuevo_numero_orden()
     async with db_pg.tx_global("checkout publico: registrar el pedido sin sesion") as conn:
         await conn.execute(
             """insert into pagos_suscripcion
                    (tenant_id, plan_codigo, periodo, monto, moneda, estado, metodo,
                     izipay_order_number, respuesta)
-               values ($1, $2, $3, $4, 'PEN', 'pendiente', 'izipay', $5, $6::jsonb)""",
+               values ($1, $2, $3, $4, 'PEN', 'pendiente', 'simulado', $5, $6::jsonb)""",
             tenant_id, elegido["codigo"], periodo, monto, numero,
             _json_pedido(correo_pedido, request),
         )
@@ -1111,25 +1202,48 @@ async def confirmar(
     return RedirectResponse(f"/comprar/pedido/{quote(numero)}", status_code=303)
 
 
-def _json_pedido(correo: str, request: Request) -> dict:
-    """Lo que se sabe del pedido antes de que exista la pasarela.
+async def _a_mercadopago(tenant_id, plan: dict, periodo: str, monto, correo: str,
+                         con_error):
+    """Crea la suscripcion en Mercado Pago y manda al cliente a pagarla.
 
-    Se guarda en `respuesta` porque es la columna que acaba teniendo el rastro
-    completo del cobro: primero lo nuestro, luego lo que conteste Izipay.
+    Un hotel con una suscripcion viva no abre otra: Mercado Pago cobraria las
+    dos. Para cambiar de plan se cancela primero la actual desde la cuenta.
+    """
+    if await suscripciones.preapproval_de(tenant_id):
+        return con_error(
+            "Este hotel ya tiene una suscripción con cobro automático. Para cambiar "
+            "de plan, cancélala primero en Configuración › Suscripción.")
+    try:
+        respuesta = await mercadopago.crear_preapproval(
+            tenant_id, correo, plan["codigo"], plan.get("nombre") or plan["codigo"],
+            periodo, monto, f"{url_publica()}/settings?tab=suscripcion")
+    except mercadopago.ErrorMercadoPago as e:
+        # El detalle va al log (sin token ni cuerpo: ver mercadopago._pedir).
+        log.error("No se pudo crear la suscripcion en Mercado Pago: %s", e)
+        return con_error(
+            "No pudimos abrir el pago con Mercado Pago. No se te cobró nada. Tu "
+            "hotel ya está creado: vuelve a intentarlo en unos minutos con «Ya "
+            "tengo cuenta».")
+    log.info("Checkout publico: suscripcion %s creada (plan %s, %s)",
+             respuesta.get("id"), plan["codigo"], periodo)
+    return RedirectResponse(respuesta["init_point"], status_code=303)
+
+
+def _json_pedido(correo: str, request: Request) -> dict:
+    """Lo que se sabe del pedido en el camino simulado.
 
     DEVUELVE UN dict, NO UN str, Y ESO IMPORTA
 
       db_pg._init_connection registra un codec jsonb con encoder=json.dumps.
       Pasarle una cadena ya serializada la serializa OTRA VEZ: la columna
       guarda una cadena JSON en vez de un objeto. Se vio contra Postgres --
-      jsonb_typeof(respuesta) devolvia 'string' -- y ademas rompia el `||` del
-      IPN, que con dos escalares produce un ARRAY en lugar de fusionar.
+      jsonb_typeof(respuesta) devolvia 'string'.
     """
     return ({
         "origen": "checkout_publico",
         "email": correo,
         "ip": request.client.host if request.client else None,
-        "modo_pasarela": izipay.modo(),
+        "modo_pasarela": mercadopago.modo(),
     })
 
 
@@ -1139,7 +1253,7 @@ async def pedido(numero: str):
     """El pedido, su total y su estado.
 
     Es publica y se identifica solo por el numero de orden. El numero lleva
-    seis bytes de aleatoriedad (ver izipay.nuevo_numero_orden) y lo unico que
+    tres bytes de aleatoriedad, seis cifras hex (ver nuevo_numero_orden), y lo unico que
     muestra es plan, importe y estado -- ni correo, ni RUC, ni nada del hotel.
     Pedir sesion aqui dejaria fuera al que acaba de crear su cuenta y todavia
     no ha entrado, que es justo el caso normal.
@@ -1163,22 +1277,6 @@ async def pedido(numero: str):
             "facturacion_sunat": fila["facturacion_sunat"],
             "reportes_avanzados": fila["reportes_avanzados"]}
 
-    modo = izipay.modo()
     pedido_vista = {"numero": fila["numero"], "estado": fila["estado"],
                     "monto": fila["monto"], "periodo": fila["periodo"]}
-
-    if modo != "simulado" and fila["estado"] == "pendiente":
-        # Con credenciales de verdad se pide el token de sesion aqui, al pintar
-        # la pagina, y no al confirmar el formulario: si la pasarela falla, el
-        # hotel ya esta creado y el pedido guardado, y basta con recargar.
-        sesion = await izipay.generar_token_sesion(
-            fila["numero"], float(fila["monto"]), COMERCIO["email"])
-        if sesion.get("ok"):
-            pedido_vista["token_pasarela"] = sesion["token"]
-            # POR_CONFIRMAR: la URL a la que se envia el formToken. Sin ella
-            # confirmada, el boton no puede prometer un cobro.
-            pedido_vista["url_pasarela"] = ""
-        else:
-            log.warning("No se pudo obtener token de Izipay para %s", fila["numero"])
-
-    return _sin_cache(pagina_pedido(pedido_vista, plan, COMERCIO, modo))
+    return _sin_cache(pagina_pedido(pedido_vista, plan, COMERCIO, mercadopago.modo()))

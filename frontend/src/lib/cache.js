@@ -83,7 +83,11 @@ const TTL = [
 //                   llenaria memoria con resultados que nadie repite.
 //   /reports/export descarga un fichero (responseType blob). Guardar binarios
 //                   en un Map es la forma rapida de comerse la pestaña.
-const NUNCA = ['/search', '/reports/export'];
+//   /suscripcion    estado y cobros: tras volver de Mercado Pago o cancelar,
+//                   enseñar el dato de hace diez segundos seria mentir sobre
+//                   dinero.
+//   /admin          consola de comprobantes del dueño, por lo mismo.
+const NUNCA = ['/search', '/reports/export', '/suscripcion', '/admin'];
 
 // Que hay que olvidar cuando se escribe en cada sitio.
 //

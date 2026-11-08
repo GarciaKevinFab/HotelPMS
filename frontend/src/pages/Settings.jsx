@@ -10,6 +10,7 @@ import {
   CheckCircle,
   UserRound,
   KeyRound,
+  CreditCard,
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -22,6 +23,7 @@ import { EncabezadoPagina } from '../components/EncabezadoPagina';
 import { EstadoVacio } from '../components/EstadoVacio';
 import { EsqueletoBloque } from '../components/Esqueleto';
 import { GestionUsuarios, InsigniaRol } from '../components/GestionUsuarios';
+import { SuscripcionHotel } from '../components/SuscripcionHotel';
 import { tenantsAPI, authAPI } from '../lib/api';
 import { toast } from 'sonner';
 import { useAuth } from '../contexts/AuthContext';
@@ -320,16 +322,23 @@ export function Settings() {
   }
 
   const enProduccion = invoicingConfig.mode === 'LIVE';
-  const pestanas = isAdmin ? 4 : 2;
+  // La suscripcion es del ADMIN de un hotel (o del SUPER_ADMIN que entro
+  // como el, cuyo token lleva rol ADMIN). El backend exige lo mismo.
+  const veSuscripcion = user?.role === 'ADMIN' && tieneHotel;
+  const pestanas = (isAdmin ? 4 : 2) + (veSuscripcion ? 1 : 0);
+  // Mercado Pago devuelve a /settings?tab=suscripcion despues de pagar.
+  const pestanaInicial = veSuscripcion && new URLSearchParams(window.location.search).get('tab') === 'suscripcion'
+    ? 'suscripcion'
+    : (isAdmin ? 'invoicing' : 'cuenta');
 
   return (
     <div className="space-y-6" data-testid="settings-page">
       <EncabezadoPagina titulo="Configuración" subtitulo="Ajustes del sistema, facturación y tu cuenta" />
 
-      <Tabs defaultValue={isAdmin ? 'invoicing' : 'cuenta'} className="space-y-6">
+      <Tabs defaultValue={pestanaInicial} className="space-y-6">
         {/* En el telefono las pestanas reparten el ancho; cuatro botones de
             ancho natural no cabian y la lista se cortaba. */}
-        <TabsList className={cn('grid h-auto w-full sm:inline-grid sm:w-auto', pestanas === 4 ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-2')}>
+        <TabsList className={cn('grid h-auto w-full sm:inline-grid sm:w-auto', pestanas === 5 ? 'grid-cols-2 sm:grid-cols-5' : pestanas === 4 ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-2')}>
           {isAdmin && (
             <TabsTrigger value="invoicing" className="min-h-[40px] gap-2">
               <Receipt className="h-4 w-4 shrink-0" />
@@ -344,6 +353,12 @@ export function Settings() {
             <TabsTrigger value="users" className="min-h-[40px] gap-2">
               <Users className="h-4 w-4 shrink-0" />
               Usuarios
+            </TabsTrigger>
+          )}
+          {veSuscripcion && (
+            <TabsTrigger value="suscripcion" className="min-h-[40px] gap-2">
+              <CreditCard className="h-4 w-4 shrink-0" />
+              Suscripción
             </TabsTrigger>
           )}
           <TabsTrigger value="cuenta" className="min-h-[40px] gap-2">
@@ -571,6 +586,12 @@ export function Settings() {
                 <GestionUsuarios />
               </CardContent>
             </Card>
+          </TabsContent>
+        )}
+
+        {veSuscripcion && (
+          <TabsContent value="suscripcion" className="animate-slide-in-up">
+            <SuscripcionHotel />
           </TabsContent>
         )}
 

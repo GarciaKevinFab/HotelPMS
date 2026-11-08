@@ -112,7 +112,15 @@ PREFIJOS = ("/api", "/comprar", "/precios")
 
 # Rutas exentas. El healthcheck del compose golpea cada 30 s desde dentro del
 # contenedor y no tiene sentido que compita con nadie.
-EXENTAS = ("/api/health",)
+#
+# El webhook de Mercado Pago tampoco cuenta. Hoy vive en /webhooks/, que no
+# cuelga de PREFIJOS y no se contaria igual; se escribe aqui de todos modos
+# para que anadir "/webhooks" a PREFIJOS -- o mover el aviso bajo /api -- no
+# lo deje limitado sin que nadie lo note. Mercado Pago avisa desde pocas IPs
+# y en rafagas (alta, cobro, factura...); un 429 es un cobro que se queda sin
+# registrar hasta el siguiente reintento. La proteccion de esa ruta es la
+# firma, que se comprueba antes de tocar la base.
+EXENTAS = ("/api/health", "/webhooks/", "/api/webhooks/")
 
 
 class LimitePeticiones:

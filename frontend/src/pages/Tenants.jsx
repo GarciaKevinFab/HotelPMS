@@ -1072,7 +1072,7 @@ export function Tenants() {
                             {pago.plan_codigo} · {pago.periodo}
                           </p>
                           <p className="truncate font-mono text-xs text-muted-foreground">
-                            {pago.izipay_order_number || pago.metodo || '—'}
+                            {pago.mp_payment_id || pago.izipay_order_number || pago.metodo || '—'}
                           </p>
                         </div>
                         <div className="text-right">

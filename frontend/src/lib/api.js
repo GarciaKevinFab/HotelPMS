@@ -98,6 +98,27 @@ export const tenantsAPI = {
   planes: () => api.get('/planes'),
 };
 
+// Suscripcion del propio hotel (solo su ADMIN): estado, cobros de Mercado
+// Pago con su comprobante, boleta o factura, y cancelar el cobro automatico.
+export const suscripcionAPI = {
+  estado: () => api.get('/suscripcion'),
+  pagos: () => api.get('/suscripcion/pagos'),
+  guardarFacturacion: (data) => api.put('/suscripcion/facturacion', data),
+  // El PDF llega como blob: la sesion va en la cabecera Authorization, asi
+  // que un <a href> directo llegaria sin ella.
+  comprobante: (pagoId) => api.get(`/suscripcion/comprobante/${pagoId}`, { responseType: 'blob' }),
+  cancelar: () => api.post('/suscripcion/cancelar'),
+};
+
+// Comprobantes de la suscripcion: consola del dueno (SUPER_ADMIN).
+export const comprobantesAPI = {
+  panel: () => api.get('/admin/comprobantes'),
+  // multipart: serie, numero, emitido (AAAA-MM-DD) y pdf.
+  emitido: (pagoId, formData) => api.post(`/admin/comprobantes/${pagoId}/emitido`, formData),
+  noAplica: (pagoId, nota) => api.post(`/admin/comprobantes/${pagoId}/no-aplica`, { nota }),
+  pdf: (pagoId) => api.get(`/admin/comprobantes/${pagoId}/pdf`, { responseType: 'blob' }),
+};
+
 // Users
 export const usersAPI = {
   // `tenant_id` solo lo usa el SUPER_ADMIN desde Hoteles; el ADMIN siempre
