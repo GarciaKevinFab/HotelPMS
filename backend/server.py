@@ -36,6 +36,7 @@ import checkout
 import comprobantes
 import limites
 import mercadopago
+import recordatorios
 import seo
 import suscripciones
 import webhooks_mercadopago
@@ -427,6 +428,12 @@ async def estado_suscripcion(conn, tenant_id):
         """select t.subscription_status, t.trial_ends_at, t.grace_ends_at,
                   t.subscription_ends_at, t.cancelada_en,
                   (t.mp_preapproval_id is not null) as cobro_automatico,
+                  -- 'adelantado-N' si lo ultimo que pago fue un pago adelantado:
+                  -- la cuenta ofrece renovarlo (no se renueva solo).
+                  (select ps.periodo from pagos_suscripcion ps
+                    where ps.tenant_id = t.id and ps.estado = 'pagado'
+                    order by coalesce(ps.confirmado_en, ps.created_at) desc
+                    limit 1) as ultimo_periodo,
                   p.codigo as plan_codigo, p.nombre as plan_nombre,
                   p.precio_mensual, p.max_habitaciones,
                   p.facturacion_sunat, p.reportes_avanzados,
@@ -5022,6 +5029,8 @@ if not FRONTEND_BUILD.exists():
 # comprobantes.avisar). Una tarea dentro del proceso y no un cron: el
 # contenedor corre UN solo uvicorn (ver backend/Dockerfile), asi que no hay
 # dos copias que avisen dos veces, y no hace falta otra pieza que vigilar.
+# El mismo bucle manda los recordatorios de renovacion del pago adelantado
+# (backend/recordatorios.py).
 # COMPROBANTES_AVISOS=0 la apaga (desarrollo, pruebas).
 AVISOS_CADA_SEGUNDOS = 600
 _tarea_avisos = None
@@ -5030,6 +5039,7 @@ _tarea_avisos = None
 async def _bucle_avisos_comprobantes():
     await asyncio.sleep(30)  # que el arranque y el healthcheck vayan primero
     while True:
+        # Dos tareas, dos try: que falle una no deja sin correr a la otra.
         try:
             enviados = await comprobantes.avisar(send_email_async)
             if enviados:
@@ -5040,6 +5050,17 @@ async def _bucle_avisos_comprobantes():
             # Un fallo de base o de SMTP no puede matar el bucle: el siguiente
             # intento es en diez minutos y los no enviados siguen pendientes.
             logger.exception("Fallo la revision de comprobantes pendientes")
+        try:
+            # Recordatorio de renovacion del pago adelantado (7 y 1 dias antes
+            # de vencer). Mismo bucle: ZenStay no tiene cron. Ver
+            # backend/recordatorios.py.
+            recordados = await recordatorios.recordar_renovaciones(send_email_async)
+            if recordados:
+                logger.info("Recordatorios de renovacion enviados: %s", recordados)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Fallo la revision de recordatorios de renovacion")
         await asyncio.sleep(AVISOS_CADA_SEGUNDOS)
 
 

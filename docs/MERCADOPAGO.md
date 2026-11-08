@@ -1,7 +1,8 @@
 # Mercado Pago en ZenStay
 
-Guía para Kevin. Cómo dejar encendido el cobro de la suscripción con Mercado
-Pago Suscripciones y los comprobantes manuales. El código ya está en el repo;
+Guía para Kevin. Cómo dejar encendido el cobro con Mercado Pago —la
+suscripción con tarjeta (Suscripciones) y el pago adelantado con Yape, banca
+móvil o tarjeta (Checkout Pro, sección 8)— y los comprobantes manuales. El código ya está en el repo;
 lo que falta se hace en el panel de Mercado Pago y en el VPS, en este orden.
 
 Nada de esto cobra mientras `MERCADOPAGO_MODO` no diga `prueba` o
@@ -39,8 +40,8 @@ En la aplicación, **Webhooks › Configurar notificaciones**:
   - **Planes y suscripciones** — `subscription_preapproval` (alta y
     cancelación de la suscripción) y `subscription_authorized_payment` (cada
     cobro mensual o anual, aprobado o rechazado).
-  - **Pagos** — `payment` (lo usamos solo para enterarnos de devoluciones y
-    contracargos).
+  - **Pagos** — `payment`: por aquí entra el pago adelantado (Checkout Pro),
+    y también las devoluciones y contracargos.
   - Ninguno más.
 - Guarda y copia la **Clave secreta** que muestra Mercado Pago. Es la que firma
   la cabecera `x-signature`; sin ella el backend rechaza todos los avisos con
@@ -155,9 +156,135 @@ hotel lo descarga desde Configuración › Suscripción.
 | cobro rechazado | lo asienta como rechazado una vez; no cambia el estado: el corte lo deciden las fechas (vencida al vencer, suspendida 7 días después) |
 | `subscription_preapproval` cancelada | hotel en `cancelada`, con acceso hasta el fin de lo pagado |
 | `payment` devuelto o contracargo | quita el periodo de ese cobro |
+| `payment` aprobado con referencia `adelantado-N` | comprueba el importe contra `planes`, asienta el pago y suma N meses (sección 8) |
+| `payment` `adelantado-N` pendiente (`pending`, `in_process`) o rechazado | nada |
+| `payment` `adelantado-N` con importe o moneda distintos | lo guarda en `en_revision` y **no** activa nada |
 | firma inválida | 401, no se consulta nada |
 | Mercado Pago caído | 503, para que Mercado Pago reintente |
 
 El estado, el importe y el hotel nunca se toman del aviso: se consultan a la
 API de Mercado Pago con nuestro token. El importe tiene que coincidir con el
 pactado al crear la suscripción, que sale de la tabla `planes`.
+
+
+## 8. Pago adelantado: Yape, banca móvil o tarjeta (Checkout Pro)
+
+Además de la suscripción con tarjeta, el hotel puede pagar **1, 3, 6 o 12
+meses** en un solo pago. Es el único producto de Mercado Pago que ofrece
+**Yape** (hasta S/ 2.000 por operación) y **PagoEfectivo** (banca móvil BCP,
+BBVA y otros, o agente). La suscripción con tarjeta no cambia.
+
+- **Precio**: 1, 3 y 6 meses = mensualidad × meses. 12 meses = el anual que
+  ya existe, 10 mensualidades (`MESES_DEL_ANUAL`). Sale de `planes` en el
+  servidor (`suscripciones.precio_adelantado`); el formulario no lleva monto.
+  Si el total pasa de S/ 2.000, la página de compra avisa que no habrá Yape.
+- **Vigencia**: `hasta = max(ahora, hasta_actual) + meses`, donde
+  `hasta_actual` es lo pagado o, en prueba, el fin de la prueba. Pagar otro
+  periodo antes de que venza se suma. Al vencer entra la máquina de siempre
+  (vencida 7 días en gracia, luego suspendida); no hay estados nuevos.
+- **Con cobro automático vivo** el checkout no abre el pago adelantado: dice
+  «Ya tienes cobro automático con tarjeta; cancélalo primero si prefieres
+  pagar por adelantado».
+- **Preferencia** (`mercadopago.crear_preferencia`): un ítem en PEN con el
+  total del catálogo, `external_reference = zenstay|<hotel>|<plan>|adelantado-N`,
+  `payer.email`, `back_urls` a `/comprar/resultado?pago=aprobado|pendiente|error`,
+  `auto_return: approved`, `notification_url` al webhook de producción,
+  `installments: 1` sin excluir medios, `statement_descriptor: ZENSTAY`, y
+  vence a los **3 días** (`expires` + `expiration_date_to` y
+  `date_of_expiration`: el código de PagoEfectivo caduca).
+- **Vuelta**: `/comprar/resultado` es una página del servidor y no la cuenta,
+  porque quien acaba de crear su hotel aún no inició sesión. No activa nada:
+  "aprobado" dice "en unos minutos"; "pendiente", "te llegó el código de pago".
+  El plan lo activa solo el webhook firmado. Desde ahí, **Ver mi suscripción**
+  lleva a Configuración › Suscripción.
+- **Comprobante**: el pago aprobado entra `pendiente` como cualquier otro y
+  llega el mismo correo a `ZENSTAY_ADMIN_EMAIL`. El concepto dice "pago
+  adelantado de N meses".
+- **Importe distinto**: queda en la tabla con estado `en_revision` (no pide
+  comprobante, no activa). Se concilia a mano: si el dinero es bueno, se da el
+  periodo desde la consola (Hoteles › Suscripción, manual) o se devuelve en
+  Mercado Pago.
+
+### Panel de Mercado Pago
+
+En la aplicación ZenStay, además de **Suscripciones**, tiene que estar
+habilitado **Checkout Pro** (pagos online). Es el mismo Access Token y el
+mismo webhook: el evento **Pagos** (`payment`) ya está marcado (sección 2).
+
+### Recordatorio de renovación
+
+A **7 días** y a **1 día** de `subscription_ends_at` sale un correo al
+administrador del hotel (el ADMIN activo más antiguo; si no hay, el correo del
+hotel) con el botón **Renovar ahora** →
+`https://zenstay.sisac.pe/comprar/<plan>?periodo=adelantado-<N>`: la página de
+pago, no una preferencia ya creada (el precio se calcula el día que se paga).
+
+- Solo a hoteles `activa` cuyo **último pago aprobado** fue adelantado y que
+  **no** tienen suscripción con tarjeta.
+- **Quién lo programa**: nadie aparte. Corre dentro del backend, en el mismo
+  bucle que avisa de los comprobantes (`server._bucle_avisos_comprobantes`):
+  arranca 30 s después de levantar el contenedor y repite cada 10 minutos
+  (`AVISOS_CADA_SEGUNDOS = 600`). No hace falta cron. `COMPROBANTES_AVISOS=0`
+  apaga los dos avisos.
+- **No se repite**: `tenants.aviso_renovacion_7d_para` y
+  `aviso_renovacion_1d_para` guardan el vencimiento para el que ya salió cada
+  aviso. Se reservan antes de mandar y se sueltan si el correo falla (la
+  pasada siguiente lo reintenta). Si el hotel renueva, el vencimiento cambia y
+  los avisos vuelven a tocar, una vez cada uno.
+- Sale por el SMTP que ya usa el backend (`send_email_async`).
+
+### Desplegar
+
+La migración **006** va antes que el backend: el código nuevo escribe
+`adelantado-N` y `en_revision`, que la 005 no admite, y lee las columnas de
+los avisos. El backend viejo funciona con el esquema nuevo.
+
+```
+# 1. Respaldo
+ssh -i ~/.ssh/hostinger_vps_ed25519 root@2.24.115.75 \
+  '/opt/zenstay/tools/respaldar.sh /opt/zenstay/respaldos'
+
+# 2. Migración 006 (idempotente, en una transacción)
+ssh -i ~/.ssh/hostinger_vps_ed25519 root@2.24.115.75 \
+  'docker exec -i zenstay-postgres psql -v ON_ERROR_STOP=1 -U postgres -d zenstay' \
+  < db/migrations/006_pago_adelantado.sql
+
+# 3. Backend y frontend (no hay variables nuevas)
+bash tools/desplegar.sh
+
+# 4. Comprobación
+curl -s -o /dev/null -w '%{http_code}\n' -X POST https://zenstay.sisac.pe/webhooks/mercadopago   # 401
+curl -s 'https://zenstay.sisac.pe/comprar/pro?periodo=adelantado-3' | grep -c 'Paga con Yape'     # 1 o más
+ssh -i ~/.ssh/hostinger_vps_ed25519 root@2.24.115.75 \
+  'docker exec zenstay-postgres psql -U postgres -d zenstay -c "\d tenants"' | grep aviso_renovacion
+```
+
+No hay variables de entorno nuevas: usa `MERCADOPAGO_*`, `ZENSTAY_URL_PUBLICA`
+y el SMTP que ya están.
+
+### Probarlo
+
+En modo `prueba` (sección 5), con el comprador de prueba:
+
+1. `/comprar/pro`, elige **3 meses** en «Pago adelantado»: el total es
+   S/ 357.00 (3 × 119). Paga en Mercado Pago con una tarjeta de prueba
+   aprobada. En segundos, Configuración › Suscripción muestra el plan activo
+   con 3 meses más y el botón **Renovar por adelantado**.
+2. Repite eligiendo PagoEfectivo: vuelve a `/comprar/resultado?pago=pendiente`
+   («Te llegó el código de pago») y el plan **no** se activa hasta que el
+   código se paga.
+3. Devuelve el pago desde el panel de Mercado Pago: el hotel pierde esos 3
+   meses y el comprobante pendiente pasa a "sin comprobante".
+4. Recordatorio sin esperar una semana: acerca el vencimiento del hotel de
+   prueba y espera a la siguiente pasada (10 minutos como máximo):
+   ```
+   docker exec zenstay-postgres psql -U postgres -d zenstay -c \
+     "update tenants set subscription_ends_at = now() + interval '6 days' where ruc = '<RUC de prueba>'"
+   ```
+   Llega un correo; en la pasada siguiente, ninguno más.
+
+Las pruebas automáticas están en `backend/tests/test_pago_adelantado.py`
+(precio 1/3/6/12, firma, aprobado, repetido, importe distinto, pendiente,
+devolución, Mercado Pago caído, bloqueo con tarjeta, recordatorios y
+credenciales). Corren con el Postgres efímero de `tests/test_mercadopago.py`
+más la migración 006.

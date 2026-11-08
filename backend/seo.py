@@ -316,8 +316,9 @@ def llms(planes: list, comercio: dict) -> str:
         "",
         "## Cómo se contrata y se paga",
         "",
-        "- Al terminar la prueba se elige un plan y se paga en línea con tarjeta, "
-        "como suscripción procesada por Mercado Pago.",
+        "- Al terminar la prueba se elige un plan y se paga en línea por Mercado Pago: "
+        "con Yape, desde la banca móvil (BCP, BBVA y otros) o con tarjeta, por "
+        "adelantado (1, 3, 6 o 12 meses), o como suscripción con tarjeta mensual o anual.",
         "- Por la suscripción se emite factura electrónica al RUC, o boleta.",
         "- Sin contrato: la suscripción se cancela desde la propia cuenta.",
         f"- Si no se contrata al terminar la prueba, el sistema sigue completo "

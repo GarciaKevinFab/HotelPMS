@@ -229,10 +229,21 @@ def test_las_preguntas_son_las_del_dueno_de_un_hostal():
     for tema in ("tarjeta", "14 días", "pago", "factura", "cancelar", "datos", "celular"):
         assert any(tema in p for p in preguntas), tema
     respuestas = " ".join(r for _, r in dudas.preguntas())
-    # Lo que no esta aprobado o no esta verificado no se promete.
-    for fuera in ("Yape", "banca móvil", "transferencia", "WhatsApp", "demo", "NubeFact",
-                  "huésped"):
+    # Lo que no esta aprobado o no esta verificado no se promete. Yape y la
+    # banca movil si (pago adelantado, aprobado por Kevin el 2026-11-08).
+    for fuera in ("transferencia", "WhatsApp", "demo", "NubeFact", "huésped"):
         assert fuera not in respuestas, fuera
+
+
+def test_como_pago_dice_exactamente_los_medios_del_pago_adelantado():
+    """La frase de la especificacion, letra por letra, en la FAQ y en su FAQPage."""
+    frase = "Paga con Yape, desde tu banca móvil (BCP, BBVA y otros) o con tarjeta"
+    (respuesta,) = [r for p, r in dudas.preguntas() if p == "¿Cómo pago?"]
+    assert respuesta.startswith(frase)
+    assert "1, 3, 6 o 12 meses" in respuesta
+    faq = dudas.faqpage()
+    (entrada,) = [q for q in faq["mainEntity"] if q["name"] == "¿Cómo pago?"]
+    assert entrada["acceptedAnswer"]["text"] == respuesta
 
 
 def test_el_faqpage_solo_va_donde_se_ven_las_preguntas():

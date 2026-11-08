@@ -39,7 +39,15 @@ const COBROS = {
   pagado: 'Pagado',
   fallido: 'Rechazado',
   devuelto: 'Devuelto',
+  en_revision: 'En revisión',
 };
+
+/* 'adelantado-3' -> 'pago adelantado, 3 meses'; 'mensual' sigue igual. */
+function nombrePeriodo(periodo) {
+  const m = /^adelantado-(\d+)$/.exec(periodo || '');
+  if (!m) return periodo;
+  return `pago adelantado, ${m[1] === '1' ? '1 mes' : `${m[1]} meses`}`;
+}
 
 const COMPROBANTE = {
   pendiente: 'En emisión',
@@ -129,6 +137,9 @@ export function SuscripcionHotel() {
 
   const efectivo = estado.estado_efectivo || estado.subscription_status;
   const conCobro = Boolean(estado.cobro_automatico);
+  // Lo ultimo que pago fue un pago adelantado (Yape, banca movil o tarjeta):
+  // no se renueva solo, asi que se ofrece renovarlo con el mismo periodo.
+  const adelantado = !conCobro && /^adelantado-/.test(estado.ultimo_periodo || '');
 
   return (
     <div className="space-y-6">
@@ -167,6 +178,12 @@ export function SuscripcionHotel() {
               <CheckCircle className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
               Cobro automático activo en Mercado Pago. Se renueva solo al terminar cada periodo.
             </p>
+          ) : adelantado ? (
+            <p className="flex items-start gap-2 text-sm">
+              <CheckCircle className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+              Pagaste por adelantado: no se renueva solo. Te avisamos por correo 7 días y
+              1 día antes de que venza. Lo que pagues antes se suma a lo que te queda.
+            </p>
           ) : (
             <p className="flex items-start gap-2 text-sm text-muted-foreground">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
@@ -175,12 +192,19 @@ export function SuscripcionHotel() {
           )}
 
           <div className="flex flex-wrap gap-2">
-            {!conCobro && (
+            {adelantado && (
               <Button asChild>
+                <a href={`/comprar/${encodeURIComponent(estado.plan_codigo)}?periodo=${encodeURIComponent(estado.ultimo_periodo)}`}>
+                  Renovar por adelantado
+                </a>
+              </Button>
+            )}
+            {!conCobro && (
+              <Button asChild variant={adelantado ? 'outline' : 'default'}>
                 <a href="/precios">{efectivo === 'activa' ? 'Ver planes' : 'Contratar un plan'}</a>
               </Button>
             )}
-            {(conCobro || efectivo === 'activa') && (
+            {(conCobro || (efectivo === 'activa' && !adelantado)) && (
               <Button variant="outline" onClick={() => setConfirmarCancelar(true)}>
                 Cancelar suscripción
               </Button>
@@ -248,7 +272,7 @@ export function SuscripcionHotel() {
                 <li key={p.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
                   <div>
                     <p className="font-medium">
-                      {formatCurrency(p.monto)} · {p.plan_codigo} {p.periodo}
+                      {formatCurrency(p.monto)} · {p.plan_codigo} {nombrePeriodo(p.periodo)}
                     </p>
                     <p className="text-xs text-muted-foreground">
                       {formatDate(p.confirmado_en || p.created_at)} · {COBROS[p.estado] || p.estado}

@@ -266,6 +266,16 @@ def referencia(p: dict) -> str:
     return p.get("mp_payment_id") or p.get("izipay_order_number") or str(p.get("id"))
 
 
+def concepto(plan_codigo: str, periodo: str) -> str:
+    """Lo que va en el comprobante: 'Suscripción ZenStay plan pro (mensual)' o
+    'ZenStay plan pro, pago adelantado de 3 meses'."""
+    if (periodo or "").startswith("adelantado-"):
+        meses = periodo.split("-", 1)[1]
+        return (f"ZenStay plan {plan_codigo}, pago adelantado de "
+                f"{'1 mes' if meses == '1' else meses + ' meses'}")
+    return f"Suscripción ZenStay plan {plan_codigo} ({periodo})"
+
+
 def _filas(p: dict) -> list[tuple[str, str]]:
     partes = desglose(p["monto"])
     tipo = "Factura" if p["comp_tipo"] == "factura" else "Boleta"
@@ -279,7 +289,7 @@ def _filas(p: dict) -> list[tuple[str, str]]:
         ("Dirección", p["comp_direccion"] or "—"),
         ("Hotel", f"{p['hotel']} (RUC {p['hotel_ruc']})"),
         ("Correo", p["email"] or "—"),
-        ("Concepto", f"Suscripción ZenStay plan {p['plan_codigo']} ({p['periodo']})"),
+        ("Concepto", concepto(p["plan_codigo"], p["periodo"])),
         ("Valor de venta", f"S/ {partes['base']:.2f}"),
         ("IGV 18%", f"S/ {partes['igv']:.2f}"),
         ("Total", f"S/ {partes['total']:.2f}"),
