@@ -9,6 +9,13 @@ DOS DEFENSAS, Y LA SEGUNDA ES LA QUE MANDA
   con nuestro token. Un aviso no puede afirmar nada que Mercado Pago no
   confirme.
 
+EL PAGO ADELANTADO LLEGA POR `payment`
+
+  Checkout Pro (Yape, banca movil, tarjeta) no tiene suscripcion ni factura:
+  el cobro ES el pago. Su external_reference termina en `adelantado-N` y el
+  aviso `payment` lo aplica (ver _adelantado). Los cobros de la suscripcion
+  con tarjeta siguen entrando por `subscription_authorized_payment`.
+
 EL PERIODO SE CONCEDE CON EL PAGO, NO CON LA SUSCRIPCION
 
   `authorized` solo dice que el hotel dejo su tarjeta. Ese aviso vincula la
@@ -129,9 +136,18 @@ async def _pago(data_id: str) -> JSONResponse:
 
 
 async def _cobro(data_id: str) -> JSONResponse:
-    """Solo interesan las devoluciones: lo demas ya lo dice la factura."""
+    """Aviso `payment`: el pago adelantado y las devoluciones.
+
+    Siempre se relee el cobro en /v1/payments/{id}: estado, importe, moneda y
+    referencia salen de ahi, nunca del cuerpo del aviso.
+    """
     cobro = await mercadopago.leer_pago(data_id)
     estado = cobro.get("status")
+    referencia = cobro.get("external_reference")
+    ref = mercadopago.leer_referencia(referencia)
+    if ref and ref["periodo"] in mercadopago.ADELANTADO:
+        return await _adelantado(data_id, cobro, ref, estado)
+
     if estado not in DEVUELTOS:
         return _ok(aplicado=False, estado=estado)
     # Con referencia, tiene que ser la nuestra (la cuenta de Mercado Pago es la
@@ -140,11 +156,39 @@ async def _cobro(data_id: str) -> JSONResponse:
     # devolver_pago_mp solo toca un cobro que ESTE guardado en nuestra tabla,
     # asi que un id ajeno no encuentra nada. Diferencia con LicitaPro, que
     # exige la referencia y perderia esa devolucion.
-    referencia = cobro.get("external_reference")
-    if referencia and not mercadopago.leer_referencia(referencia):
+    if referencia and not ref:
         return _ok(aplicado=False, motivo="referencia ajena")
     resultado = await suscripciones.devolver_pago_mp(data_id)
     return _ok(aplicado=resultado == "devuelto", resultado=resultado)
+
+
+async def _adelantado(data_id: str, cobro: dict, ref: dict, estado) -> JSONResponse:
+    """Pago unico por N meses (Checkout Pro: Yape, PagoEfectivo o tarjeta).
+
+      approved                 se comprueba el importe contra el catalogo y se
+                               extiende la vigencia (idempotente por el id)
+      pending / in_process     el cliente tiene su codigo de pago (CIP) o el
+                               cobro esta en revision en Mercado Pago: nada
+      rejected / cancelled     nada: no hubo dinero
+      refunded / charged_back  se quita ese periodo
+    """
+    meses = mercadopago.ADELANTADO[ref["periodo"]]
+    if estado in DEVUELTOS:
+        resultado = await suscripciones.devolver_pago_mp(data_id)
+        return _ok(aplicado=resultado == "devuelto", resultado=resultado)
+    if estado != "approved":
+        return _ok(aplicado=False, estado=estado)
+
+    monto = mercadopago.importe(cobro.get("transaction_amount"))
+    resultado = await suscripciones.aplicar_adelantado(
+        ref["tenant_id"], ref["plan"], meses, str(data_id), monto,
+        cobro.get("currency_id"), cobro)
+    if resultado == "sin_fila":
+        log.error("Pago adelantado %s aprobado y el hotel %s no existe aqui: hay un "
+                  "pago sin aplicar.", data_id, ref["tenant_id"])
+    if resultado == "importe_distinto":
+        return _ok(aplicado=False, motivo="importe no coincide")
+    return _ok(aplicado=resultado == "aplicado", resultado=resultado)
 
 
 @router.post(RUTA)

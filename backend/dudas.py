@@ -19,8 +19,12 @@ CADA RESPUESTA SALE DEL CODIGO, NO DE UN DESEO
     dias; despues 'suspendida', que bloquea crear reservas, hacer check-in y
     registrar cargos y cobros (server.exigir_suscripcion), pero no la lectura.
     Ningun proceso borra datos por falta de pago.
-  - Pago: tarjeta, por Mercado Pago, como suscripcion mensual o anual
-    (MESES_DEL_ANUAL). Contratar con "Ya tengo cuenta" no crea otro hotel.
+  - Pago: por Mercado Pago. Pago adelantado de 1, 3, 6 o 12 meses con Yape,
+    PagoEfectivo (banca movil BCP/BBVA o agente) o tarjeta, via Checkout Pro
+    (checkout._a_checkout_pro; 12 meses = MESES_DEL_ANUAL mensualidades), con
+    recordatorio por correo a 7 y a 1 dia (backend/recordatorios.py). O
+    suscripcion con tarjeta, mensual o anual (/preapproval). Contratar con
+    "Ya tengo cuenta" no crea otro hotel.
   - Comprobante: el checkout pide boleta (DNI o vacio) o factura (RUC, con la
     razon social del padron de SUNAT).
   - Cancelar: POST /api/suscripcion/cancelar, solo el administrador del hotel,
@@ -41,6 +45,10 @@ TODO ES HTML SIN JAVASCRIPT
 import html
 
 import suscripciones
+
+#: Los medios del pago adelantado, con estas palabras exactas. Lo usan la
+#: pregunta "¿Cómo pago?" y la pagina de compra (checkout.MEDIOS_ADELANTADO).
+MEDIOS_PAGO = "Paga con Yape, desde tu banca móvil (BCP, BBVA y otros) o con tarjeta"
 
 
 def _e(valor) -> str:
@@ -66,10 +74,12 @@ def preguntas() -> list[tuple[str, str]]:
          f"con el mismo hotel y todo lo que cargaste. Si todavía no contratas, tienes "
          f"{gracia} días más con el sistema completo."),
         ("¿Cómo pago?",
-         f"Con tarjeta, en línea, a través de Mercado Pago. Puedes pagar mes a mes o un "
-         f"año completo, que cuesta {anual} mensualidades. Es una suscripción: Mercado "
-         f"Pago la cobra sola en cada periodo hasta que la canceles. ZenStay no ve ni "
-         f"guarda los datos de tu tarjeta."),
+         f"{MEDIOS_PAGO}, en línea, a través de Mercado Pago. Pagas por adelantado 1, 3, "
+         f"6 o 12 meses (los 12 meses cuestan {anual} mensualidades) y te avisamos por "
+         f"correo antes de que venza para que renueves. Si prefieres no pensar en eso, "
+         f"con tarjeta también puedes suscribirte mes a mes o por año: Mercado Pago lo "
+         f"cobra solo hasta que lo canceles. ZenStay no ve ni guarda los datos de tu "
+         f"tarjeta."),
         ("¿Me dan factura?",
          "Sí. Al contratar eliges factura o boleta electrónica. Para la factura pones el "
          "RUC y tomamos la razón social del padrón de SUNAT. Te la emitimos por cada cobro."),

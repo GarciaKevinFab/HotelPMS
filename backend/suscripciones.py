@@ -34,6 +34,7 @@ DIFERENCIAS CON LICITAPRO, Y POR QUE
 """
 import logging
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 
 import db_pg
 
@@ -45,8 +46,35 @@ DIAS_GRACIA = 7
 #: El pago anual son DIEZ mensualidades por doce meses (ver checkout.precio_de).
 MESES_DEL_ANUAL = 10
 ESTADOS = ("prueba", "activa", "vencida", "suspendida", "cancelada")
+
+#: Pago adelantado (Checkout Pro: Yape, banca movil o tarjeta), en meses.
+MESES_ADELANTADO = (1, 3, 6, 12)
+PERIODOS_ADELANTADO = tuple(f"adelantado-{m}" for m in MESES_ADELANTADO)
+
 #: Lo que se suma por cada cobro aprobado. Ver la cabecera: meses, no dias.
-INTERVALO = {"mensual": "1 month", "anual": "12 months"}
+INTERVALO = {"mensual": "1 month", "anual": "12 months",
+             **{f"adelantado-{m}": f"{m} months" for m in MESES_ADELANTADO}}
+
+
+def meses_adelantado(periodo: str | None) -> int | None:
+    """3 para 'adelantado-3'; None si no es un periodo de pago adelantado."""
+    if periodo in PERIODOS_ADELANTADO:
+        return int(periodo.split("-", 1)[1])
+    return None
+
+
+def precio_adelantado(precio_mensual, meses: int) -> Decimal:
+    """Lo que cuesta pagar `meses` por adelantado. La unica regla de precio.
+
+    1, 3 y 6 meses: la mensualidad por los meses, sin descuento. 12 meses:
+    lo mismo que el anual con tarjeta (MESES_DEL_ANUAL mensualidades), para
+    que pagar un ano con Yape no salga mas caro que pagarlo con tarjeta.
+    Sale siempre de `planes.precio_mensual`, en el servidor.
+    """
+    if meses not in MESES_ADELANTADO:
+        raise ValueError(f"periodo adelantado desconocido: {meses}")
+    mensual = Decimal(str(precio_mensual or 0))
+    return mensual * (MESES_DEL_ANUAL if meses == 12 else meses)
 
 
 def _ahora() -> datetime:
@@ -178,6 +206,38 @@ async def marcar_cancelada(tenant_id, conn=None) -> bool:
 
 # ─── Los cobros ──────────────────────────────────────────
 
+async def _extender(conn, tid, plan_codigo: str, periodo: str) -> dict:
+    """Suma el periodo pagado: hasta = max(ahora, hasta_actual) + intervalo.
+
+    `hasta_actual` es lo pagado, o el fin de la prueba si esta en prueba: lo
+    que quedaba no se pierde. El unico UPDATE que alarga subscription_ends_at,
+    lo use la suscripcion con tarjeta o el pago adelantado.
+    """
+    intervalo = INTERVALO[periodo]
+    return await db_pg.uno(
+        conn,
+        f"""update tenants
+               set plan_codigo = $2,
+                   subscription_status = 'activa',
+                   cancelada_en = null,
+                   subscription_ends_at =
+                       greatest(coalesce(subscription_ends_at,
+                                         case when subscription_status = 'prueba'
+                                              then trial_ends_at end,
+                                         now()),
+                                now()) + interval '{intervalo}',
+                   grace_ends_at =
+                       greatest(coalesce(subscription_ends_at,
+                                         case when subscription_status = 'prueba'
+                                              then trial_ends_at end,
+                                         now()),
+                                now()) + interval '{intervalo}'
+                       + interval '{DIAS_GRACIA} days'
+             where id = $1
+         returning plan_codigo, subscription_status, subscription_ends_at""",
+        tid, plan_codigo)
+
+
 async def aplicar_pago_mp(tenant_id, plan_codigo: str, periodo: str, pago_id: str,
                           monto, respuesta: dict | None = None) -> str:
     """Asienta una factura aprobada. 'aplicado', 'repetido' o 'sin_fila'.
@@ -224,31 +284,75 @@ async def aplicar_pago_mp(tenant_id, plan_codigo: str, periodo: str, pago_id: st
             if not nuevo:
                 return "repetido"
 
-        despues = await db_pg.uno(
-            conn,
-            f"""update tenants
-                   set plan_codigo = $2,
-                       subscription_status = 'activa',
-                       cancelada_en = null,
-                       subscription_ends_at =
-                           greatest(coalesce(subscription_ends_at,
-                                             case when subscription_status = 'prueba'
-                                                  then trial_ends_at end,
-                                             now()),
-                                    now()) + interval '{INTERVALO[periodo]}',
-                       grace_ends_at =
-                           greatest(coalesce(subscription_ends_at,
-                                             case when subscription_status = 'prueba'
-                                                  then trial_ends_at end,
-                                             now()),
-                                    now()) + interval '{INTERVALO[periodo]}'
-                           + interval '{DIAS_GRACIA} days'
-                 where id = $1
-             returning plan_codigo, subscription_status, subscription_ends_at""",
-            tid, plan_codigo)
+        despues = await _extender(conn, tid, plan_codigo, periodo)
         await _auditar(conn, tid, "pago", {**despues, "mp_payment_id": pago_id,
                                            "monto": float(monto), "periodo": periodo})
     log.info("Factura %s de Mercado Pago aplicada al hotel %s", pago_id, tid)
+    return "aplicado"
+
+
+async def aplicar_adelantado(tenant_id, plan_codigo: str, meses: int, pago_id: str,
+                            monto, moneda: str | None, cobro: dict | None = None) -> str:
+    """Asienta un pago adelantado aprobado (Checkout Pro). Devuelve:
+
+      'aplicado'          se registro y se extendio la vigencia `meses` meses
+      'repetido'          ese mp_payment_id ya estaba: no se suma dos veces
+      'importe_distinto'  el importe o la moneda no son los del catalogo: se
+                          guarda en 'en_revision' para conciliar y NO se activa
+      'sin_fila'          el hotel no existe aqui
+
+    El importe esperado sale de `planes` DENTRO de la misma transaccion, con
+    precio_adelantado(). Lo que diga la preferencia no cuenta: la crea nuestro
+    servidor, pero quien paga es Mercado Pago y lo que manda es lo cobrado.
+    """
+    periodo = f"adelantado-{meses}"
+    if periodo not in PERIODOS_ADELANTADO:
+        return "sin_fila"
+    tid = db_pg.a_uuid(tenant_id)
+    async with db_pg.tx_global("webhook de Mercado Pago: aplicar un pago adelantado") as conn:
+        hotel = await conn.fetchrow("select id from tenants where id = $1 for update", tid)
+        if not hotel:
+            return "sin_fila"
+        if await conn.fetchval(
+                "select 1 from pagos_suscripcion where mp_payment_id = $1", pago_id):
+            return "repetido"
+
+        precio = await conn.fetchval(
+            "select precio_mensual from planes where codigo = $1", plan_codigo)
+        esperado = (precio_adelantado(precio, meses).quantize(Decimal("0.01"))
+                    if precio is not None else None)
+        cuadra = (esperado is not None and esperado > 0 and monto is not None
+                  and Decimal(str(monto)).quantize(Decimal("0.01")) == esperado
+                  and moneda == "PEN")
+        estado = "pagado" if cuadra else "en_revision"
+        nuevo = await conn.fetchval(
+            """insert into pagos_suscripcion
+                   (tenant_id, plan_codigo, periodo, monto, moneda, estado, metodo,
+                    mp_payment_id, respuesta, confirmado_en)
+               values ($1, $2, $3, $4, $5, $6, 'mercadopago', $7, $8, now())
+               on conflict (mp_payment_id) where mp_payment_id is not null
+               do nothing
+               returning id""",
+            tid, plan_codigo, periodo, monto if monto is not None else 0,
+            (moneda or "PEN")[:3], estado, pago_id, cobro)
+        if not nuevo:
+            return "repetido"
+        if not cuadra:
+            await _auditar(conn, tid, "pago_en_revision",
+                           {"mp_payment_id": pago_id, "periodo": periodo,
+                            "monto": float(monto) if monto is not None else None,
+                            "moneda": moneda,
+                            "esperado": float(esperado) if esperado is not None else None})
+            log.error("Pago adelantado %s de %s %s y el catalogo dice %s: queda en "
+                      "revision, no se activa. Conciliar a mano.",
+                      pago_id, moneda, monto, esperado)
+            return "importe_distinto"
+
+        despues = await _extender(conn, tid, plan_codigo, periodo)
+        await _auditar(conn, tid, "pago_adelantado",
+                       {**despues, "mp_payment_id": pago_id, "monto": float(monto),
+                        "periodo": periodo})
+    log.info("Pago adelantado %s (%s meses) aplicado al hotel %s", pago_id, meses, tid)
     return "aplicado"
 
 
@@ -289,7 +393,9 @@ async def devolver_pago_mp(cobro_id: str) -> str:
             """update pagos_suscripcion
                   set estado = 'devuelto'
                 where metodo = 'mercadopago' and estado = 'pagado'
-                  and respuesta->'payment'->>'id' = $1
+                  and (respuesta->'payment'->>'id' = $1
+                       -- El pago adelantado ES el cobro: su id es mp_payment_id.
+                       or (periodo like 'adelantado-%' and mp_payment_id = $1))
             returning tenant_id, periodo""",
             str(cobro_id))
         if not fila:

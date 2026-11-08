@@ -10,7 +10,7 @@ QUE SE PRUEBA Y COMO
     - Contra Postgres (`necesita_base`): el checkout, el webhook, la cuenta del
       hotel y la consola del dueno, de punta a punta por HTTP en proceso
       (httpx.ASGITransport sobre server.app, sin uvicorn). Necesitan
-      ZENSTAY_TEST_DATABASE_URL con el esquema y las migraciones 001-005.
+      ZENSTAY_TEST_DATABASE_URL con el esquema y las migraciones 001-006.
 
   Mercado Pago NO se llama nunca: `mercadopago._pedir` se sustituye por
   `FalsoMercadoPago`, que guarda en memoria las suscripciones, facturas y
@@ -22,7 +22,7 @@ COMO SE LANZAN
 
       initdb + pg_ctl en un directorio temporal (puerto libre, p. ej. 5436)
       psql -f db/schema.sql; -f db/indexes.sql;
-      psql -v app_backend_password=pruebas -f db/rls.sql; migraciones 001..005
+      psql -v app_backend_password=pruebas -f db/rls.sql; migraciones 001..006
 
       ZENSTAY_TEST_DATABASE_URL=postgresql://postgres@127.0.0.1:5436/zenstay \
       ZENSTAY_TEST_APP_DATABASE_URL=postgresql://app_backend:pruebas@127.0.0.1:5436/zenstay \

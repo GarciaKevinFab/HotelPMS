@@ -18,6 +18,13 @@ COMO COBRA
   comun a todos los clientes y no lleva `external_reference`, asi que el aviso
   no diria de que hotel es el pago.
 
+Y EL PAGO ADELANTADO (CHECKOUT PRO, NOVIEMBRE DE 2026)
+
+  Yape y PagoEfectivo no existen en /preapproval: solo en pagos unicos. Para
+  ellos, crear_preferencia() abre una preferencia de Checkout Pro por 1, 3, 6
+  o 12 meses (external_reference `...|adelantado-N`) y el hotel paga en su
+  `init_point`. Lo aplica el aviso `payment` (webhooks_mercadopago._adelantado).
+
 QUE ESTA APAGADO POR DEFECTO, Y POR QUE
 
   `MERCADOPAGO_MODO` vacio es `simulado`: el sitio ignora las llaves aunque
@@ -54,6 +61,7 @@ import hmac
 import logging
 import os
 import uuid
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from urllib.parse import urlsplit
 
@@ -66,6 +74,14 @@ MONEDA = "PEN"
 CANCELADO = "cancelled"
 #: Meses por periodo. El anual es UN cobro cada 12 meses.
 MESES = {"mensual": 1, "anual": 12}
+#: Periodos del pago adelantado (Checkout Pro), un solo cobro cada uno.
+ADELANTADO = {f"adelantado-{m}": m for m in (1, 3, 6, 12)}
+#: Lo que dura abierta una preferencia: el codigo de PagoEfectivo (CIP) vence.
+DIAS_PREFERENCIA = 3
+#: Lo que sale en el extracto de la tarjeta. Corto y sin tildes.
+DESCRIPTOR = "ZENSTAY"
+#: Por encima de esto Mercado Pago no ofrece Yape (limite por operacion).
+TOPE_YAPE = Decimal("2000")
 #: Hosts admitidos para mandar al hotel a pagar.
 HOSTS_PAGO = ("www.mercadopago.com.pe", "sandbox.mercadopago.com.pe")
 _PREFIJO_REFERENCIA = "zenstay"
@@ -146,7 +162,7 @@ def leer_referencia(texto: str | None) -> dict | None:
         tenant_id = uuid.UUID(partes[1])
     except ValueError:
         return None
-    if partes[3] not in MESES or not partes[2]:
+    if (partes[3] not in MESES and partes[3] not in ADELANTADO) or not partes[2]:
         return None
     return {"tenant_id": tenant_id, "plan": partes[2], "periodo": partes[3]}
 
@@ -195,6 +211,57 @@ async def crear_preapproval(tenant_id, correo: str, plan: str, nombre_plan: str,
         },
         "back_url": volver_a,
         "status": "pending",
+    })
+    enlace = respuesta.get("init_point") or ""
+    if urlsplit(enlace).hostname not in HOSTS_PAGO:
+        raise ErrorMercadoPago(f"init_point en un host inesperado: "
+                               f"{urlsplit(enlace).hostname}")
+    return respuesta
+
+
+async def crear_preferencia(tenant_id, correo: str, plan: str, nombre_plan: str,
+                            meses: int, monto, volver_a: dict, avisar_a: str) -> dict:
+    """Pago UNICO por `meses` meses (Checkout Pro). Devuelve la preferencia.
+
+    Es el unico producto de Mercado Pago que ofrece Yape y PagoEfectivo (banca
+    movil BCP/BBVA o agente); /preapproval solo acepta tarjeta. No se excluye
+    ningun medio: Mercado Pago decide cuales caben (Yape, hasta S/ 2.000).
+
+    `monto` lo calcula quien llama con suscripciones.precio_adelantado() a
+    partir de `planes`. `volver_a` son las back_urls {success, pending,
+    failure}; `avisar_a`, la URL publica del webhook (notification_url).
+
+    Campos segun la referencia de POST /checkout/preferences (revisada con
+    context7 en noviembre de 2026): `expires` + `expiration_date_from/to`
+    cierran la preferencia; `date_of_expiration` es el vencimiento del codigo
+    de pago en efectivo. Los dos a DIAS_PREFERENCIA: un CIP de PagoEfectivo
+    pagado tarde activaria un periodo con un precio ya viejo.
+    """
+    periodo = f"adelantado-{meses}"
+    if periodo not in ADELANTADO:
+        raise ErrorMercadoPago(f"periodo desconocido: {periodo}")
+    ahora = datetime.now(timezone.utc).replace(microsecond=0)
+    hasta = ahora + timedelta(days=DIAS_PREFERENCIA)
+    texto = "1 mes" if meses == 1 else f"{meses} meses"
+    respuesta = await _pedir("POST", "/checkout/preferences", {
+        "items": [{
+            "id": f"zenstay-{plan}-{periodo}",
+            "title": f"ZenStay - Plan {_sin_tildes(nombre_plan)} - {texto}",
+            "quantity": 1,
+            "unit_price": float(monto),
+            "currency_id": MONEDA,
+        }],
+        "external_reference": referencia(tenant_id, plan, periodo),
+        "payer": {"email": correo},
+        "back_urls": volver_a,
+        "auto_return": "approved",
+        "notification_url": avisar_a,
+        "payment_methods": {"installments": 1},
+        "statement_descriptor": DESCRIPTOR,
+        "expires": True,
+        "expiration_date_from": ahora.isoformat(timespec="milliseconds"),
+        "expiration_date_to": hasta.isoformat(timespec="milliseconds"),
+        "date_of_expiration": hasta.isoformat(timespec="milliseconds"),
     })
     enlace = respuesta.get("init_point") or ""
     if urlsplit(enlace).hostname not in HOSTS_PAGO:

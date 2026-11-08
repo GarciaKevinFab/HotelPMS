@@ -55,6 +55,11 @@ EL COBRO: MERCADO PAGO SUSCRIPCIONES (NOVIEMBRE DE 2026)
   El importe sale SIEMPRE de la tabla `planes` (precio_de), en el servidor:
   el formulario solo dice que plan y que periodo.
 
+  PAGO ADELANTADO (periodos `adelantado-1/3/6/12`): un solo pago con Yape,
+  banca movil o tarjeta por Checkout Pro (_a_checkout_pro). No se ofrece si
+  el hotel ya tiene cobro automatico con tarjeta. La vuelta es
+  /comprar/resultado, que no activa nada: lo activa el webhook `payment`.
+
   Boleta o factura: el formulario pregunta y se guarda en datos_facturacion
   (backend/comprobantes.py). El dueno emite el comprobante a mano.
 
@@ -93,7 +98,14 @@ router = APIRouter()
 
 LANDING = Path(__file__).parent / "landing"
 
-PERIODOS = ("mensual", "anual")
+#: Suscripcion con tarjeta (cobro automatico) y pago adelantado (un solo pago).
+PERIODOS_TARJETA = ("mensual", "anual")
+PERIODOS_ADELANTADO = suscripciones.PERIODOS_ADELANTADO
+PERIODOS = PERIODOS_TARJETA + PERIODOS_ADELANTADO
+
+#: La frase de los medios de pago del pago adelantado. La misma en la pagina
+#: de compra y en la pregunta "¿Cómo pago?" (backend/dudas.py).
+MEDIOS_ADELANTADO = dudas.MEDIOS_PAGO
 
 # El anual son DIEZ mensualidades, no doce. Es el mismo trato que LicitaPro
 # (590 / 1190 / 1990) y sale del precio mensual de la tabla, asi que cambiar un
@@ -179,11 +191,30 @@ def desglose(total) -> dict:
 
 
 def precio_de(plan: dict, periodo: str) -> Decimal:
-    """Lo que se cobra hoy por ese plan y esa periodicidad."""
+    """Lo que se cobra hoy por ese plan y esa periodicidad.
+
+    Pago adelantado: suscripciones.precio_adelantado (1, 3 y 6 meses = la
+    mensualidad por los meses; 12 meses = el anual, MESES_DEL_ANUAL mensualidades).
+    """
     mensual = Decimal(str(plan.get("precio_mensual") or 0))
+    meses = suscripciones.meses_adelantado(periodo)
+    if meses:
+        return suscripciones.precio_adelantado(mensual, meses)
     if periodo == "anual":
         return mensual * MESES_DEL_ANUAL
     return mensual
+
+
+def _meses(n: int) -> str:
+    return "1 mes" if n == 1 else f"{n} meses"
+
+
+def nombre_periodo(periodo: str) -> str:
+    """'Suscripción mensual', 'Pago adelantado · 3 meses'... para las pantallas."""
+    meses = suscripciones.meses_adelantado(periodo)
+    if meses:
+        return f"Pago adelantado · {_meses(meses)}"
+    return f"Suscripción {periodo}"
 
 
 def incluye(plan: dict) -> list:
@@ -254,6 +285,9 @@ _ESTILOS = """
   font-weight: 700; font-size: 1.4rem; line-height: .9;
 }
 .co-periodo { display: flex; gap: 8px; margin: 0 0 20px; flex-wrap: wrap; }
+.co-periodo-titulo { font-size: .8rem; font-weight: 700; letter-spacing: .04em;
+  text-transform: uppercase; color: var(--texto-suave); margin: 0 0 8px; }
+.co-periodo-medios { font-size: .9rem; color: var(--texto-suave); margin: -10px 0 18px; }
 .co-periodo a {
   display: inline-flex; align-items: center; min-height: 44px; padding: 0 18px;
   border: 1px solid var(--borde); border-radius: var(--radio-pastilla);
@@ -597,7 +631,8 @@ def pagina_precios(planes: list, comercio: dict) -> str:
     {dudas.seccion_preguntas(comercio)}
     <p class="co-nota" style="margin-top:28px">
       Todos los precios son mensuales y en soles, con IGV incluido. Al contratar
-      puedes elegir pago anual: pagas {MESES_DEL_ANUAL} meses y usas 12.
+      eliges suscripción con tarjeta (mensual o anual) o pago adelantado por 1, 3,
+      6 o 12 meses. {_e(MEDIOS_ADELANTADO)}. Por 12 meses pagas {MESES_DEL_ANUAL} y usas 12.
       ¿Más de un hotel o necesitas algo a medida?
       <a href="mailto:{_e(comercio['email'])}" style="color:var(--turquesa)">Escríbenos</a>.
     </p>
@@ -663,20 +698,38 @@ def pagina_checkout(plan: dict, periodo: str, importe: dict, error: str,
     v = valores or {}
     codigo = plan.get("codigo", "")
     nombre = plan.get("nombre", "")
+    meses = suscripciones.meses_adelantado(periodo)
     cada = "año" if periodo == "anual" else "mes"
+    # "S/ 357.00 por 3 meses" y no "al mes": el pago adelantado es uno solo.
+    lapso = f"por {_meses(meses)}" if meses else f"al {cada}"
     aviso = f'<div class="aviso error" role="alert">{_e(error)}</div>' if error else ""
     puntos = "".join(f"<li>{_e(p)}</li>" for p in incluye(plan))
     total_txt = _soles(importe["total"])
 
     ahorro = ""
-    if periodo == "anual":
+    if periodo in ("anual", "adelantado-12"):
         ahorro = (f'<p class="co-nota">Pagas {MESES_DEL_ANUAL} meses y usas 12: '
                   f'dos meses sin costo frente al pago mensual.</p>')
+
+    if meses:
+        marcas = ('<div class="co-marcas" aria-label="Medios de pago aceptados">'
+                  '<span>Yape</span><span>PagoEfectivo</span><span>BCP</span>'
+                  '<span>BBVA</span><span>VISA</span><span>Mastercard</span>'
+                  '<span>PEN</span></div>')
+    else:
+        marcas = ('<div class="co-marcas" aria-label="Tarjetas aceptadas">'
+                  '<span>VISA</span><span>Mastercard</span><span>American Express</span>'
+                  '<span>Diners Club</span><span>PEN</span></div>')
 
     # `recurrente` es mercadopago.cobro_recurrente(): solo en produccion se
     # promete una renovacion automatica, porque solo entonces es lo que le
     # pasa a cualquiera que pague.
-    if recurrente:
+    if meses:
+        nota_cobro = (f'<p class="co-nota">Precio en soles con IGV incluido. Es un solo '
+                      f'pago por {_e(_meses(meses))}, sin cobro automático: no se renueva '
+                      f'solo. Te avisamos por correo 7 días y 1 día antes de que '
+                      f'venza. Si pagas otro periodo antes, se suma a lo que te queda.</p>')
+    elif recurrente:
         nota_cobro = (f'<p class="co-nota">Precio en soles con IGV incluido. Es una '
                       f'suscripción: Mercado Pago la cobra sola cada {_e(cada)} hasta que '
                       f'la canceles desde tu cuenta (Configuración › Suscripción). '
@@ -694,7 +747,7 @@ def pagina_checkout(plan: dict, periodo: str, importe: dict, error: str,
       <section class="co-caja" aria-labelledby="co-pedido">
         <h2 id="co-pedido">Tu pedido</h2>
         <div class="co-fila">
-          <span><strong>ZenStay {_e(nombre)}</strong><br>Suscripción {_e(periodo)}</span>
+          <span><strong>ZenStay {_e(nombre)}</strong><br>{_e(nombre_periodo(periodo))}</span>
           <span class="cifra">{_soles(importe['total'])}</span>
         </div>
         <div class="co-fila"><span>Cantidad</span><span class="cifra">1</span></div>
@@ -712,14 +765,11 @@ def pagina_checkout(plan: dict, periodo: str, importe: dict, error: str,
 
       <section class="co-caja" style="margin-top:22px">
         <h2>Pago seguro</h2>
-        <div class="co-marcas" aria-label="Tarjetas aceptadas">
-          <span>VISA</span><span>Mastercard</span><span>American Express</span>
-          <span>Diners Club</span><span>PEN</span>
-        </div>
+        {marcas}
         <p class="co-legal">
-          El cobro con tarjeta lo procesa <strong>Mercado Pago</strong>, en su
-          propio sitio y sobre conexión cifrada. Los datos de tu tarjeta van
-          directos a Mercado Pago: ZenStay nunca los ve ni los guarda.<br>
+          El pago lo procesa <strong>Mercado Pago</strong>, en su propio sitio y
+          sobre conexión cifrada. Los datos de tu tarjeta, de tu Yape o de tu
+          banca van directos a Mercado Pago: ZenStay nunca los ve ni los guarda.<br>
           <a href="/terminos">Términos del servicio</a> ·
           <a href="/privacidad">Política de privacidad</a> ·
           <a href="/reclamaciones">Libro de Reclamaciones</a>
@@ -734,15 +784,36 @@ def pagina_checkout(plan: dict, periodo: str, importe: dict, error: str,
       {dudas.bloque_confianza(comercio, registro=f"/registro?plan={codigo}")}
     </div>"""
 
+    def opcion(valor: str, texto: str) -> str:
+        actual = "true" if periodo == valor else "false"
+        return (f'<a href="/comprar/{_e(codigo)}?periodo={_e(valor)}" '
+                f'aria-current="{actual}">{_e(texto)}</a>')
+
+    # Yape tiene un tope por operacion y Mercado Pago lo esconde por encima.
+    # Se avisa al elegir el periodo, no al llegar a Mercado Pago y no verlo.
+    tope_yape = ""
+    if meses and importe["total"] > mercadopago.TOPE_YAPE:
+        tope_yape = (f'<p class="co-periodo-medios" role="note">Por más de '
+                     f'{_soles(mercadopago.TOPE_YAPE)} Mercado Pago no ofrece Yape: paga '
+                     f'desde tu banca móvil o con tarjeta.</p>')
+
     accion = f"""
     <div class="co-accion">
       {aviso}
+      <p class="co-periodo-titulo">Con tarjeta, cobro automático</p>
       <div class="co-periodo">
-        <a href="/comprar/{_e(codigo)}?periodo=mensual"
-           aria-current="{'true' if periodo == 'mensual' else 'false'}">Pago mensual</a>
-        <a href="/comprar/{_e(codigo)}?periodo=anual"
-           aria-current="{'true' if periodo == 'anual' else 'false'}">Pago anual · 2 meses gratis</a>
+        {opcion("mensual", "Pago mensual")}
+        {opcion("anual", "Pago anual · 2 meses gratis")}
       </div>
+      <p class="co-periodo-titulo">Pago adelantado, sin cobro automático</p>
+      <div class="co-periodo">
+        {opcion("adelantado-1", "1 mes")}
+        {opcion("adelantado-3", "3 meses")}
+        {opcion("adelantado-6", "6 meses")}
+        {opcion("adelantado-12", "12 meses · 2 gratis")}
+      </div>
+      <p class="co-periodo-medios">{_e(MEDIOS_ADELANTADO)}.</p>
+      {tope_yape}
 
       <form class="co-caja co-formulario" method="post" action="/comprar">
         <h2>Es la primera vez</h2>
@@ -805,7 +876,7 @@ def pagina_checkout(plan: dict, periodo: str, importe: dict, error: str,
     <p class="co-migas"><a href="/precios">&larr; Volver a los planes</a></p>
     <div class="seccion-titulo" style="margin-bottom:28px">
       <h1>Contratar {_e(nombre)}</h1>
-      <p>{_e(total_txt)} al {_e(cada)}, con IGV incluido.</p>
+      <p>{_e(total_txt)} {_e(lapso)}, con IGV incluido.</p>
     </div>
     <div class="co-rejilla">
       {resumen}
@@ -814,9 +885,9 @@ def pagina_checkout(plan: dict, periodo: str, importe: dict, error: str,
   </section>"""
 
     return _documento(
-        f"Contratar ZenStay {nombre}: {total_txt} al {cada}",
-        f"Contrata ZenStay {nombre} por {total_txt} al {cada}, con IGV incluido. "
-        f"Pago seguro con Mercado Pago y boleta o factura electrónica.",
+        f"Contratar ZenStay {nombre}: {total_txt} {lapso}",
+        f"Contrata ZenStay {nombre} por {total_txt} {lapso}, con IGV incluido. "
+        f"{MEDIOS_ADELANTADO}, a través de Mercado Pago. Boleta o factura electrónica.",
         interior, comercio,
         ruta=f"comprar/{codigo}",
     )
@@ -911,7 +982,7 @@ def pagina_pedido(pedido: dict, plan: dict, comercio: dict, modo: str) -> str:
           <span class="tk-estado{'' if pagado else ' espera'}">{_e(etiqueta)}</span>
         </div>
         <div class="tk-cabecera">
-          <strong id="co-pedido">{_e(plan.get('nombre'))}<small>Suscripción {_e(periodo)}</small></strong>
+          <strong id="co-pedido">{_e(plan.get('nombre'))}<small>{_e(nombre_periodo(periodo))}</small></strong>
           <span class="cifra">{_soles(pedido.get('monto') or 0)}</span>
         </div>
         <div class="tk-ranura"></div>
@@ -928,7 +999,7 @@ def pagina_pedido(pedido: dict, plan: dict, comercio: dict, modo: str) -> str:
           <div class="tk-linea"></div>
 
           <div class="tk-fila">
-            <span>ZenStay {_e(plan.get('nombre'))} · {_e(periodo)}</span>
+            <span>ZenStay {_e(plan.get('nombre'))} · {_e(nombre_periodo(periodo))}</span>
             <span>{partes['base']}</span>
           </div>
           <div class="tk-fila"><span>IGV 18%</span><span>{partes['igv']}</span></div>
@@ -966,6 +1037,55 @@ def pagina_pedido(pedido: dict, plan: dict, comercio: dict, modo: str) -> str:
         "Detalle de tu pedido de suscripción a ZenStay.",
         interior, comercio,
     )
+
+
+RESULTADOS = {
+    "aprobado": ("Pago recibido",
+                 "Mercado Pago aprobó tu pago. En unos minutos tu plan queda activo y "
+                 "lo ves en Configuración › Suscripción, con la nueva fecha de "
+                 "vencimiento. Te enviaremos tu boleta o factura."),
+    "pendiente": ("Te llegó el código de pago",
+                  "Mercado Pago te dio un código para pagar desde tu banca móvil o en un "
+                  "agente. Págalo antes de que venza (3 días): tu plan se activa solo "
+                  "cuando el banco confirma el pago, sin que tengas que avisarnos."),
+    "error": ("No se completó el pago",
+              "Mercado Pago no aprobó el pago y no se te cobró nada. Puedes intentarlo "
+              "otra vez con otro medio: Yape, tu banca móvil o una tarjeta."),
+}
+
+
+def pagina_resultado(pago: str, comercio: dict) -> str:
+    """Donde vuelve el cliente desde Mercado Pago tras el pago adelantado.
+
+    Es una pagina del servidor y no la cuenta (/settings) porque quien acaba
+    de crear su hotel en el checkout todavia no ha iniciado sesion: el SPA lo
+    mandaria al login y el mensaje se perderia. Desde aqui se entra.
+
+    NO ACTIVA NADA NI LEE NADA DE LA URL salvo cual de los tres textos poner.
+    Mercado Pago anade a la URL el estado y el id del pago, pero eso lo puede
+    escribir cualquiera: el plan lo activa el webhook firmado, y por eso el
+    texto de "aprobado" dice "en unos minutos" y no "ya esta activo".
+    """
+    titulo, texto = RESULTADOS.get(pago, RESULTADOS["error"])
+    otra_vez = ('<a href="/precios" class="plan-segundo">Elegir otro medio o periodo</a>'
+                if pago != "aprobado" else "")
+    interior = f"""
+  <section class="seccion" style="border-top:0">
+    <div class="seccion-titulo" style="margin-bottom:28px">
+      <h1>{_e(titulo)}</h1>
+    </div>
+    <div class="co-caja co-accion" style="max-width:560px">
+      <p class="co-nota" style="margin-top:0">{_e(texto)}</p>
+      <a href="/settings?tab=suscripcion" class="boton boton-lleno"
+         style="width:100%;text-align:center;margin-top:8px">Ver mi suscripción</a>
+      {otra_vez}
+      <p class="co-legal" style="margin-top:18px">¿Dudas con un pago? Escríbenos a
+        <a href="mailto:{_e(comercio['email'])}">{_e(comercio['email'])}</a>.</p>
+    </div>
+  </section>"""
+    return _documento(f"{titulo} · ZenStay",
+                      "Resultado de tu pago de ZenStay con Mercado Pago.",
+                      interior, comercio)
 
 
 # ---------------------------------------------------------------------------
@@ -1015,6 +1135,15 @@ def _sin_cache(cuerpo: str, codigo: int = 200) -> HTMLResponse:
 async def precios():
     """Catalogo publico. Sustituye al 307 que llevaba al ancla /#planes."""
     return _sin_cache(pagina_precios(await _planes(), COMERCIO))
+
+
+# Va ANTES de /comprar/{plan_codigo}: si no, "resultado" se leeria como un
+# codigo de plan inexistente y acabaria en /precios.
+@router.api_route("/comprar/resultado", methods=["GET", "HEAD"],
+                  response_class=HTMLResponse)
+async def resultado(pago: str = "error"):
+    """Vuelta desde Mercado Pago (back_urls del pago adelantado)."""
+    return _sin_cache(pagina_resultado(pago, COMERCIO))
 
 
 @router.api_route("/comprar/{plan_codigo}", methods=["GET", "HEAD"],
@@ -1201,6 +1330,13 @@ async def confirmar(
         tenant_id = db_pg.a_uuid(usuario["tenant_id"], "tenant_id")
         correo_pedido = email
 
+    # Con cobro automatico vivo no se ofrece pagar por adelantado: Mercado
+    # Pago seguiria cobrando la tarjeta y el hotel pagaria dos veces el mismo
+    # mes. Que cancele primero; el acceso pagado no se pierde al cancelar.
+    meses = suscripciones.meses_adelantado(periodo)
+    if meses and await suscripciones.preapproval_de(tenant_id):
+        return con_error(BLOQUEO_ADELANTADO)
+
     # Boleta o factura para los cobros de este hotel. Nunca bloquea la compra:
     # si falla, el hotel la elige luego en Configuracion > Suscripcion.
     try:
@@ -1209,6 +1345,9 @@ async def confirmar(
         log.exception("No se guardaron los datos de comprobante del checkout")
 
     if mercadopago.disponible_para(correo_pedido):
+        if meses:
+            return await _a_checkout_pro(tenant_id, elegido, meses, monto,
+                                         correo_pedido, con_error)
         return await _a_mercadopago(tenant_id, elegido, periodo, monto,
                                     correo_pedido, con_error)
 
@@ -1253,6 +1392,43 @@ async def _a_mercadopago(tenant_id, plan: dict, periodo: str, monto, correo: str
             "tengo cuenta».")
     log.info("Checkout publico: suscripcion %s creada (plan %s, %s)",
              respuesta.get("id"), plan["codigo"], periodo)
+    return RedirectResponse(respuesta["init_point"], status_code=303)
+
+
+BLOQUEO_ADELANTADO = (
+    "Ya tienes cobro automático con tarjeta; cancélalo primero si prefieres pagar "
+    "por adelantado. Se cancela en Configuración › Suscripción y no pierdes lo "
+    "que ya pagaste.")
+
+
+async def _a_checkout_pro(tenant_id, plan: dict, meses: int, monto, correo: str,
+                          con_error):
+    """Crea la preferencia de pago adelantado y manda al cliente a pagarla.
+
+    Un solo pago (Yape, banca movil o tarjeta). Aqui no se activa nada: el
+    periodo se suma cuando llega el aviso `payment` aprobado, con el importe
+    comprobado otra vez contra `planes` (webhooks_mercadopago._adelantado).
+    No se guarda ninguna fila "pendiente": quien no paga no deja rastro, y
+    quien paga queda registrado por el id del pago, una sola vez.
+    """
+    origen = url_publica()
+    volver = f"{origen}/comprar/resultado"
+    try:
+        respuesta = await mercadopago.crear_preferencia(
+            tenant_id, correo, plan["codigo"], plan.get("nombre") or plan["codigo"],
+            meses, monto,
+            volver_a={"success": f"{volver}?pago=aprobado",
+                      "pending": f"{volver}?pago=pendiente",
+                      "failure": f"{volver}?pago=error"},
+            avisar_a=f"{origen}/webhooks/mercadopago")
+    except mercadopago.ErrorMercadoPago as e:
+        log.error("No se pudo crear la preferencia de pago adelantado: %s", e)
+        return con_error(
+            "No pudimos abrir el pago con Mercado Pago. No se te cobró nada. Tu "
+            "hotel ya está creado: vuelve a intentarlo en unos minutos con «Ya "
+            "tengo cuenta».")
+    log.info("Checkout publico: preferencia %s creada (plan %s, %s meses)",
+             respuesta.get("id"), plan["codigo"], meses)
     return RedirectResponse(respuesta["init_point"], status_code=303)
 
 
