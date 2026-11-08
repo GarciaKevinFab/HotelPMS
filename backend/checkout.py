@@ -82,8 +82,8 @@ from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
 
 import comprobantes
-import contacto
 import db_pg
+import dudas
 import mercadopago
 import seo
 import suscripciones
@@ -99,7 +99,7 @@ PERIODOS = ("mensual", "anual")
 # (590 / 1190 / 1990) y sale del precio mensual de la tabla, asi que cambiar un
 # precio sigue siendo un UPDATE y nada mas. Se dice en la pagina: "pagas 10
 # meses, usas 12".
-MESES_DEL_ANUAL = 10
+MESES_DEL_ANUAL = suscripciones.MESES_DEL_ANUAL
 
 IGV = Decimal("0.18")
 CENTIMO = Decimal("0.01")
@@ -594,7 +594,7 @@ def pagina_precios(planes: list, comercio: dict) -> str:
     <div class="co-planes">
       {"".join(tarjetas)}
     </div>
-    {contacto.bloque_confianza(comercio, mensaje_whatsapp=contacto.MENSAJE_PRECIOS)}
+    {dudas.seccion_preguntas(comercio)}
     <p class="co-nota" style="margin-top:28px">
       Todos los precios son mensuales y en soles, con IGV incluido. Al contratar
       puedes elegir pago anual: pagas {MESES_DEL_ANUAL} meses y usas 12.
@@ -615,7 +615,7 @@ def pagina_precios(planes: list, comercio: dict) -> str:
                        "sin instalación ni permanencia. Emitimos boleta o factura.")
     return _documento(
         titulo, descripcion, interior, comercio,
-        ruta="precios", jsonld=seo.grafo(planes, comercio),
+        ruta="precios", jsonld=seo.grafo(planes, comercio, preguntas=True),
     )
 
 
@@ -667,7 +667,6 @@ def pagina_checkout(plan: dict, periodo: str, importe: dict, error: str,
     aviso = f'<div class="aviso error" role="alert">{_e(error)}</div>' if error else ""
     puntos = "".join(f"<li>{_e(p)}</li>" for p in incluye(plan))
     total_txt = _soles(importe["total"])
-    mensaje = contacto.mensaje_plan(nombre, f"{total_txt} al {cada}")
 
     ahorro = ""
     if periodo == "anual":
@@ -732,8 +731,7 @@ def pagina_checkout(plan: dict, periodo: str, importe: dict, error: str,
           <a href="mailto:{_e(comercio['email'])}">{_e(comercio['email'])}</a>
         </p>
       </section>
-      {contacto.bloque_confianza(comercio, registro=f"/registro?plan={codigo}",
-                                 mensaje_whatsapp=mensaje)}
+      {dudas.bloque_confianza(comercio, registro=f"/registro?plan={codigo}")}
     </div>"""
 
     accion = f"""

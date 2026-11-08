@@ -25,10 +25,9 @@ import re
 from decimal import Decimal
 from xml.sax.saxutils import escape as xml_escape
 
-import contacto
+import dudas
 import suscripciones
 
-MESES_DEL_ANUAL = 10  # el mismo trato que checkout.MESES_DEL_ANUAL
 
 # Paginas publicas que se pueden indexar, con su ruta (sin barra inicial).
 PAGINAS_ESTATICAS = ("", "precios", "terminos", "privacidad", "reclamaciones")
@@ -192,7 +191,7 @@ def aplicacion(planes: list) -> dict:
         "inLanguage": "es-PE",
         "url": url_de(""),
         "description": ("Sistema de gestión para hoteles, hostales y hospedajes del Perú: "
-                        "reservas, recepción, caja y arqueo, limpieza y comprobantes SUNAT."),
+                        "reservas, recepción, caja y arqueo, limpieza y mantenimiento."),
         "publisher": {"@id": _id("organizacion")},
     }
     ofertas = [_oferta(p) for p in planes or []]
@@ -201,9 +200,16 @@ def aplicacion(planes: list) -> dict:
     return datos
 
 
-def grafo(planes: list, comercio: dict) -> dict:
-    return {"@context": "https://schema.org",
-            "@graph": [organizacion(comercio), aplicacion(planes)]}
+def grafo(planes: list, comercio: dict, preguntas: bool = False) -> dict:
+    """Organization + SoftwareApplication y, en /precios, el FAQPage.
+
+    `preguntas` solo va a True en la pagina que MUESTRA las preguntas: el
+    FAQPage tiene que repetir exactamente lo visible.
+    """
+    nodos = [organizacion(comercio), aplicacion(planes)]
+    if preguntas:
+        nodos.append(dudas.faqpage())
+    return {"@context": "https://schema.org", "@graph": nodos}
 
 
 # ---------------------------------------------------------------------------
@@ -220,7 +226,7 @@ def preparar_landing(pagina: str, ruta: str, planes: list, comercio: dict) -> st
     - lang="es-PE", canonical, Open Graph y Twitter (titulo y descripcion
       salen de los que ya tiene la pagina, para que no puedan separarse).
     - En la portada: JSON-LD con los planes de la base y el bloque de
-      confianza (sin WhatsApp: ese enlace va solo en /precios y /comprar).
+      confianza (las preguntas frecuentes completas estan en /precios).
     """
     pagina = pagina.replace('<html lang="es">', '<html lang="es-PE">', 1)
 
@@ -235,7 +241,7 @@ def preparar_landing(pagina: str, ruta: str, planes: list, comercio: dict) -> st
         cabecera += "\n" + bloque_jsonld(grafo(planes, comercio))
     pagina = pagina.replace("</head>", cabecera + "\n</head>", 1)
 
-    pagina = pagina.replace("<!-- zs:confianza -->", contacto.bloque_confianza(comercio))
+    pagina = pagina.replace("<!-- zs:confianza -->", dudas.bloque_confianza(comercio))
     return pagina
 
 
@@ -264,8 +270,6 @@ def robots() -> str:
 def _incluye_txt(plan: dict) -> str:
     tope = plan.get("max_habitaciones")
     partes = [f"hasta {tope} habitaciones" if tope else "habitaciones ilimitadas"]
-    partes.append("boletas y facturas electrónicas SUNAT" if plan.get("facturacion_sunat")
-                  else "comprobantes internos")
     partes.append("reportes de ocupación, ADR y RevPAR" if plan.get("reportes_avanzados")
                   else "reportes básicos")
     return ", ".join(partes)
@@ -282,7 +286,7 @@ def llms(planes: list, comercio: dict) -> str:
             for p in de_pago
         ]
         lineas_planes.append(
-            f"- Pago anual: se pagan {MESES_DEL_ANUAL} mensualidades y se usan 12 meses.")
+            f"- Pago anual: se pagan {suscripciones.MESES_DEL_ANUAL} mensualidades y se usan 12 meses.")
     else:
         lineas_planes = [f"- Precios actualizados en {sitio}/precios"]
 
@@ -290,8 +294,8 @@ def llms(planes: list, comercio: dict) -> str:
         "# ZenStay",
         "",
         "> ZenStay es un software de gestión hotelera (PMS) en la web para hoteles, "
-        "hostales y hospedajes del Perú: reservas, recepción, caja, limpieza y "
-        "comprobantes SUNAT en un solo sistema. Precios en soles con IGV incluido.",
+        "hostales y hospedajes del Perú: reservas, recepción, caja y limpieza en un "
+        "solo sistema. Precios en soles con IGV incluido.",
         "",
         "## Qué hace",
         "",
@@ -299,10 +303,10 @@ def llms(planes: list, comercio: dict) -> str:
         "- Reservas, check-in y check-out; el sistema no deja vender dos veces la misma noche.",
         "- Caja por turno: apertura, cobros por método de pago, salidas de caja y arqueo al cierre.",
         "- Limpieza y mantenimiento de habitaciones.",
-        "- Boletas y facturas electrónicas SUNAT (según el plan).",
         "- Reportes de ocupación, ingreso por habitación, ADR y RevPAR (según el plan).",
         "- Varios hoteles en una misma cuenta, con los datos de cada uno aislados.",
         "- Hecho para el Perú: soles, IGV al 18 %, DNI, RUC, ubigeo y hora de Lima.",
+        "- Funciona en el navegador: computadora, tablet o celular, sin instalar nada.",
         "",
         "## Planes y precios",
         "",
@@ -330,6 +334,7 @@ def llms(planes: list, comercio: dict) -> str:
         "",
         f"- [Inicio]({sitio}/): qué es ZenStay y para quién.",
         f"- [Precios]({sitio}/precios): planes y precios en soles.",
+        f"- [Preguntas frecuentes]({sitio}/precios#preguntas)",
         f"- [Términos del servicio]({sitio}/terminos)",
         f"- [Política de privacidad]({sitio}/privacidad)",
         f"- [Libro de Reclamaciones]({sitio}/reclamaciones)",

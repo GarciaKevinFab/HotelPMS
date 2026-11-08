@@ -410,7 +410,7 @@ def require_roles(*roles: Role):
 # gracia. Aqui vive la parte que se consulta en caliente.
 
 # Viven en suscripciones.py: las lee tambien el bloque de confianza de las
-# paginas publicas (backend/contacto.py), que no puede importar este modulo.
+# paginas publicas (backend/dudas.py), que no puede importar este modulo.
 DIAS_PRUEBA = suscripciones.DIAS_PRUEBA
 DIAS_GRACIA = suscripciones.DIAS_GRACIA
 
@@ -4872,7 +4872,7 @@ async def _pagina_landing(archivo: Path, ruta: str) -> HTMLResponse:
 
     Ademas pasa por seo.preparar_landing: canonical, Open Graph, lang es-PE y,
     en la portada, el JSON-LD con los planes de la base, el bloque de
-    confianza y el WhatsApp de ventas (solo con WHATSAPP_VENTAS definida).
+    confianza.
     Los planes solo se leen para la portada, que es la unica que los usa.
     """
     html = archivo.read_text(encoding="utf-8").replace(

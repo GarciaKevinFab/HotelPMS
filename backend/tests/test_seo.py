@@ -1,4 +1,4 @@
-"""sitemap.xml, robots.txt, llms.txt, JSON-LD y el WhatsApp de ventas.
+"""sitemap.xml, robots.txt, llms.txt, JSON-LD, preguntas frecuentes y el bloque de confianza.
 
 Corren sin Postgres, sin servidor y sin red:
 
@@ -7,11 +7,12 @@ Corren sin Postgres, sin servidor y sin red:
 Las rutas se prueban montando solo checkout.router en una aplicacion de
 FastAPI aparte, con la lectura de planes sustituida por la lista de abajo.
 
-LA PRUEBA QUE IMPORTA
+LAS PRUEBAS QUE IMPORTAN
 
-  test_sin_whatsapp_ventas_no_aparece_ningun_whatsapp. Sin la variable de
-  entorno no puede salir un enlace a wa.me en ninguna pagina: un boton con un
-  numero vacio o inventado manda a los clientes a ninguna parte.
+  test_el_faqpage_repite_exactamente_las_preguntas_visibles: Google trata como
+  enganoso un FAQPage que no coincide con lo que se ve.
+  test_no_queda_rastro_de_whatsapp: el flujo es automatico, sin hablar con
+  nadie.
 """
 import json
 import re
@@ -26,19 +27,17 @@ from fastapi.testclient import TestClient
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import checkout as co  # noqa: E402
-import contacto  # noqa: E402
+import dudas  # noqa: E402
 import seo  # noqa: E402
 from test_checkout_paginas import PLANES, PRO  # noqa: E402
 
 pytestmark = pytest.mark.no_necesita_servidor
 
 LANDING = Path(__file__).resolve().parent.parent / "landing"
-NUMERO = "51987654321"
 
 
 @pytest.fixture(autouse=True)
 def entorno_limpio(monkeypatch):
-    monkeypatch.delenv("WHATSAPP_VENTAS", raising=False)
     monkeypatch.setenv("ZENSTAY_URL_PUBLICA", "https://zenstay.sisac.pe")
 
 
@@ -122,6 +121,7 @@ def test_llms_resume_el_producto_con_los_precios_de_la_base(cliente):
     assert "factura electrónica al RUC" in texto
     assert "14 días, sin tarjeta" in texto
     assert "cancela desde la propia cuenta" in texto
+    assert "SUNAT" not in texto
     for fuera in ("demo", "cotización", "orden de compra"):
         assert fuera not in texto
 
@@ -147,8 +147,6 @@ def test_jsonld_de_precios_lleva_los_precios_reales_y_nada_inventado():
     texto = json.dumps(datos)
     for prohibido in ("aggregateRating", "review", "ratingValue"):
         assert prohibido not in texto
-    # No hay preguntas frecuentes visibles en ninguna pagina: no hay FAQPage.
-    assert "FAQPage" not in texto
 
 
 def test_la_portada_lleva_jsonld_y_las_legales_no():
@@ -206,11 +204,60 @@ def test_el_precio_desde_sale_de_la_base():
     assert "S/ 65" in titulo
 
 
+# --- Preguntas frecuentes --------------------------------------------------
+
+def _visibles(pagina):
+    import html as h
+    seccion = pagina[pagina.index('<section class="faq"'):]
+    seccion = seccion[:seccion.index("</section>")]
+    pares = re.findall(r'<div class="faq-item"><h3>(.*?)</h3><p>(.*?)</p></div>', seccion)
+    return [(h.unescape(p), h.unescape(r)) for p, r in pares]
+
+
+def test_el_faqpage_repite_exactamente_las_preguntas_visibles():
+    pagina = co.pagina_precios(PLANES, co.COMERCIO)
+    visibles = _visibles(pagina)
+    assert 6 <= len(visibles) <= 8
+    (datos,) = _jsonld(pagina)
+    (faq,) = [n for n in datos["@graph"] if n["@type"] == "FAQPage"]
+    en_jsonld = [(q["name"], q["acceptedAnswer"]["text"]) for q in faq["mainEntity"]]
+    assert en_jsonld == visibles
+
+
+def test_las_preguntas_son_las_del_dueno_de_un_hostal():
+    preguntas = [p for p, _ in dudas.preguntas()]
+    for tema in ("tarjeta", "14 días", "pago", "factura", "cancelar", "datos", "celular"):
+        assert any(tema in p for p in preguntas), tema
+    respuestas = " ".join(r for _, r in dudas.preguntas())
+    # Lo que no esta aprobado o no esta verificado no se promete.
+    for fuera in ("Yape", "banca móvil", "transferencia", "WhatsApp", "demo", "NubeFact",
+                  "huésped"):
+        assert fuera not in respuestas, fuera
+
+
+def test_el_faqpage_solo_va_donde_se_ven_las_preguntas():
+    paginas = _paginas()
+    for nombre, pagina in paginas.items():
+        tiene = any(n.get("@type") == "FAQPage"
+                    for d in _jsonld(pagina) for n in d.get("@graph", []))
+        assert tiene == (nombre == "precios"), nombre
+    assert 'href="/precios#preguntas"' in paginas["index.html"]
+
+
+def test_las_respuestas_leen_los_plazos_del_codigo(monkeypatch):
+    import suscripciones
+    monkeypatch.setattr(suscripciones, "DIAS_PRUEBA", 30)
+    monkeypatch.setattr(suscripciones, "DIAS_GRACIA", 5)
+    texto = " ".join(p + " " + r for p, r in dudas.preguntas())
+    assert "30 días" in texto and "5 días" in texto and "14 días" not in texto
+
+
 # --- El bloque de confianza ------------------------------------------------
 
 def test_el_bloque_responde_las_dudas_en_orden_con_empieza_gratis():
     for nombre, pagina in _paginas().items():
-        if nombre in ("terminos.html", "privacidad.html"):
+        if nombre in ("terminos.html", "privacidad.html", "precios"):
+            # En /precios no va el bloque: van las preguntas frecuentes enteras.
             assert 'class="confianza"' not in pagina, nombre
             continue
         bloque = pagina[pagina.index('<aside class="confianza"'):]
@@ -234,7 +281,8 @@ def test_los_dias_del_bloque_salen_del_codigo(monkeypatch):
     import suscripciones
     monkeypatch.setattr(suscripciones, "DIAS_PRUEBA", 30)
     monkeypatch.setattr(suscripciones, "DIAS_GRACIA", 5)
-    pagina = co.pagina_precios(PLANES, co.COMERCIO)
+    pagina = co.pagina_checkout(PRO, "mensual", co.desglose(co.precio_de(PRO, "mensual")),
+                                "", co.COMERCIO)
     assert "30 días gratis" in pagina and "5 días" in pagina
 
 
@@ -244,44 +292,26 @@ def test_empieza_gratis_desde_contratar_lleva_el_plan():
     assert '<a href="/registro?plan=pro" class="boton boton-lleno">Empieza gratis</a>' in pagina
 
 
-# --- WhatsApp de ventas ----------------------------------------------------
+# --- Sin WhatsApp ----------------------------------------------------------
 
-def test_sin_whatsapp_ventas_no_aparece_ningun_whatsapp():
-    for nombre, pagina in _paginas().items():
-        assert "wa.me" not in pagina, nombre
-        assert "WhatsApp" not in pagina, nombre
-        assert "<!-- zs:" not in pagina, f"{nombre}: marcador sin reemplazar"
-
-
-@pytest.mark.parametrize("malo", ["987654321", "+51987654321", "51 987 654 321",
-                                  "5198765432", "51187654321", "abc"])
-def test_un_numero_mal_escrito_tampoco_se_muestra(monkeypatch, malo):
-    monkeypatch.setenv("WHATSAPP_VENTAS", malo)
-    assert contacto.whatsapp_ventas() is None
-    assert "wa.me" not in co.pagina_precios(PLANES, co.COMERCIO)
-
-
-def test_con_whatsapp_es_un_enlace_pequeno_solo_en_precios_y_contratar(monkeypatch):
-    monkeypatch.setenv("WHATSAPP_VENTAS", NUMERO)
-    paginas = _paginas()
-    for nombre in ("precios", "checkout"):
-        pagina = paginas[nombre]
-        assert pagina.count(f"https://wa.me/{NUMERO}?text=") == 1, nombre
-        assert '<p class="confianza-dudas">¿Dudas? <a href=' in pagina, nombre
-        assert "Escríbenos por WhatsApp</a>" in pagina, nombre
-    # El mensaje del checkout dice que plan se estaba mirando.
-    assert "ZenStay%20Pro" in paginas["checkout"]
-    # Ni en la portada ni en las legales, y en ningun sitio un flotante.
-    for nombre in ("index.html", "terminos.html", "privacidad.html"):
-        assert "wa.me" not in paginas[nombre], nombre
-    for pagina in paginas.values():
-        assert "wa-flotante" not in pagina
-    # El JSON-LD no publica el numero.
-    assert NUMERO not in json.dumps(_jsonld(paginas["precios"]))
+def test_no_queda_rastro_de_whatsapp(monkeypatch):
+    # Aunque alguien deje la variable vieja en el .env, no sale nada.
+    monkeypatch.setenv("WHATSAPP_VENTAS", "51987654321")
+    textos = list(_paginas().values())
+    textos.append(seo.llms(PLANES, co.COMERCIO))
+    textos.append((LANDING / "estilo.css").read_text(encoding="utf-8"))
+    for texto in textos:
+        assert "wa.me" not in texto
+        assert "whatsapp" not in texto.lower()
+        assert "51987654321" not in texto
+        assert "<!-- zs:" not in texto
+    raiz = Path(__file__).resolve().parent.parent
+    for py in raiz.glob("*.py"):
+        assert "wa.me" not in py.read_text(encoding="utf-8"), py.name
+        assert "WHATSAPP_VENTAS" not in py.read_text(encoding="utf-8"), py.name
 
 
-def test_el_checkout_de_mercado_pago_sigue_igual(monkeypatch):
-    monkeypatch.setenv("WHATSAPP_VENTAS", NUMERO)
+def test_el_checkout_de_mercado_pago_sigue_igual():
     pagina = co.pagina_checkout(PRO, "mensual", co.desglose(co.precio_de(PRO, "mensual")),
                                 "", co.COMERCIO)
     assert pagina.count('<form class="co-caja co-formulario" method="post" action="/comprar"') == 2

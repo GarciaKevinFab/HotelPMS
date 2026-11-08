@@ -620,9 +620,16 @@ p  { margin: 0 0 1rem; }
 .confianza-lista { margin: 0; padding-left: 1.15em; color: var(--texto-suave); }
 .confianza-lista li { margin: 6px 0; }
 .confianza-lista strong { color: var(--texto); }
-.confianza-acciones { margin-top: 20px; }
-/* WhatsApp: un enlace pequeño, no un boton. Solo en /precios y /comprar. */
-.confianza-dudas { margin: 14px 0 0; font-size: .9rem; color: var(--texto-suave); }
-.confianza-dudas a { color: var(--turquesa); }
+.confianza-acciones { margin-top: 20px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 22px; }
+.confianza-acciones .plan-segundo { margin: 0; }
+
+/* Preguntas frecuentes de /precios: a la vista, sin acordeones. Lo que la
+   gente viene a leer antes de pagar no se esconde detras de un clic. */
+.faq { margin-top: clamp(48px, 7vw, 80px); }
+.faq-titulo { font-size: clamp(1.7rem, 3.4vw, 2.4rem); margin-bottom: 26px; }
+.faq-lista { display: grid; grid-template-columns: repeat(2, 1fr); gap: 26px 40px; }
+.faq-item h3 { font-size: 1.12rem; letter-spacing: -.015em; margin-bottom: 8px; }
+.faq-item p { margin: 0; color: var(--texto-suave); }
+@media (max-width: 760px) { .faq-lista { grid-template-columns: 1fr; } }
 /* El respaldo legal: presente, pero sin competir con nada. */
 .confianza-respaldo { margin: 16px 0 0; font-size: .78rem; color: var(--texto-suave); opacity: .8; }
