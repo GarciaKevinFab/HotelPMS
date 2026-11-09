@@ -17,7 +17,7 @@ import os
 import re
 import logging
 from pathlib import Path
-from pydantic import BaseModel, Field, ConfigDict, EmailStr
+from pydantic import BaseModel, Field, ConfigDict, EmailStr, field_validator
 from typing import List, Optional, Dict, Any, Literal
 import uuid
 from datetime import datetime, timezone, date, timedelta
@@ -27,11 +27,18 @@ import jwt
 import base64
 import io
 import asyncio
+from contextlib import asynccontextmanager
 import plantillas_correo
 import secrets
 import hashlib
+import ipaddress
+import socket
+from urllib.parse import urlsplit
+
+import httpx
 
 import db_pg
+import cabeceras_seguridad
 import checkout
 import comprobantes
 import limites
@@ -73,7 +80,35 @@ if not CORS_ORIGINS:
     )
 
 # App Configuration
-app = FastAPI(title="ZenStay API", version="1.0.0")
+#
+# /docs, /redoc y /openapi.json APAGADOS por defecto (auditoria 2026-11-09).
+# En produccion le regalaban a cualquiera el mapa completo de los ~100
+# endpoints, con sus modelos y parametros. En desarrollo se encienden con
+# ZENSTAY_DOCS=1.
+def _docs_activos() -> bool:
+    return os.environ.get("ZENSTAY_DOCS", "").strip().lower() in ("1", "true", "si", "sí")
+
+
+@asynccontextmanager
+async def _ciclo_de_vida(_app):
+    """Arranque y parada. Sustituye a @app.on_event, obsoleto en las
+    fastapi/starlette a las que se subio en la auditoria 2026-11-09. Las dos
+    funciones viven al final del modulo; se resuelven al arrancar."""
+    await arrancar_avisos_comprobantes()
+    try:
+        yield
+    finally:
+        await cerrar_conexiones()
+
+
+_DOCS = _docs_activos()
+app = FastAPI(
+    title="ZenStay API", version="1.0.0",
+    docs_url="/docs" if _DOCS else None,
+    redoc_url="/redoc" if _DOCS else None,
+    openapi_url="/openapi.json" if _DOCS else None,
+    lifespan=_ciclo_de_vida,
+)
 api_router = APIRouter(prefix="/api")
 
 # Configure logging
@@ -205,6 +240,15 @@ class TenantInvoicingConfig(BaseModel):
     nubefact_ruta: Optional[str] = None
     nubefact_token: Optional[str] = None
     invoicing_mode: Optional[Literal["MOCK", "LIVE"]] = None
+
+    @field_validator("nubefact_ruta")
+    @classmethod
+    def _ruta_de_nubefact(cls, valor):
+        # Ver validar_ruta_nubefact(): sin esto, cualquiera con un alta publica
+        # (POST /api/registro da ADMIN) apuntaba el backend a la red interna.
+        if valor is None or not valor.strip():
+            return None
+        return validar_ruta_nubefact(valor)
     boleta_series: Optional[str] = None
     boleta_correlative: Optional[int] = None
     factura_series: Optional[str] = None
@@ -299,16 +343,20 @@ class RateCreate(BaseModel):
     min_stay: int = 1
 
 # Folio Models
+# Los importes llevan limites en el propio modelo (auditoria 2026-11-09): un
+# pago de -500 restaba del saldo cobrado sin dejar rastro de devolucion, y un
+# arqueo negativo "cuadraba" cualquier caja. Pydantic responde 422 antes de
+# tocar la base. Las devoluciones, cuando existan, iran por su propio camino.
 class ChargeCreate(BaseModel):
     concept: str
-    quantity: float = 1
-    unit_price: float
+    quantity: float = Field(default=1, gt=0)
+    unit_price: float = Field(ge=0)
     tax_type: str = "IGV"
     category: str = "HABITACION"
 
 class PaymentCreate(BaseModel):
     method: PaymentMethod
-    amount: float
+    amount: float = Field(gt=0)
     reference: Optional[str] = None
 
 class VoidRequest(BaseModel):
@@ -316,15 +364,16 @@ class VoidRequest(BaseModel):
 
 # Cash Shift Models
 class CashShiftOpen(BaseModel):
-    opening_amount: float
+    opening_amount: float = Field(ge=0)
 
 class CashShiftClose(BaseModel):
-    counted_cash: float
+    # 0 es valido (caja vacia al cierre); negativo no existe.
+    counted_cash: float = Field(ge=0)
     notes: Optional[str] = None
 
 class CashMovementCreate(BaseModel):
     type: Literal["IN", "OUT"]
-    amount: float
+    amount: float = Field(gt=0)
     reason: str
 
 # Invoice Models
@@ -387,17 +436,85 @@ def es_superadmin(user: dict) -> bool:
     """
     return user.get("role") == Role.SUPER_ADMIN.value or bool(user.get("en_otro_hotel"))
 
-async def get_current_user(authorization: str = Header(None)) -> dict:
+def _decodificar_token(authorization: Optional[str]) -> dict:
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Token no proporcionado")
-    token = authorization.replace("Bearer ", "")
+    token = authorization[len("Bearer "):]
     try:
         payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
-        return payload
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token expirado")
     except jwt.InvalidTokenError:
         raise HTTPException(status_code=401, detail="Token inválido")
+    if not payload.get("user_id"):
+        raise HTTPException(status_code=401, detail="Token inválido")
+    return payload
+
+
+async def get_current_user(authorization: str = Header(None)) -> dict:
+    """El usuario de la peticion, con rol y hotel leidos de la BASE.
+
+    Antes se devolvia el payload del JWT tal cual. El token dura 24 h, asi que
+    desactivar a un empleado, bajarle el rol o desactivar su hotel no tenia
+    efecto hasta el dia siguiente: el token seguia diciendo ADMIN (auditoria
+    2026-11-09, ALTA). Ahora la firma solo dice QUIEN es; QUE puede hacer lo
+    dice la fila de `users` en este momento.
+
+    Coste: una consulta por clave primaria (con el join al hotel) por
+    peticion, lo mismo que ya hacia /auth/me. FastAPI cachea las dependencias
+    dentro de una peticion, asi que aunque un endpoint combine require_roles y
+    exigir_suscripcion, la consulta se hace una sola vez.
+
+    El caso especial es el SUPER_ADMIN dentro de un hotel (ver
+    POST /tenants/{id}/entrar): su fila dice SUPER_ADMIN sin hotel y el token
+    dice ADMIN de ese hotel. Se respeta el token SOLO si la fila sigue siendo
+    un SUPER_ADMIN activo; si le quitaron el rol, la visita se acaba.
+    """
+    payload = _decodificar_token(authorization)
+    try:
+        uid = db_pg.a_uuid(payload["user_id"], "user_id")
+    except ValueError:
+        raise HTTPException(status_code=401, detail="Token inválido")
+
+    # Puerta global a proposito: todavia no se sabe de que hotel es (eso es lo
+    # que se esta leyendo) y el SUPER_ADMIN no tiene hotel. Acotada a UNA fila
+    # por el id que viene firmado.
+    async with db_pg.tx_global("resolver el usuario del token: fila unica por id firmado") as conn:
+        fila = await db_pg.uno(
+            conn,
+            """select u.id, u.email, u.role, u.tenant_id, u.is_active,
+                      t.is_active as hotel_activo
+               from users u left join tenants t on t.id = u.tenant_id
+               where u.id = $1""",
+            uid,
+        )
+
+    if not fila or not fila.get("is_active", False):
+        raise HTTPException(status_code=401, detail="Usuario desactivado o inexistente")
+
+    usuario = dict(payload)
+    usuario["email"] = fila["email"]
+    if fila["role"] == Role.SUPER_ADMIN.value:
+        if payload.get("en_otro_hotel"):
+            # Visita a un hotel: rol y hotel efectivos son los del token.
+            return usuario
+        usuario["role"] = Role.SUPER_ADMIN.value
+        usuario["tenant_id"] = None
+        usuario.pop("en_otro_hotel", None)
+        usuario.pop("hotel_nombre", None)
+        return usuario
+
+    # Un usuario normal no puede llevar marcas de visita, aunque las traiga
+    # un token viejo.
+    usuario.pop("en_otro_hotel", None)
+    usuario.pop("hotel_nombre", None)
+    usuario["role"] = fila["role"]
+    usuario["tenant_id"] = fila.get("tenant_id")
+    if fila.get("tenant_id") and fila.get("hotel_activo") is False:
+        # Mismo criterio y mensaje que el login.
+        raise HTTPException(status_code=403,
+                            detail="Este hotel está desactivado. Escribe a soporte@sisac.pe")
+    return usuario
 
 def require_roles(*roles: Role):
     async def role_checker(user: dict = Depends(get_current_user)):
@@ -635,25 +752,122 @@ class NubeFactService:
     
     @staticmethod
     async def _live_request(config: dict, invoice_data: dict) -> dict:
-        import requests
         ruta = config.get("nubefact_ruta")
         token = config.get("nubefact_token")
-        
+
         if not ruta or not token:
             return {"success": False, "error": "Configuración NubeFact incompleta"}
-        
+
+        # Se vuelve a validar al ENVIAR, no solo al guardar: las filas escritas
+        # antes de esta validacion pueden traer cualquier cosa, y es aqui
+        # donde el backend sale a la red.
+        try:
+            ruta = validar_ruta_nubefact(ruta)
+            await _host_resuelve_a_publica(urlsplit(ruta).hostname)
+        except ValueError as e:
+            logger.warning("Ruta de NubeFact rechazada al enviar: %s", e)
+            return {"success": False, "error": f"Ruta de NubeFact no permitida: {e}"}
+
         headers = {
             "Authorization": f'Token token="{token}"',
             "Content-Type": "application/json"
         }
-        
+
+        # httpx asincrono con timeout corto. Antes era requests.post(timeout=30)
+        # DENTRO de un handler async: bloqueaba el unico loop del unico proceso
+        # uvicorn, y con el todos los hoteles se quedaban sin servicio mientras
+        # NubeFact (o la direccion que alguien hubiera puesto) no contestaba.
+        # follow_redirects=False: un 30x hacia otro host seria otra forma de
+        # saltarse la lista de hosts permitidos.
         try:
-            response = requests.post(ruta, json=invoice_data, headers=headers, timeout=30)
+            async with httpx.AsyncClient(timeout=NUBEFACT_TIMEOUT, follow_redirects=False) as cliente:
+                response = await cliente.post(ruta, json=invoice_data, headers=headers)
             result = response.json()
+            if not isinstance(result, dict):
+                return {"success": False, "error": "Respuesta de NubeFact no reconocida"}
             result["success"] = result.get("aceptada_por_sunat", False)
             return result
         except Exception as e:
             return {"success": False, "error": str(e)}
+
+
+# ============== NUBEFACT: QUE RUTAS SE ACEPTAN ==============
+# Auditoria 2026-11-09 (ALTA, SSRF). nubefact_ruta se guardaba tal cual y luego
+# el backend le hacia un POST con el token del hotel. Como POST /api/registro
+# es publico y da ADMIN, cualquiera podia apuntarlo a http://169.254.169.254/,
+# a la base de datos o a otro contenedor de la red de Docker.
+#
+# NubeFact entrega a cada cuenta una RUTA de la forma
+#     https://api.nubefact.com/api/v1/<identificador>
+# (asi la describe su guia de integracion), asi que se exige exactamente eso:
+# https, un host bajo nubefact.com, puerto por defecto, sin usuario:clave y
+# la ruta de la API.
+NUBEFACT_DOMINIO = "nubefact.com"
+NUBEFACT_TIMEOUT = httpx.Timeout(10.0, connect=5.0)
+
+
+def validar_ruta_nubefact(ruta: str) -> str:
+    """Devuelve la ruta limpia o lanza ValueError con el motivo."""
+    ruta = (ruta or "").strip()
+    if len(ruta) > 300:
+        raise ValueError("la ruta es demasiado larga")
+    try:
+        partes = urlsplit(ruta)
+        puerto = partes.port
+    except ValueError:
+        raise ValueError("la ruta no es una URL valida")
+    if partes.scheme != "https":
+        raise ValueError("la ruta debe empezar por https://")
+    host = (partes.hostname or "").lower().rstrip(".")
+    if not host:
+        raise ValueError("la ruta no tiene host")
+    es_ip = True
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
+        es_ip = False
+    if es_ip:
+        raise ValueError("la ruta no puede ser una direccion IP")
+    if partes.username or partes.password:
+        raise ValueError("la ruta no puede llevar usuario ni clave")
+    if puerto not in (None, 443):
+        raise ValueError("la ruta no puede indicar otro puerto")
+    if not (host == NUBEFACT_DOMINIO or host.endswith("." + NUBEFACT_DOMINIO)):
+        raise ValueError("la ruta debe ser de NubeFact (*.nubefact.com)")
+    if not partes.path.startswith("/api/"):
+        raise ValueError("la ruta debe ser la de la API (https://api.nubefact.com/api/v1/...)")
+    return ruta
+
+
+async def _host_resuelve_a_publica(host: str) -> None:
+    """Ultima barrera: el host de NubeFact no puede resolver a una IP privada.
+
+    El host ya esta en la lista blanca, pero si algun dia un registro DNS de
+    *.nubefact.com apuntara a 10.x o a 127.0.0.1, la peticion saldria hacia
+    nuestra propia red. Si el DNS no responde se deja seguir: el fallo lo dara
+    httpx y queda registrado como error de emision.
+    """
+    try:
+        infos = await asyncio.get_running_loop().getaddrinfo(host, 443, type=socket.SOCK_STREAM)
+    except OSError:
+        return
+    for info in infos:
+        ip = ipaddress.ip_address(info[4][0])
+        if not ip.is_global:
+            raise ValueError(f"{host} resuelve a una direccion no publica")
+
+
+def _config_facturacion_para_bitacora(config) -> dict:
+    """Lo que se guarda en audit_logs: TODO menos el token en claro.
+
+    La bitacora la lee cualquier ADMIN del hotel y se exporta; el token de
+    NubeFact firma comprobantes ante SUNAT en nombre del hotel. Se deja
+    constancia de que cambio, no de su valor.
+    """
+    datos = config.model_dump()
+    if datos.get("nubefact_token"):
+        datos["nubefact_token"] = "***redactado***"
+    return datos
 
 # ============== AUTH ENDPOINTS ==============
 @api_router.post("/auth/login", response_model=TokenResponse)
@@ -1491,7 +1705,7 @@ async def update_tenant_invoicing(tenant_id: str, config: TenantInvoicingConfig,
             raise HTTPException(status_code=404, detail="Hotel no encontrado")
 
         await create_audit_log(conn, tid, user["user_id"], "tenant",
-                               "UPDATE_INVOICING", None, config.model_dump())
+                               "UPDATE_INVOICING", None, _config_facturacion_para_bitacora(config))
     return {"message": "Configuración de facturación actualizada"}
 
 # ============== USER ENDPOINTS ==============
@@ -2093,6 +2307,24 @@ async def create_reservation(data: ReservationCreate, user: dict = Depends(exigi
         )
         code = f"RES-{siguiente:06d}"
 
+        # El huesped, el tipo y la habitacion tienen que ser DE ESTE HOTEL. La
+        # clave foranea no basta: Postgres comprueba las FK sin aplicar RLS,
+        # asi que una reserva del hotel A podia apuntar al huesped del hotel B
+        # (encontrado al probar el aislamiento en la auditoria 2026-11-09).
+        propios = await conn.fetchval(
+            """select (select count(*) from guests where id = $2 and tenant_id = $1)
+                    + (select count(*) from room_types where id = $3 and tenant_id = $1)
+                    + (select count(*) from rooms where id = $4 and tenant_id = $1)""",
+            tid, id_valido(data.guest_id, "guest_id"),
+            id_valido(data.room_type_id, "room_type_id"),
+            id_valido(data.room_id, "room_id"),
+        )
+        if propios != (3 if data.room_id else 2):
+            raise HTTPException(
+                status_code=400,
+                detail="El huésped, el tipo de habitación o la habitación indicada no existe"
+            )
+
         if data.room_id:
             # Dos rangos se solapan si cada uno empieza antes de que termine el
             # otro. La reserva que sale el dia que entra la siguiente NO se
@@ -2688,7 +2920,14 @@ async def add_charge(folio_id: str, data: ChargeCreate, user: dict = Depends(exi
 
     return {"id": str(nuevo["id"]), "message": "Cargo agregado"}
 
-@api_router.post("/folios/{folio_id}/charges/{charge_id}/void")
+# Cobros, caja y comprobantes: solo ADMIN y RECEPTIONIST (auditoria
+# 2026-11-09). Antes bastaba con estar logueado, asi que una cuenta de
+# limpieza o de seguridad podia anular cargos, cobrar o cerrar la caja. El
+# SUPER_ADMIN dentro de un hotel llega como ADMIN (ver /tenants/{id}/entrar).
+ROLES_CAJA = (Role.ADMIN, Role.RECEPTIONIST)
+
+
+@api_router.post("/folios/{folio_id}/charges/{charge_id}/void", dependencies=[Depends(require_roles(*ROLES_CAJA))])
 async def void_charge(folio_id: str, charge_id: str, data: VoidRequest, user: dict = Depends(get_current_user)):
     tid = tenant_de(user)
     fid = id_valido(folio_id, "folio_id")
@@ -2731,7 +2970,7 @@ async def void_charge(folio_id: str, charge_id: str, data: VoidRequest, user: di
 
     return {"message": "Cargo anulado"}
 
-@api_router.post("/folios/{folio_id}/payments")
+@api_router.post("/folios/{folio_id}/payments", dependencies=[Depends(require_roles(*ROLES_CAJA))])
 async def add_payment(folio_id: str, data: PaymentCreate, user: dict = Depends(exigir_suscripcion)):
     tid = tenant_de(user)
     fid = id_valido(folio_id, "folio_id")
@@ -2780,7 +3019,7 @@ async def add_payment(folio_id: str, data: PaymentCreate, user: dict = Depends(e
     return {"id": str(nuevo["id"]), "message": "Pago registrado"}
 
 # ============== CASH SHIFT ENDPOINTS ==============
-@api_router.post("/cash-shifts/open")
+@api_router.post("/cash-shifts/open", dependencies=[Depends(require_roles(*ROLES_CAJA))])
 async def open_cash_shift(data: CashShiftOpen, user: dict = Depends(get_current_user)):
     tid = db_pg.a_uuid(user["tenant_id"], "tenant_id")
     async with db_pg.tx(user) as conn:
@@ -2823,7 +3062,7 @@ async def get_current_cash_shift(user: dict = Depends(get_current_user)):
         )
     return turno
 
-@api_router.post("/cash-shifts/{shift_id}/close")
+@api_router.post("/cash-shifts/{shift_id}/close", dependencies=[Depends(require_roles(*ROLES_CAJA))])
 async def close_cash_shift(shift_id: str, data: CashShiftClose, user: dict = Depends(get_current_user)):
     tid = tenant_de(user)
     sid = id_valido(shift_id, "shift_id")
@@ -2916,7 +3155,7 @@ async def list_cash_shifts(
             tid, from_date, to_date,
         )
 
-@api_router.post("/cash-shifts/{shift_id}/movements")
+@api_router.post("/cash-shifts/{shift_id}/movements", dependencies=[Depends(require_roles(*ROLES_CAJA))])
 async def add_cash_movement(shift_id: str, data: CashMovementCreate, user: dict = Depends(get_current_user)):
     tid = tenant_de(user)
     sid = id_valido(shift_id, "shift_id")
@@ -2941,7 +3180,7 @@ async def add_cash_movement(shift_id: str, data: CashMovementCreate, user: dict 
     return {"id": str(nuevo_id), "message": "Movimiento registrado"}
 
 # ============== INVOICE ENDPOINTS ==============
-@api_router.post("/invoices")
+@api_router.post("/invoices", dependencies=[Depends(require_roles(*ROLES_CAJA))])
 async def create_invoice(data: InvoiceCreate, user: dict = Depends(get_current_user)):
     tid = tenant_de(user)
     fid = id_valido(data.folio_id, "folio_id")
@@ -3881,7 +4120,9 @@ async def get_monthly_invoicing_report(month: int = None, year: int = None, user
 # ============== EXPORT ENDPOINTS ==============
 @api_router.get("/reports/export/excel")
 async def export_report_excel(
-    report_type: str = Query(..., enum=["occupancy", "revenue", "invoicing"]),
+    # Literal y no Query(enum=...): las fastapi recientes rechazan el kwarg
+    # `enum` y, ademas, el Literal si valida (422 con un tipo desconocido).
+    report_type: Literal["occupancy", "revenue", "invoicing"] = Query(...),
     month: int = None,
     year: int = None,
     user: dict = Depends(get_current_user)
@@ -4029,7 +4270,9 @@ async def export_report_excel(
 
 @api_router.get("/reports/export/pdf")
 async def export_report_pdf(
-    report_type: str = Query(..., enum=["occupancy", "revenue", "invoicing"]),
+    # Literal y no Query(enum=...): las fastapi recientes rechazan el kwarg
+    # `enum` y, ademas, el Literal si valida (422 con un tipo desconocido).
+    report_type: Literal["occupancy", "revenue", "invoicing"] = Query(...),
     month: int = None,
     year: int = None,
     user: dict = Depends(get_current_user)
@@ -4447,18 +4690,59 @@ class NotificationRequest(BaseModel):
     recipient_email: EmailStr
     data: dict
 
-@api_router.post("/notifications/send")
+# Tope por hotel de correos por hora. El limitador por IP (backend/limites.py,
+# regla de /api/notifications/send) frena a una sola conexion; este frena a un
+# hotel aunque reparta las peticiones entre muchas IP. Cien por hora es mucho
+# mas de lo que manda una recepcion de verdad (una confirmacion por reserva).
+NOTIFICACIONES_POR_HORA = 100
+
+
+@api_router.post("/notifications/send", dependencies=[Depends(require_roles(*ROLES_CAJA))])
 async def send_notification(
     request: NotificationRequest,
     user: dict = Depends(get_current_user)
 ):
-    """Envia un correo a partir de una plantilla."""
+    """Envia un correo a partir de una plantilla.
+
+    Auditoria 2026-11-09 (MEDIA): el destinatario era libre, y como el alta
+    de un hotel es publica (POST /api/registro), cualquiera tenia un relay de
+    correo con el remitente y la reputacion de soporte@sisac.pe. Ahora:
+
+      - solo ADMIN y RECEPTIONIST (la SUPER_ADMIN global no tiene hotel);
+      - el destinatario tiene que ser un huesped o un usuario DE ESTE hotel;
+      - tope de NOTIFICACIONES_POR_HORA por hotel, ademas del limite por IP.
+    """
+    if not user.get("tenant_id"):
+        raise HTTPException(status_code=400, detail="Entra a un hotel para enviar correos")
     tid = db_pg.a_uuid(user["tenant_id"], "tenant_id")
+    destinatario = str(request.recipient_email).strip()
 
     async with db_pg.tx(user) as conn:
         tenant = await db_pg.uno(
             conn, "select name, nombre_comercial from tenants where id = $1", tid
         )
+        es_del_hotel = await conn.fetchval(
+            """select exists (select 1 from guests
+                              where tenant_id = $1 and lower(email) = lower($2))
+                   or exists (select 1 from users
+                              where tenant_id = $1 and lower(email) = lower($2))""",
+            tid, destinatario,
+        )
+        if not es_del_hotel:
+            raise HTTPException(
+                status_code=403,
+                detail="Solo se puede escribir a huéspedes o usuarios de este hotel",
+            )
+        enviados = await conn.fetchval(
+            """select count(*) from notification_logs
+               where tenant_id = $1 and created_at > now() - interval '1 hour'""",
+            tid,
+        )
+        if enviados >= NOTIFICACIONES_POR_HORA:
+            raise HTTPException(
+                status_code=429,
+                detail="Este hotel alcanzó el límite de correos por hora. Inténtalo más tarde.",
+            )
 
     data = request.data.copy()
     data["tenant_name"] = (tenant.get("nombre_comercial") or tenant.get("name") or "Hotel") if tenant else "Hotel"
@@ -4466,13 +4750,13 @@ async def send_notification(
     subject, html, texto = generate_email_template(request.template.value, data)
     # El envio va FUERA de la transaccion: mandar un correo no se puede
     # deshacer, asi que no tiene sentido tener la base bloqueada esperandolo.
-    result = await send_email_async(request.recipient_email, subject, html, texto)
+    result = await send_email_async(destinatario, subject, html, texto)
 
     async with db_pg.tx(user) as conn:
         await conn.execute(
             """insert into notification_logs (tenant_id, template, recipient, status)
                values ($1, $2, $3, $4)""",
-            tid, request.template.value, request.recipient_email, result.get("status"),
+            tid, request.template.value, destinatario, result.get("status"),
         )
 
     return result
@@ -4824,6 +5108,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Cabeceras de seguridad (HSTS, nosniff, X-Frame-Options, Referrer-Policy,
+# Permissions-Policy y la CSP en Report-Only). Se anade la ULTIMA para que sea
+# la mas externa: asi la llevan tambien los 429 del limitador y las
+# respuestas de CORS. Ver backend/cabeceras_seguridad.py.
+app.add_middleware(cabeceras_seguridad.CabecerasSeguridad)
+
 
 # ---------------------------------------------------------------------------
 # La SPA
@@ -4932,6 +5222,27 @@ def _cache_del_build(ruta: Path) -> str:
     return f"public, max-age={_UN_DIA_SPA}, stale-while-revalidate={_UN_DIA_SPA * 7}"
 
 
+# Las rutas de la SPA, copiadas de frontend/src/App.js. Si se anade una
+# pantalla alli, hay que anadirla aqui: si no, recargar esa pantalla dara 404
+# (lo cubre tests/test_seguridad_auditoria.py con la lista de App.js).
+RUTAS_SPA = re.compile(
+    r"(login|registro|dashboard|calendar|reservations(/[^/]+)?|guests(/[^/]+)?"
+    r"|rooms|rates|cash-shift|invoices|housekeeping|maintenance|alerts|reports"
+    r"|employees|settings|tenants|comprobantes)"
+)
+# Las dos pantallas de la SPA que si son publicas.
+RUTAS_SPA_INDEXABLES = ("login", "registro")
+
+
+def _pagina_404() -> HTMLResponse:
+    archivo = LANDING / "404.html"
+    cuerpo = archivo.read_text(encoding="utf-8") if archivo.is_file() else "<h1>No encontrado</h1>"
+    return HTMLResponse(
+        cuerpo, status_code=404,
+        headers={"Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow"},
+    )
+
+
 # HEAD ademas de GET: FastAPI no la anade sola, y sin ella un HEAD sobre la
 # portada o sobre /terminos devolvia 405. Se comprobo con una peticion real.
 # Es la misma respuesta sin cuerpo, y a un rastreador que sondea antes de
@@ -4959,6 +5270,20 @@ async def servir_web(ruta: str, request: Request):
             destino += "?" + request.url.query
         return RedirectResponse(destino, status_code=301)
 
+    # 0b. Barra final: /precios/ y /terminos/ son la MISMA pagina que sin
+    #     barra, y servirlas con 200 dejaba dos URL compitiendo en el indice
+    #     (la de la barra con el shell de la SPA, ademas). Un 301 a la forma
+    #     canonica, la que declaran el canonical y el sitemap.
+    if ruta.endswith("/") and ruta.strip("/"):
+        destino = "/" + ruta.rstrip("/")
+        if request.url.query:
+            destino += "?" + request.url.query
+        return RedirectResponse(destino, status_code=301)
+
+    # 0c. /api/... que no existe es un 404 de la API, no la SPA.
+    if ruta == "api" or ruta.startswith("api/"):
+        raise HTTPException(status_code=404, detail="No encontrado")
+
     # 1. Paginas de la landing.
     #
     #    /precios YA NO esta aqui ni redirige al ancla /#planes: ahora es una
@@ -4981,8 +5306,9 @@ async def servir_web(ruta: str, request: Request):
             if archivo.is_file():
                 return await _pagina_landing(archivo, ruta)
 
+    # Sin build solo hay API y landing: lo demas, 404 (antes ya era asi).
     if not FRONTEND_BUILD.exists():
-        raise HTTPException(status_code=404, detail="No encontrado")
+        return _pagina_404()
 
     # 2. Un archivo real del build (logo.png, manifest.json, favicon...).
     #
@@ -5006,11 +5332,24 @@ async def servir_web(ruta: str, request: Request):
     if "." in ruta.rsplit("/", 1)[-1]:
         raise HTTPException(status_code=404, detail="No encontrado")
 
-    # 4. Cualquier otra cosa es una ruta de la SPA. Se devuelve el index.html y
-    #    React resuelve el enrutado: es lo que hace falta para que recargar
+    # 4. Una ruta CONOCIDA de la SPA. Se devuelve el index.html y React
+    #    resuelve el enrutado: es lo que hace falta para que recargar
     #    /reservations o entrar por un enlace directo no de 404.
-    indice = FRONTEND_BUILD / "index.html"
-    return FileResponse(indice, headers={"Cache-Control": _cache_del_build(indice)})
+    #
+    #    Antes CUALQUIER ruta devolvia el shell con 200 (auditoria
+    #    2026-11-09): /no-existe-xyz era una "pagina" para un buscador, un
+    #    soft 404 de manual. Ahora solo las rutas que declara
+    #    frontend/src/App.js; lo demas es un 404 de verdad.
+    if RUTAS_SPA.fullmatch(ruta):
+        indice = FRONTEND_BUILD / "index.html"
+        cabeceras = {"Cache-Control": _cache_del_build(indice)}
+        if ruta not in RUTAS_SPA_INDEXABLES:
+            # Pantallas detras del login: no tienen nada que indexar.
+            cabeceras["X-Robots-Tag"] = "noindex, nofollow"
+        return FileResponse(indice, headers=cabeceras)
+
+    # 5. Nada de lo anterior: 404 real, con una pagina que lleva al inicio.
+    return _pagina_404()
 
 
 if not FRONTEND_BUILD.exists():
@@ -5064,7 +5403,6 @@ async def _bucle_avisos_comprobantes():
         await asyncio.sleep(AVISOS_CADA_SEGUNDOS)
 
 
-@app.on_event("startup")
 async def arrancar_avisos_comprobantes():
     global _tarea_avisos
     if os.environ.get("COMPROBANTES_AVISOS", "1").strip() == "0":
@@ -5072,8 +5410,10 @@ async def arrancar_avisos_comprobantes():
     _tarea_avisos = asyncio.create_task(_bucle_avisos_comprobantes())
 
 
-@app.on_event("shutdown")
 async def cerrar_conexiones():
     if _tarea_avisos is not None:
         _tarea_avisos.cancel()
     await db_pg.close_pool()
+
+
+

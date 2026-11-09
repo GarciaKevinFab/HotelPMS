@@ -454,7 +454,7 @@ def _cabecera() -> str:
   <div class="envoltorio">
     <header class="cabecera">
       <a class="marca" href="/">
-        <img src="/logo-zenstay.png" alt="ZenStay" width="40" height="40" onerror="this.style.display='none'">
+        <picture><source srcset="/landing-assets/logo-zenstay.webp" type="image/webp"><img src="/logo-zenstay.png" alt="ZenStay" width="40" height="40" onerror="this.style.display='none'"></picture>
         <span>ZenStay</span>
       </a>
       <nav>
@@ -475,7 +475,7 @@ def _pie(comercio: dict) -> str:
     <div class="pie-rejilla">
       <div>
         <div class="pie-marca">
-          <img src="/logo-zenstay.png" alt="">
+          <picture><source srcset="/landing-assets/logo-zenstay.webp" type="image/webp"><img src="/logo-zenstay.png" alt="" width="34" height="34" loading="lazy"></picture>
           <span>ZenStay</span>
         </div>
         <p class="pie-lema">Gestión para hoteles, hostales y hospedajes del Perú.

@@ -19,7 +19,7 @@
   <div class="envoltorio">
     <header class="cabecera">
       <a class="marca" href="/">
-        <img src="/logo-zenstay.png" alt="ZenStay" width="40" height="40" onerror="this.style.display='none'">
+        <picture><source srcset="/landing-assets/logo-zenstay.webp" type="image/webp"><img src="/logo-zenstay.png" alt="ZenStay" width="40" height="40" onerror="this.style.display='none'"></picture>
         <span>ZenStay</span>
       </a>
       <nav>
@@ -35,7 +35,10 @@
 <div class="envoltorio">
   <section class="portada">
     <p class="apunte aparece d1">Para hoteles, hostales y hospedajes del Perú</p>
-    <h1 class="dicho aparece d2">De la reserva a la boleta,<br><span class="destacado">sin cuadernos.</span></h1>
+    <!-- El h1 es el elemento LCP de la portada: va SIN la clase "aparece" para
+         pintarse visible desde el primer fotograma (auditoria 2026-11-09:
+         con la animacion de entrada el LCP medido era de 4,2 s). -->
+    <h1 class="dicho">De la reserva a la boleta,<br><span class="destacado">sin cuadernos.</span></h1>
     <p class="entrada aparece d3">
       Recepción sabe qué habitación entregar. Limpieza sabe qué toca asear.
       Y a fin de mes la caja cuadra, porque el sistema la cuadra sola.
@@ -162,7 +165,7 @@
     <div class="pie-rejilla">
       <div>
         <div class="pie-marca">
-          <img src="/logo-zenstay.png" alt="">
+          <picture><source srcset="/landing-assets/logo-zenstay.webp" type="image/webp"><img src="/logo-zenstay.png" alt="" width="34" height="34" loading="lazy"></picture>
           <span>ZenStay</span>
         </div>
         <p class="pie-lema">Gestión para hoteles, hostales y hospedajes del Perú.

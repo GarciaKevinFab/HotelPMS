@@ -44,8 +44,36 @@ POR QUE MIDDLEWARE ASGI Y NO BaseHTTPMiddleware
 """
 
 import json
+import logging
+import os
 import time
 from collections import defaultdict, deque
+
+log = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Solo para pruebas: ZENSTAY_LIMITES_PRUEBAS
+# ---------------------------------------------------------------------------
+# La bateria de pruebas entra por /api/auth/login decenas de veces desde la
+# misma IP en menos de un minuto, y la regla de 10/min la tumbaba con 429 a
+# mitad de camino. Esta variable MULTIPLICA todos los limites por el numero
+# que lleve (p. ej. ZENSTAY_LIMITES_PRUEBAS=1000); el limitador sigue
+# funcionando y las pruebas del propio limitador siguen pasando, porque
+# construyen su middleware con reglas propias.
+#
+# Nunca esta activa por defecto: sin la variable, o con un valor que no sea un
+# entero mayor que 1, el factor es 1. En produccion NO se define (el
+# docker-compose solo lee backend/.env.production). Al arrancar con ella se
+# deja un aviso en el log para que no pase desapercibida.
+VARIABLE_PRUEBAS = "ZENSTAY_LIMITES_PRUEBAS"
+
+
+def factor_de_pruebas() -> int:
+    try:
+        factor = int(os.environ.get(VARIABLE_PRUEBAS, "1"))
+    except ValueError:
+        return 1
+    return factor if factor > 1 else 1
 
 
 def ip_del_cliente(cabeceras: dict) -> str:
@@ -97,6 +125,10 @@ REGLAS = [
     ("POST", "/api/registro", 5, 3600),
     ("POST", "/comprar", 10, 3600),
     ("POST", "/api/seed", 3, 3600),
+    # Correos por plantilla: ademas del tope por hotel de server.py. Una
+    # recepcion manda unos pocos por hora; treinta por hora y por IP frena a
+    # quien quiera usar el endpoint de relay (auditoria 2026-11-09).
+    ("POST", "/api/notifications/send", 30, 3600),
     ("POST", None, 120, 60),
     ("PUT", None, 120, 60),
     ("PATCH", None, 120, 60),
@@ -126,9 +158,14 @@ EXENTAS = ("/api/health", "/webhooks/", "/api/webhooks/")
 class LimitePeticiones:
     """Middleware ASGI que cuenta peticiones por (IP, regla) en ventana deslizante."""
 
-    def __init__(self, app, reglas=REGLAS, prefijos=PREFIJOS, exentas=EXENTAS):
+    def __init__(self, app, reglas=REGLAS, prefijos=PREFIJOS, exentas=EXENTAS, factor=None):
         self.app = app
-        self.reglas = reglas
+        if factor is None:
+            factor = factor_de_pruebas() if reglas is REGLAS else 1
+        if factor > 1:
+            log.warning("%s=%s: limites de peticiones multiplicados por %s. "
+                        "Esto es SOLO para pruebas.", VARIABLE_PRUEBAS, factor, factor)
+        self.reglas = [(m, pre, cuantas * factor, ventana) for m, pre, cuantas, ventana in reglas]
         self.prefijos = tuple(prefijos)
         self.exentas = tuple(exentas)
         # (ip, indice de regla) -> deque de instantes
