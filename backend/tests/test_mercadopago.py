@@ -362,8 +362,26 @@ def _token_admin(tid, uid, ruc):
     return server.create_token(str(uid), f"admin-{ruc}@mp-pruebas.test", "ADMIN", str(tid))
 
 
-def _token_superadmin():
-    return server.create_token(str(uuid.uuid4()), "dueno@mp-pruebas.test", "SUPER_ADMIN")
+async def _usuario(conn, email, rol, tenant_id=None):
+    """Una fila real en `users`.
+
+    Desde la auditoria 2026-11-09 get_current_user lee rol, hotel e is_active
+    de la base en cada peticion: un token firmado para un id que no existe ya
+    no vale nada (401). Por eso las pruebas firman tokens de usuarios que SI
+    existen. El correo cae en '%@mp-pruebas.test' y _borrar_hoteles lo limpia.
+    """
+    existente = await conn.fetchval("select id from users where email = $1", email)
+    if existente:
+        return existente
+    return await conn.fetchval(
+        """insert into users (tenant_id, email, password_hash, full_name, role)
+           values ($1, $2, $3, 'Usuario Pruebas', $4) returning id""",
+        tenant_id, email, server.hash_password("clave-de-pruebas"), rol)
+
+
+async def _token_superadmin(conn):
+    uid = await _usuario(conn, "dueno@mp-pruebas.test", "SUPER_ADMIN")
+    return server.create_token(str(uid), "dueno@mp-pruebas.test", "SUPER_ADMIN")
 
 
 def _cabecera(token):
@@ -540,7 +558,7 @@ def test_cobro_aprobado_activa_el_plan_y_el_aviso_repetido_no_suma(mp_produccion
         assert (pagos[0]["comp_estado"], pagos[0]["comp_tipo"]) == ("pendiente", "boleta")
 
         estado = (await cliente.get("/api/suscripcion",
-                                    headers=_cabecera(_token_admin(tid, uuid.uuid4(), RUC_A)))).json()
+                                    headers=_cabecera(_token_admin(tid, (await conn.fetchval("select id from users where tenant_id = $1 and role = 'ADMIN'", tid)), RUC_A)))).json()
         assert estado["estado_efectivo"] == "activa" and estado["tiene_acceso"]
         assert estado["cobro_automatico"] is True and estado["renovacion_automatica"] is True
     _correr(cuerpo, monkeypatch)
@@ -734,7 +752,7 @@ def test_comprobante_de_punta_a_punta(mp_produccion, falso, monkeypatch):
         pago_id = await conn.fetchval("select id from pagos_suscripcion where tenant_id = $1", tid)
         uid = await conn.fetchval("select id from users where tenant_id = $1", tid)
         hotel = _cabecera(_token_admin(tid, uid, RUC_A))
-        dueno = _cabecera(_token_superadmin())
+        dueno = _cabecera(await _token_superadmin(conn))
 
         # Aviso al dueno, una sola vez por cobro nuevo.
         assert await comprobantes.avisar(enviar) >= 1
@@ -790,13 +808,15 @@ def test_un_hotel_no_ve_ni_descarga_lo_de_otro(mp_produccion, falso, monkeypatch
         # La consola del dueno no la abre un ADMIN, ni siquiera el SUPER_ADMIN
         # que "entro como" un hotel (su token lleva rol ADMIN).
         assert (await cliente.get("/api/admin/comprobantes", headers=otro)).status_code == 403
-        dentro = _cabecera(server.create_token(str(uuid.uuid4()), "dueno@mp-pruebas.test", "ADMIN",
+        dueno_id = await _usuario(conn, "dueno@mp-pruebas.test", "SUPER_ADMIN")
+        dentro = _cabecera(server.create_token(str(dueno_id), "dueno@mp-pruebas.test", "ADMIN",
                                                str(tid_b), {"en_otro_hotel": True}))
         assert (await cliente.get("/api/admin/comprobantes", headers=dentro)).status_code == 403
         assert (await cliente.get(f"/api/admin/comprobantes/{pago_a}/pdf",
                                   headers=otro)).status_code == 403
         # Un recepcionista del propio hotel tampoco gestiona la suscripcion.
-        recep = _cabecera(server.create_token(str(uuid.uuid4()), "r@mp-pruebas.test",
+        recep_id = await _usuario(conn, "r@mp-pruebas.test", "RECEPTIONIST", tid_a)
+        recep = _cabecera(server.create_token(str(recep_id), "r@mp-pruebas.test",
                                               "RECEPTIONIST", str(tid_a)))
         assert (await cliente.post("/api/suscripcion/cancelar", headers=recep)).status_code == 403
     _correr(cuerpo, monkeypatch)
@@ -823,6 +843,6 @@ def test_no_se_abre_una_segunda_suscripcion_ni_se_borra_un_hotel_que_paga(mp_pro
             "email": "recepcion@mp-pruebas.test", "password": "clave-de-pruebas"})
         assert "Solo el administrador del hotel" in r.text
 
-        r = await cliente.delete(f"/api/tenants/{tid}", headers=_cabecera(_token_superadmin()))
+        r = await cliente.delete(f"/api/tenants/{tid}", headers=_cabecera(await _token_superadmin(conn)))
         assert r.status_code == 409
     _correr(cuerpo, monkeypatch)

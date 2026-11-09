@@ -1450,8 +1450,14 @@ class TestCalendarAPI:
 
 
 class TestEmailNotifications:
-    """Email Notifications API tests (RESEND_API_KEY not configured - should skip)"""
-    
+    """Correos por plantilla.
+
+    La instancia de pruebas no tiene SMTP, y send_email_async devuelve
+    "error" A PROPOSITO cuando falta (antes devolvia "skipped" y el correo se
+    perdia en silencio). El destinatario tiene que ser alguien del propio
+    hotel: un huesped o un usuario. admin@demo.com es usuario del hotel demo.
+    """
+
     @pytest.fixture
     def admin_token(self):
         """Get admin token"""
@@ -1460,72 +1466,42 @@ class TestEmailNotifications:
             "password": ADMIN_PASSWORD
         })
         return response.json()["access_token"]
-    
-    def test_send_notification_skipped_no_api_key(self, admin_token):
-        """Test sending notification - should return skipped when no API key"""
-        response = requests.post(
+
+    def _enviar(self, token, template, destinatario, data):
+        return requests.post(
             f"{BASE_URL}/api/notifications/send",
-            json={
-                "template": "RESERVATION_CONFIRMATION",
-                "recipient_email": "test@example.com",
-                "data": {
-                    "guest_name": "Test Guest",
-                    "reservation_code": "RES-000001",
-                    "checkin_date": "2026-03-15",
-                    "checkout_date": "2026-03-18",
-                    "room_type": "Suite"
-                }
-            },
-            headers={"Authorization": f"Bearer {admin_token}"}
+            json={"template": template, "recipient_email": destinatario, "data": data},
+            headers={"Authorization": f"Bearer {token}"},
         )
-        
-        assert response.status_code == 200
+
+    def test_send_notification_sin_smtp_devuelve_error(self, admin_token):
+        response = self._enviar(admin_token, "RESERVATION_CONFIRMATION", ADMIN_EMAIL, {
+            "guest_name": "Test Guest", "code": "RES-000001",
+            "checkin_date": "2026-03-15", "checkout_date": "2026-03-18", "room_type": "Suite",
+        })
+        assert response.status_code == 200, response.text
         data = response.json()
-        # Should be skipped since RESEND_API_KEY is not configured
-        assert data.get("status") == "skipped"
-        assert "API key" in data.get("reason", "")
-    
+        assert data.get("status") == "error"
+        assert "SMTP" in data.get("error", "")
+
     def test_send_checkin_notification(self, admin_token):
-        """Test sending check-in confirmation notification"""
-        response = requests.post(
-            f"{BASE_URL}/api/notifications/send",
-            json={
-                "template": "CHECKIN_CONFIRMATION",
-                "recipient_email": "guest@example.com",
-                "data": {
-                    "guest_name": "María García",
-                    "room_number": "101",
-                    "checkout_date": "2026-03-18"
-                }
-            },
-            headers={"Authorization": f"Bearer {admin_token}"}
-        )
-        
-        assert response.status_code == 200
-        data = response.json()
-        assert data.get("status") == "skipped"
-    
+        response = self._enviar(admin_token, "CHECKIN_CONFIRMATION", ADMIN_EMAIL, {
+            "guest_name": "María García", "room_number": "101", "checkout_date": "2026-03-18",
+        })
+        assert response.status_code == 200, response.text
+        assert response.json().get("status") == "error"
+
     def test_send_payment_receipt_notification(self, admin_token):
-        """Test sending payment receipt notification"""
-        response = requests.post(
-            f"{BASE_URL}/api/notifications/send",
-            json={
-                "template": "PAYMENT_RECEIPT",
-                "recipient_email": "guest@example.com",
-                "data": {
-                    "guest_name": "Carlos López",
-                    "amount": 350.00,
-                    "payment_method": "TARJETA",
-                    "folio_number": "FOL-001"
-                }
-            },
-            headers={"Authorization": f"Bearer {admin_token}"}
-        )
-        
-        assert response.status_code == 200
-        data = response.json()
-        assert data.get("status") == "skipped"
-    
+        response = self._enviar(admin_token, "PAYMENT_RECEIPT", ADMIN_EMAIL, {
+            "guest_name": "Carlos López", "total": 350.00, "invoice_number": "B001-1",
+        })
+        assert response.status_code == 200, response.text
+        assert response.json().get("status") == "error"
+
+    def test_destinatario_ajeno_al_hotel_se_rechaza(self, admin_token):
+        response = self._enviar(admin_token, "PAYMENT_RECEIPT", "alguien@example.com", {})
+        assert response.status_code == 403, response.text
+
     def test_get_notification_logs(self, admin_token):
         """Get notification history"""
         response = requests.get(
