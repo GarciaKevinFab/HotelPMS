@@ -42,7 +42,7 @@ def hotel_efimero(superadmin):
     """Un hotel creado solo para esta bateria; se elimina al final."""
     sufijo = uuid.uuid4().hex[:6]
     ruc = "20" + str(abs(hash(sufijo)) % 10**9).zfill(9)
-    admin_email = f"admin-{sufijo}@efimero.test"
+    admin_email = f"admin-{sufijo}@ejemplo.pe"
     r = requests.post(
         f"{BASE_URL}/api/tenants", headers=superadmin,
         json={"name": f"Hotel Efímero {sufijo}", "ruc": ruc,
@@ -115,7 +115,7 @@ class TestUsuariosDelHotel:
 
     def test_crear_editar_restablecer_eliminar(self, superadmin, hotel_efimero):
         r = requests.post(f"{BASE_URL}/api/users", headers=superadmin, json={
-            "email": f"recep-{uuid.uuid4().hex[:5]}@efimero.test", "password": "clave-larga-1",
+            "email": f"recep-{uuid.uuid4().hex[:5]}@ejemplo.pe", "password": "clave-larga-1",
             "full_name": "Recepción", "role": "RECEPTIONIST", "tenant_id": hotel_efimero["id"],
         }, timeout=30)
         assert r.status_code == 200, r.text
@@ -137,7 +137,7 @@ class TestUsuariosDelHotel:
 
     def test_contrasena_corta_al_crear(self, superadmin, hotel_efimero):
         r = requests.post(f"{BASE_URL}/api/users", headers=superadmin, json={
-            "email": "corta@efimero.test", "password": "1234567", "full_name": "X",
+            "email": "corta@ejemplo.pe", "password": "1234567", "full_name": "X",
             "role": "RECEPTIONIST", "tenant_id": hotel_efimero["id"],
         }, timeout=30)
         assert r.status_code == 400

@@ -25,6 +25,12 @@ COMO SE LANZA
 
   Contra una instancia EFIMERA, nunca contra produccion: la preparacion crea
   hoteles y usuarios de prueba.
+
+  La instancia levantada para las pruebas necesita ademas
+  ZENSTAY_LIMITES_PRUEBAS=1000 (ver backend/limites.py): la bateria entra por
+  /api/auth/login decenas de veces por minuto desde la misma IP y, con los
+  limites de produccion, choca con un 429 a mitad de camino. La variable solo
+  multiplica los limites; nunca se define en produccion.
 """
 import os
 

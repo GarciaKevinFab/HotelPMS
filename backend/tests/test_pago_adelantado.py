@@ -420,7 +420,7 @@ def test_aprobado_extiende_la_vigencia_y_el_aviso_repetido_no_suma(mp_produccion
             "select $1::timestamptz + interval '1 month'", esperado)
 
         estado = (await cliente.get("/api/suscripcion", headers=_cabecera(
-            _token_admin(tid, uuid.uuid4(), RUC_A)))).json()
+            _token_admin(tid, (await conn.fetchval("select id from users where tenant_id = $1 and role = 'ADMIN'", tid)), RUC_A)))).json()
         assert estado["ultimo_periodo"] == "adelantado-1"
         assert estado["cobro_automatico"] is False and estado["estado_efectivo"] == "activa"
     _correr(cuerpo, monkeypatch)

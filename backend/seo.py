@@ -32,7 +32,26 @@ import suscripciones
 # Paginas publicas que se pueden indexar, con su ruta (sin barra inicial).
 PAGINAS_ESTATICAS = ("", "precios", "terminos", "privacidad", "reclamaciones")
 
-IMAGEN_SOCIAL = "/logo512.png"
+# La vista previa al compartir un enlace (WhatsApp, Facebook, X, LinkedIn).
+# 1200x630 es la proporcion que todas pintan grande; antes era el logotipo
+# cuadrado de 512 px y las redes lo mostraban como una miniatura. La genera
+# tools/generar_imagenes_marca.py: solo marca y lema, sin cifras.
+IMAGEN_SOCIAL = "/landing-assets/og-zenstay.png"
+IMAGEN_SOCIAL_ANCHO = 1200
+IMAGEN_SOCIAL_ALTO = 630
+# El logotipo de la Organization del JSON-LD sigue siendo el cuadrado.
+LOGO = "/logo512.png"
+
+# <lastmod> del sitemap: la fecha en que cambio el CONTENIDO de cada pagina,
+# no la del despliegue. Se mantiene a mano al editar la pagina; poner la
+# fecha de hoy en todas cada vez le ensena a Google a ignorar el campo.
+ULTIMA_REVISION = {
+    "": "2026-11-09",
+    "precios": "2026-11-09",
+    "terminos": "2026-09-01",
+    "privacidad": "2026-09-01",
+    "reclamaciones": "2026-09-01",
+}
 
 
 def url_publica() -> str:
@@ -92,8 +111,10 @@ def etiquetas_cabecera(ruta: str, titulo: str, descripcion: str,
         f'<meta property="og:description" content="{_e(descripcion)}">',
         f'<meta property="og:url" content="{_e(url)}">',
         f'<meta property="og:image" content="{_e(imagen)}">',
-        '<meta property="og:image:alt" content="Logotipo de ZenStay">',
-        '<meta name="twitter:card" content="summary">',
+        f'<meta property="og:image:width" content="{IMAGEN_SOCIAL_ANCHO}">',
+        f'<meta property="og:image:height" content="{IMAGEN_SOCIAL_ALTO}">',
+        '<meta property="og:image:alt" content="ZenStay, gestión para hoteles, hostales y hospedajes del Perú">',
+        '<meta name="twitter:card" content="summary_large_image">',
         f'<meta name="twitter:title" content="{_e(titulo)}">',
         f'<meta name="twitter:description" content="{_e(descripcion)}">',
         f'<meta name="twitter:image" content="{_e(imagen)}">',
@@ -137,7 +158,7 @@ def organizacion(comercio: dict) -> dict:
         "legalName": comercio["razon_social"],
         "taxID": comercio["ruc"],
         "url": url_de(""),
-        "logo": url_publica() + IMAGEN_SOCIAL,
+        "logo": url_publica() + LOGO,
         "email": comercio["email"],
         "address": {
             "@type": "PostalAddress",
@@ -250,9 +271,18 @@ def preparar_landing(pagina: str, ruta: str, planes: list, comercio: dict) -> st
 # ---------------------------------------------------------------------------
 
 def sitemap(planes: list) -> str:
-    rutas = list(PAGINAS_ESTATICAS)
-    rutas += [f"comprar/{p['codigo']}" for p in planes_de_pago(planes)]
-    urls = "\n".join(f"  <url><loc>{xml_escape(url_de(r))}</loc></url>" for r in rutas)
+    """Solo las paginas de contenido, con su <lastmod>.
+
+    Las de /comprar/* salieron en la auditoria 2026-11-09: son formularios de
+    pago, una por plan, casi iguales entre si y sin nada que buscar. Se llega
+    a ellas desde /precios, que si esta. `planes` se sigue recibiendo para no
+    cambiar la firma que usa backend/checkout.py.
+    """
+    def url(ruta):
+        lastmod = ULTIMA_REVISION.get(ruta)
+        extra = f"<lastmod>{lastmod}</lastmod>" if lastmod else ""
+        return f"  <url><loc>{xml_escape(url_de(ruta))}</loc>{extra}</url>"
+    urls = "\n".join(url(r) for r in PAGINAS_ESTATICAS)
     return ('<?xml version="1.0" encoding="UTF-8"?>\n'
             '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
             f"{urls}\n</urlset>\n")

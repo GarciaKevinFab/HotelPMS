@@ -89,12 +89,15 @@ def test_sitemap_es_xml_valido_con_las_paginas_publicas(cliente):
     ns = {"s": "http://www.sitemaps.org/schemas/sitemap/0.9"}
     locs = [e.text for e in ElementTree.fromstring(r.content).findall("s:url/s:loc", ns)]
     base = "https://zenstay.sisac.pe"
-    for ruta in ("/", "/precios", "/terminos", "/privacidad", "/reclamaciones",
-                 "/comprar/basico", "/comprar/pro", "/comprar/empresa"):
+    for ruta in ("/", "/precios", "/terminos", "/privacidad", "/reclamaciones"):
         assert base + ruta in locs, ruta
-    # El plan gratuito no se compra, y los pedidos son de un solo cliente.
-    assert base + "/comprar/prueba" not in locs
-    assert not any("/pedido/" in u or "/api/" in u for u in locs)
+    # Auditoria 2026-11-09: los formularios de /comprar/* ya no van al
+    # sitemap (se llega desde /precios); los pedidos nunca fueron.
+    assert not any("/comprar/" in u or "/pedido/" in u or "/api/" in u for u in locs)
+    # Cada URL lleva su <lastmod> en formato W3C (AAAA-MM-DD).
+    fechas = [e.text for e in ElementTree.fromstring(r.content).findall("s:url/s:lastmod", ns)]
+    assert len(fechas) == len(locs)
+    assert all(re.fullmatch(r"\d{4}-\d{2}-\d{2}", f) for f in fechas)
 
 
 def test_sitemap_sin_base_sigue_respondiendo(monkeypatch):
