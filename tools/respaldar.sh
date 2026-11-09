@@ -114,16 +114,45 @@ echo "[$(date '+%F %T')] Volcado OK: $DUMP ($(du -h "$DUMP" | cut -f1))"
 # ─── Fuera del servidor ──────────────────────────────────────────────────────
 # Una copia que vive en el mismo disco que la base no protege del fallo que mas
 # probablemente ocurra: que el disco o el VPS se pierdan enteros.
+#
+# CIFRADO: la base trae datos personales de huespedes (nombre, documento,
+# contacto). Antes se subia en claro; ahora se cifra con `age` y una clave
+# PUBLICA (por defecto la misma de LicitaPro). La privada no esta en el VPS, asi
+# que quien robe el bucket o el token de rclone no puede leer nada.
+# Sin clave publica NO se sube nada: subir en claro "mientras tanto" no es opcion.
+#
+# Restaurar desde R2:
+#   age -d -i respaldo.key zenstay-AAAAMMDD-HHMMSS.sql.gz.age | gunzip | \
+#     docker exec -i zenstay-postgres psql -U postgres -d zenstay
+: "${RESPALDO_CLAVE_PUBLICA:=$(leer_env RESPALDO_CLAVE_PUBLICA)}"
+RESPALDO_CLAVE_PUBLICA="${RESPALDO_CLAVE_PUBLICA:-/root/.config/licitapro/respaldo.pub}"
 if [[ -n "${RESPALDO_REMOTO:-}" ]]; then
-  echo "[$(date '+%F %T')] Subiendo a $RESPALDO_REMOTO..."
   # rclone vive en /usr/local/bin y cron trae un PATH corto: por eso el crontab
-  # define PATH. Si aun asi no esta, se avisa en vez de dar la subida por hecha.
-  if command -v rclone >/dev/null; then
-    rclone copy "$DUMP" "$RESPALDO_REMOTO/" --no-traverse
-    echo "[$(date '+%F %T')] Subida OK"
-  else
-    echo "AVISO: rclone no esta en el PATH. La copia queda SOLO en este disco." >&2
+  # define PATH. Si aun asi no esta, falla en vez de dar la subida por hecha.
+  command -v rclone >/dev/null || { echo "ERROR: rclone no esta en el PATH. La copia queda SOLO en este disco." >&2; exit 1; }
+  command -v age >/dev/null || { echo "ERROR: falta age (apt install age). No se sube nada en claro." >&2; exit 1; }
+  if [[ ! -s "$RESPALDO_CLAVE_PUBLICA" ]] || ! grep -q '^age1' "$RESPALDO_CLAVE_PUBLICA"; then
+    echo "ERROR: no hay clave publica de age en $RESPALDO_CLAVE_PUBLICA. No se sube nada en claro." >&2
+    exit 1
   fi
+  echo "[$(date '+%F %T')] Cifrando y subiendo a $RESPALDO_REMOTO..."
+  CIFRADO="$DUMP.age"
+  age -R "$RESPALDO_CLAVE_PUBLICA" -o "$CIFRADO" "$DUMP"
+  if [[ "$(head -c 21 "$CIFRADO")" != "age-encryption.org/v1" ]]; then
+    echo "ERROR: $CIFRADO no parece un archivo de age. No se sube." >&2
+    rm -f "$CIFRADO"
+    exit 1
+  fi
+  rclone copy "$CIFRADO" "$RESPALDO_REMOTO/" --no-traverse
+  # Una subida que nadie verifica es una suposicion: se compara el tamano.
+  BYTES_LOCAL="$(wc -c < "$CIFRADO")"
+  BYTES_REMOTO="$(rclone lsjson "$RESPALDO_REMOTO/$(basename "$CIFRADO")" 2>/dev/null | grep -o '"Size":[0-9]*' | head -1 | cut -d: -f2)"
+  rm -f "$CIFRADO"
+  if [[ "$BYTES_REMOTO" != "$BYTES_LOCAL" ]]; then
+    echo "ERROR: la copia cifrada pesa $BYTES_LOCAL en disco y ${BYTES_REMOTO:-0} en el destino." >&2
+    exit 1
+  fi
+  echo "[$(date '+%F %T')] Subida OK y verificada"
 else
   echo "AVISO: RESPALDO_REMOTO sin definir. La copia queda SOLO en este disco." >&2
 fi
@@ -133,4 +162,5 @@ fi
 # borrar en remoto desde el mismo script que sube es como se pierden los
 # respaldos de golpe cuando el script tiene un bug.
 find "$DESTINO" -name 'zenstay-*.sql.gz' -mtime "+$DIAS_CONSERVAR" -delete
+find "$DESTINO" -name '*.age' -mmin +60 -delete
 echo "[$(date '+%F %T')] Copias locales: $(find "$DESTINO" -name 'zenstay-*.sql.gz' | wc -l)"
