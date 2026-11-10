@@ -39,8 +39,8 @@
 --    aparezca un valor nuevo. Ver notas inline.
 --
 -- 6. JSONB: solo para lo genuinamente variable -- settings del hotel, el
---    request/response crudo de NubeFact (que es de un tercero y cambia sin
---    avisar), los totales por metodo de pago del cierre de caja, y el
+--    request/response crudo del envio de comprobantes (solicitud_envio y
+--    respuesta_envio), los totales por metodo de pago del cierre de caja, y el
 --    before/after de la auditoria. `amenities` es un array homogeneo de texto,
 --    asi que usa text[] nativo y no JSONB.
 --
@@ -93,13 +93,11 @@ create table tenants (
     email               text,
     ubigeo              text,
 
-    -- Config de facturacion electronica (NubeFact). Antes vivia duplicada:
-    -- plana en la raiz del documento Y anidada en invoicing_config. Se queda
-    -- solo la plana. invoicing_mode MOCK no llama al proveedor real.
-    nubefact_ruta       text,
-    nubefact_token      text,
-    invoicing_mode      text        not null default 'MOCK'
-                                    check (invoicing_mode in ('MOCK', 'LIVE')),
+    -- Series, correlativos e IGV. Antes vivian duplicados: planos en la raiz
+    -- del documento Y anidados en invoicing_config. Se queda solo lo plano.
+    -- No hay credenciales de un proveedor de facturacion: el motor propio se
+    -- configura por variables de entorno del servidor (migracion 007,
+    -- backend/facturacion_propia.py).
     boleta_series       text        not null default 'B001',
     boleta_correlative  integer     not null default 1,
     factura_series      text        not null default 'F001',
@@ -408,7 +406,7 @@ create table cash_movements (
 );
 
 -- ============================================================================
--- FACTURACION ELECTRONICA (NubeFact / SUNAT)
+-- COMPROBANTES (motor propio de facturacion electronica / SUNAT)
 -- ============================================================================
 create table invoices (
     id                uuid primary key default gen_random_uuid(),
@@ -429,10 +427,16 @@ create table invoices (
 
     status            invoice_status not null default 'DRAFT',
 
-    -- Lo que devuelve el proveedor. Crudo y en JSONB porque es de un tercero:
-    -- si cambian el formato, no queremos que se caiga la emision.
-    nubefact_request  jsonb,
-    nubefact_response jsonb,
+    -- 'DRAFT' = comprobante interno, sin validez tributaria: es como queda
+    -- mientras la facturacion electronica no este activada.
+    --
+    -- Lo que se mando al motor propio y lo que contesto. Crudo y en JSONB: si
+    -- el formato cambia, no queremos que se caiga la emision.
+    solicitud_envio   jsonb,
+    respuesta_envio   jsonb,
+    -- Id del comprobante en el motor (facturacion-sunat), donde viven el XML
+    -- firmado y el CDR. NULL = comprobante interno.
+    motor_comprobante_id uuid,
     hash              text,
     qr                text,
     pdf_url           text,

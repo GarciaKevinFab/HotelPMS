@@ -17,7 +17,7 @@ import os
 import re
 import logging
 from pathlib import Path
-from pydantic import BaseModel, Field, ConfigDict, EmailStr, field_validator
+from pydantic import BaseModel, Field, ConfigDict, EmailStr
 from typing import List, Optional, Dict, Any, Literal
 import uuid
 from datetime import datetime, timezone, date, timedelta
@@ -31,16 +31,12 @@ from contextlib import asynccontextmanager
 import plantillas_correo
 import secrets
 import hashlib
-import ipaddress
-import socket
-from urllib.parse import urlsplit
-
-import httpx
 
 import db_pg
 import cabeceras_seguridad
 import checkout
 import comprobantes
+import facturacion_propia
 import limites
 import mercadopago
 import recordatorios
@@ -226,29 +222,20 @@ class TenantCreate(BaseModel):
     admin_name: Optional[str] = None
 
 class TenantInvoicingConfig(BaseModel):
-    """Configuracion de facturacion. TODOS los campos son opcionales.
+    """Series, correlativos e IGV del hotel. TODOS los campos son opcionales.
 
-    Antes tenian valores por defecto (B001, correlativo 1, IGV 18). El frontend
-    manda solo la ruta y el token de NubeFact, asi que Pydantic rellenaba el
-    resto con esos defaults y el UPDATE devolvia el correlativo de boletas a 1:
-    guardar el token de facturacion reiniciaba la numeracion, y SUNAT no admite
-    que una serie repita numeros.
+    Antes tenian valores por defecto (B001, correlativo 1, IGV 18). Si el
+    frontend mandaba solo una parte, Pydantic rellenaba el resto con esos
+    defaults y el UPDATE devolvia el correlativo de boletas a 1, y SUNAT no
+    admite que una serie repita numeros.
 
     Ahora lo que no viene se queda como esta (ver el coalesce del endpoint).
     Los valores iniciales los pone la tabla en db/schema.sql, no este modelo.
-    """
-    nubefact_ruta: Optional[str] = None
-    nubefact_token: Optional[str] = None
-    invoicing_mode: Optional[Literal["MOCK", "LIVE"]] = None
 
-    @field_validator("nubefact_ruta")
-    @classmethod
-    def _ruta_de_nubefact(cls, valor):
-        # Ver validar_ruta_nubefact(): sin esto, cualquiera con un alta publica
-        # (POST /api/registro da ADMIN) apuntaba el backend a la red interna.
-        if valor is None or not valor.strip():
-            return None
-        return validar_ruta_nubefact(valor)
+    No hay credenciales de un proveedor de facturacion: la emision electronica
+    la hara el motor propio, configurado por variables de entorno del servidor
+    (ver backend/facturacion_propia.py), no por cada hotel.
+    """
     boleta_series: Optional[str] = None
     boleta_correlative: Optional[int] = None
     factura_series: Optional[str] = None
@@ -712,162 +699,9 @@ async def create_alert(conn, tenant_id, alert_type: str, severity: AlertSeverity
         entity_ref or {},
     )
 
-# ============== NUBEFACT MOCK SERVICE ==============
-class NubeFactService:
-    @staticmethod
-    async def send_invoice(tenant: dict, invoice_data: dict) -> dict:
-        config = tenant.get("invoicing_config", {})
-        mode = config.get("invoicing_mode", "MOCK")
-        
-        if mode == "MOCK":
-            return NubeFactService._mock_response(invoice_data)
-        else:
-            return await NubeFactService._live_request(config, invoice_data)
-    
-    @staticmethod
-    def _mock_response(invoice_data: dict) -> dict:
-        series = invoice_data.get("serie", "B001")
-        number = invoice_data.get("numero", 1)
-        
-        mock_pdf = f"COMPROBANTE ELECTRONICO\nSerie: {series}\nNumero: {number}\nCliente: {invoice_data.get('cliente_denominacion')}\nTotal: S/ {invoice_data.get('total', 0):.2f}".encode()
-        mock_xml = f'<?xml version="1.0"?><Invoice><Series>{series}</Series><Number>{number}</Number></Invoice>'.encode()
-        mock_cdr = f'<?xml version="1.0"?><CDR><Status>Aceptado</Status></CDR>'.encode()
-        
-        return {
-            "success": True,
-            "aceptada_por_sunat": True,
-            "serie": series,
-            "numero": number,
-            "enlace_del_pdf": f"https://mock.nubefact.com/pdf/{series}-{number}.pdf",
-            "enlace_del_xml": f"https://mock.nubefact.com/xml/{series}-{number}.xml",
-            "enlace_del_cdr": f"https://mock.nubefact.com/cdr/{series}-{number}.xml",
-            "pdf_base64": base64.b64encode(mock_pdf).decode(),
-            "xml_base64": base64.b64encode(mock_xml).decode(),
-            "cdr_base64": base64.b64encode(mock_cdr).decode(),
-            "hash": f"MOCK-HASH-{series}-{number}",
-            "qr": f"https://mock.nubefact.com/qr/{series}-{number}",
-            "sunat_description": "La operación se realizó satisfactoriamente (MOCK)",
-            "sunat_responsecode": "0"
-        }
-    
-    @staticmethod
-    async def _live_request(config: dict, invoice_data: dict) -> dict:
-        ruta = config.get("nubefact_ruta")
-        token = config.get("nubefact_token")
-
-        if not ruta or not token:
-            return {"success": False, "error": "Configuración NubeFact incompleta"}
-
-        # Se vuelve a validar al ENVIAR, no solo al guardar: las filas escritas
-        # antes de esta validacion pueden traer cualquier cosa, y es aqui
-        # donde el backend sale a la red.
-        try:
-            ruta = validar_ruta_nubefact(ruta)
-            await _host_resuelve_a_publica(urlsplit(ruta).hostname)
-        except ValueError as e:
-            logger.warning("Ruta de NubeFact rechazada al enviar: %s", e)
-            return {"success": False, "error": f"Ruta de NubeFact no permitida: {e}"}
-
-        headers = {
-            "Authorization": f'Token token="{token}"',
-            "Content-Type": "application/json"
-        }
-
-        # httpx asincrono con timeout corto. Antes era requests.post(timeout=30)
-        # DENTRO de un handler async: bloqueaba el unico loop del unico proceso
-        # uvicorn, y con el todos los hoteles se quedaban sin servicio mientras
-        # NubeFact (o la direccion que alguien hubiera puesto) no contestaba.
-        # follow_redirects=False: un 30x hacia otro host seria otra forma de
-        # saltarse la lista de hosts permitidos.
-        try:
-            async with httpx.AsyncClient(timeout=NUBEFACT_TIMEOUT, follow_redirects=False) as cliente:
-                response = await cliente.post(ruta, json=invoice_data, headers=headers)
-            result = response.json()
-            if not isinstance(result, dict):
-                return {"success": False, "error": "Respuesta de NubeFact no reconocida"}
-            result["success"] = result.get("aceptada_por_sunat", False)
-            return result
-        except Exception as e:
-            return {"success": False, "error": str(e)}
-
-
-# ============== NUBEFACT: QUE RUTAS SE ACEPTAN ==============
-# Auditoria 2026-11-09 (ALTA, SSRF). nubefact_ruta se guardaba tal cual y luego
-# el backend le hacia un POST con el token del hotel. Como POST /api/registro
-# es publico y da ADMIN, cualquiera podia apuntarlo a http://169.254.169.254/,
-# a la base de datos o a otro contenedor de la red de Docker.
-#
-# NubeFact entrega a cada cuenta una RUTA de la forma
-#     https://api.nubefact.com/api/v1/<identificador>
-# (asi la describe su guia de integracion), asi que se exige exactamente eso:
-# https, un host bajo nubefact.com, puerto por defecto, sin usuario:clave y
-# la ruta de la API.
-NUBEFACT_DOMINIO = "nubefact.com"
-NUBEFACT_TIMEOUT = httpx.Timeout(10.0, connect=5.0)
-
-
-def validar_ruta_nubefact(ruta: str) -> str:
-    """Devuelve la ruta limpia o lanza ValueError con el motivo."""
-    ruta = (ruta or "").strip()
-    if len(ruta) > 300:
-        raise ValueError("la ruta es demasiado larga")
-    try:
-        partes = urlsplit(ruta)
-        puerto = partes.port
-    except ValueError:
-        raise ValueError("la ruta no es una URL valida")
-    if partes.scheme != "https":
-        raise ValueError("la ruta debe empezar por https://")
-    host = (partes.hostname or "").lower().rstrip(".")
-    if not host:
-        raise ValueError("la ruta no tiene host")
-    es_ip = True
-    try:
-        ipaddress.ip_address(host)
-    except ValueError:
-        es_ip = False
-    if es_ip:
-        raise ValueError("la ruta no puede ser una direccion IP")
-    if partes.username or partes.password:
-        raise ValueError("la ruta no puede llevar usuario ni clave")
-    if puerto not in (None, 443):
-        raise ValueError("la ruta no puede indicar otro puerto")
-    if not (host == NUBEFACT_DOMINIO or host.endswith("." + NUBEFACT_DOMINIO)):
-        raise ValueError("la ruta debe ser de NubeFact (*.nubefact.com)")
-    if not partes.path.startswith("/api/"):
-        raise ValueError("la ruta debe ser la de la API (https://api.nubefact.com/api/v1/...)")
-    return ruta
-
-
-async def _host_resuelve_a_publica(host: str) -> None:
-    """Ultima barrera: el host de NubeFact no puede resolver a una IP privada.
-
-    El host ya esta en la lista blanca, pero si algun dia un registro DNS de
-    *.nubefact.com apuntara a 10.x o a 127.0.0.1, la peticion saldria hacia
-    nuestra propia red. Si el DNS no responde se deja seguir: el fallo lo dara
-    httpx y queda registrado como error de emision.
-    """
-    try:
-        infos = await asyncio.get_running_loop().getaddrinfo(host, 443, type=socket.SOCK_STREAM)
-    except OSError:
-        return
-    for info in infos:
-        ip = ipaddress.ip_address(info[4][0])
-        if not ip.is_global:
-            raise ValueError(f"{host} resuelve a una direccion no publica")
-
-
 def _config_facturacion_para_bitacora(config) -> dict:
-    """Lo que se guarda en audit_logs: TODO menos el token en claro.
-
-    La bitacora la lee cualquier ADMIN del hotel y se exporta; el token de
-    NubeFact firma comprobantes ante SUNAT en nombre del hotel. Se deja
-    constancia de que cambio, no de su valor.
-    """
-    datos = config.model_dump()
-    if datos.get("nubefact_token"):
-        datos["nubefact_token"] = "***redactado***"
-    return datos
+    """Lo que se guarda en audit_logs al cambiar series, correlativos o IGV."""
+    return config.model_dump(exclude_none=True)
 
 # ============== AUTH ENDPOINTS ==============
 @api_router.post("/auth/login", response_model=TokenResponse)
@@ -1683,22 +1517,18 @@ async def update_tenant_invoicing(tenant_id: str, config: TenantInvoicingConfig,
         # de un comprobante SUNAT tiene que poder incrementarse de forma atomica
         # y participar del unique (tenant_id, type, series, number).
         # coalesce en cada campo: lo que el cliente no manda se queda como
-        # estaba. Es lo que impide que guardar el token de NubeFact reinicie
-        # los correlativos -- ver la nota en TenantInvoicingConfig.
+        # estaba. Es lo que impide que cambiar un campo reinicie los
+        # correlativos -- ver la nota en TenantInvoicingConfig.
         actualizado = await conn.fetchval(
             """update tenants set
-                   nubefact_ruta       = coalesce($2, nubefact_ruta),
-                   nubefact_token      = coalesce($3, nubefact_token),
-                   invoicing_mode      = coalesce($4, invoicing_mode),
-                   boleta_series       = coalesce($5, boleta_series),
-                   boleta_correlative  = coalesce($6, boleta_correlative),
-                   factura_series      = coalesce($7, factura_series),
-                   factura_correlative = coalesce($8, factura_correlative),
-                   igv_rate            = coalesce($9, igv_rate)
+                   boleta_series       = coalesce($2, boleta_series),
+                   boleta_correlative  = coalesce($3, boleta_correlative),
+                   factura_series      = coalesce($4, factura_series),
+                   factura_correlative = coalesce($5, factura_correlative),
+                   igv_rate            = coalesce($6, igv_rate)
                where id = $1
                returning id""",
-            tid, config.nubefact_ruta, config.nubefact_token, config.invoicing_mode,
-            config.boleta_series, config.boleta_correlative,
+            tid, config.boleta_series, config.boleta_correlative,
             config.factura_series, config.factura_correlative, config.igv_rate,
         )
         if not actualizado:
@@ -3196,10 +3026,11 @@ async def create_invoice(data: InvoiceCreate, user: dict = Depends(get_current_u
     # --------------------------------------------------------------------
     # Paso 1: reservar el correlativo y leer los importes.
     # --------------------------------------------------------------------
-    # Va en su propia transaccion, corta, y ANTES de hablar con NubeFact. Una
-    # llamada HTTP no se puede deshacer con un rollback, asi que mantener la
-    # transaccion abierta mientras se espera al proveedor bloquearia la fila del
-    # hotel -- y con ella toda la emision -- durante segundos.
+    # Va en su propia transaccion, corta, y ANTES de hablar con el motor de
+    # facturacion. Una llamada HTTP no se puede deshacer con un rollback, asi
+    # que mantener la transaccion abierta mientras se espera al motor
+    # bloquearia la fila del hotel -- y con ella toda la emision -- durante
+    # segundos.
     #
     # El correlativo se consume aunque el comprobante termine rechazado, y eso
     # es lo correcto: SUNAT exige numeracion sin saltos, y un numero emitido y
@@ -3207,8 +3038,7 @@ async def create_invoice(data: InvoiceCreate, user: dict = Depends(get_current_u
     async with db_pg.tx(user) as conn:
         cabecera = await db_pg.uno(
             conn,
-            """select f.id, f.tenant_id, t.igv_rate, t.boleta_series, t.factura_series,
-                      t.nubefact_ruta, t.nubefact_token, t.invoicing_mode
+            """select f.id, f.tenant_id, t.ruc, t.boleta_series, t.factura_series
                from folios f
                join tenants t on t.id = f.tenant_id
                where f.id = $1 and ($2::uuid is null or f.tenant_id = $2)""",
@@ -3219,7 +3049,6 @@ async def create_invoice(data: InvoiceCreate, user: dict = Depends(get_current_u
 
         hotel = db_pg.a_uuid(cabecera["tenant_id"])
         series = cabecera["boleta_series"] if es_boleta else cabecera["factura_series"]
-        igv_rate = cabecera["igv_rate"]
 
         # UPDATE ... RETURNING: incrementa y devuelve en una sola operacion
         # atomica, con la fila bloqueada. Es el equivalente exacto del
@@ -3255,105 +3084,93 @@ async def create_invoice(data: InvoiceCreate, user: dict = Depends(get_current_u
         raise HTTPException(status_code=400, detail="El folio no tiene cargos que facturar")
 
     subtotal, igv, total = importes["subtotal"], importes["igv"], importes["total"]
-    tenant = {"nubefact_ruta": cabecera["nubefact_ruta"],
-              "nubefact_token": cabecera["nubefact_token"],
-              "invoicing_config": {"invoicing_mode": cabecera["invoicing_mode"]}}
 
-    items = []
-    for c in charges:
-        items.append({
-            "unidad_de_medida": "NIU",
-            "codigo": "001",
-            "descripcion": c.get("concept", ""),
-            "cantidad": c.get("quantity", 1),
-            "valor_unitario": c.get("unit_price", 0),
-            # Antes iba multiplicado por 1.18 fijo, ignorando el igv_rate del
-            # hotel: si alguien configuraba otra tasa, el precio unitario que
-            # viajaba a SUNAT no cuadraba con el IGV declarado del propio
-            # comprobante.
-            "precio_unitario": round(c.get("unit_price", 0) * (1 + float(igv_rate) / 100), 2),
-            "descuento": 0,
-            "subtotal": c.get("subtotal", 0),
-            "tipo_de_igv": 1,
-            "igv": c.get("igv_amount", 0),
-            "total": c.get("total", 0)
-        })
+    # --------------------------------------------------------------------
+    # Paso 2: el motor propio de facturacion, fuera de toda transaccion.
+    # --------------------------------------------------------------------
+    # Apagado por defecto (ver backend/facturacion_propia.py): sin
+    # FACTURACION_URL y FACTURACION_TOKEN el comprobante queda INTERNO, y lo
+    # que el motor aun no soporta (boletas, RUC distinto del configurado)
+    # vuelve como "no disponible todavia" sin salir a la red.
+    #
+    # La clave de idempotencia es el comprobante mismo: si este paso se
+    # reintenta, el motor devuelve el que ya emitio en vez de emitir otro.
+    solicitud = None if es_boleta else facturacion_propia.armar_solicitud(
+        emisor_ruc=cabecera["ruc"], serie=series, numero=correlative,
+        cliente_ruc=data.client_doc_number, cliente_nombre=data.client_name,
+        cliente_direccion=data.client_address, cargos=charges, total=total,
+        clave_idempotencia=f"zenstay-{hotel}-{data.type.value}-{series}-{correlative}",
+    )
+    resultado = await facturacion_propia.emitir(
+        tipo=data.type.value, emisor_ruc=cabecera["ruc"], solicitud_factura=solicitud)
 
-    nubefact_payload = {
-        "operacion": "generar_comprobante",
-        "tipo_de_comprobante": 2 if data.type == InvoiceType.BOLETA else 1,
-        "serie": series,
-        "numero": correlative,
-        "sunat_transaction": 1,
-        "cliente_tipo_de_documento": {"DNI": 1, "CE": 4, "PASAPORTE": 7, "RUC": 6}.get(data.client_doc_type.value, 1),
-        "cliente_numero_de_documento": data.client_doc_number,
-        "cliente_denominacion": data.client_name,
-        "cliente_direccion": data.client_address or "",
-        "cliente_email": "",
-        "fecha_de_emision": datetime.now(timezone.utc).strftime("%d-%m-%Y"),
-        "moneda": 1,
-        "porcentaje_de_igv": float(igv_rate),
-        "total_gravada": subtotal,
-        "total_igv": igv,
-        "total": total,
-        "items": items,
-        "enviar_automaticamente_a_la_sunat": True,
-        "enviar_automaticamente_al_cliente": False
-    }
-    
-    # Paso 2: hablar con el proveedor, fuera de toda transaccion.
-    nubefact_response = await NubeFactService.send_invoice(tenant, nubefact_payload)
-    aceptado = bool(nubefact_response.get("success"))
-    estado = InvoiceStatus.ACCEPTED.value if aceptado else InvoiceStatus.REJECTED.value
+    estado = {
+        facturacion_propia.INTERNO: InvoiceStatus.DRAFT,
+        facturacion_propia.NO_DISPONIBLE: InvoiceStatus.DRAFT,
+        facturacion_propia.ACEPTADO: InvoiceStatus.ACCEPTED,
+        facturacion_propia.RECHAZADO: InvoiceStatus.REJECTED,
+        facturacion_propia.PENDIENTE: InvoiceStatus.PENDING,
+    }[resultado.estado].value
 
-    # Paso 3: guardar el comprobante con lo que respondio SUNAT.
+    # --------------------------------------------------------------------
+    # Paso 3: guardar el comprobante con lo que respondio el motor.
+    # --------------------------------------------------------------------
+    # Sin enlaces de PDF/XML/CDR: el motor todavia no genera PDF, y el XML y
+    # el CDR los conserva el motor, que es quien guarda el comprobante legal
+    # (se consultan alli con motor_comprobante_id).
     async with db_pg.tx(user) as conn:
         invoice_id = await conn.fetchval(
             """insert into invoices
                    (tenant_id, folio_id, type, series, number,
                     client_doc_type, client_doc_number, client_name, client_address,
                     subtotal, igv, total, status,
-                    nubefact_request, nubefact_response,
-                    pdf_url, xml_url, cdr_url, hash, qr, issued_by)
+                    solicitud_envio, respuesta_envio, motor_comprobante_id,
+                    hash, issued_by)
                values ($1, $2, $3::invoice_type, $4, $5,
                        $6::doc_type, $7, $8, $9,
                        $10, $11, $12, $13::invoice_status,
-                       $14, $15, $16, $17, $18, $19, $20, $21)
+                       $14, $15, $16::uuid, $17, $18)
                returning id""",
             hotel, fid, data.type.value, series, correlative,
             data.client_doc_type.value, data.client_doc_number,
             data.client_name, data.client_address,
             subtotal, igv, total, estado,
-            # Los dos como dict: es lo que se manda a SUNAT y lo que contesta,
-            # y es la unica copia que queda de la conversacion. Serializado dos
-            # veces no se podia buscar por `nubefact_response->>'sunat_description'`
-            # ni por el codigo de error cuando SUNAT rechaza un comprobante.
-            nubefact_payload, nubefact_response,
-            nubefact_response.get("enlace_del_pdf"),
-            nubefact_response.get("enlace_del_xml"),
-            nubefact_response.get("enlace_del_cdr"),
-            nubefact_response.get("hash"), nubefact_response.get("qr"),
+            # Los dos como dict (serializa el codec de db_pg, no json.dumps):
+            # lo que se mando al motor y lo que contesto, buscable con ->>.
+            resultado.solicitud,
+            {"resultado": resultado.estado, "mensaje": resultado.mensaje, **resultado.respuesta},
+            resultado.motor_comprobante_id,
+            resultado.hash,
             id_valido(user["user_id"], "user_id"),
         )
 
         await create_audit_log(conn, hotel, user["user_id"], "invoice", "CREATE", None,
-                               {"series": series, "number": correlative, "type": data.type.value})
+                               {"series": series, "number": correlative,
+                                "type": data.type.value, "status": estado})
 
-        if not aceptado:
+        if estado == InvoiceStatus.REJECTED.value:
             await create_alert(
                 conn, hotel, "INVOICE_REJECTED", AlertSeverity.CRITICAL,
                 "Comprobante Rechazado",
-                f"{data.type.value} {series}-{correlative} fue rechazada: "
-                f"{nubefact_response.get('error', 'Error desconocido')}",
+                f"{data.type.value} {series}-{correlative} fue rechazada: {resultado.mensaje}",
                 {"invoice_id": str(invoice_id)}
             )
 
+    mensajes = {
+        InvoiceStatus.ACCEPTED.value: "Comprobante emitido",
+        InvoiceStatus.REJECTED.value: "Error al emitir comprobante",
+        InvoiceStatus.PENDING.value: "Comprobante enviado, pendiente de confirmación de SUNAT",
+    }
     return {
         "id": str(invoice_id),
         "series": series,
         "number": correlative,
         "status": estado,
-        "message": "Comprobante emitido" if aceptado else "Error al emitir comprobante"
+        # False = comprobante interno, sin validez tributaria (ver
+        # facturacion_propia.MENSAJE_INTERNO).
+        "electronico": estado != InvoiceStatus.DRAFT.value,
+        "message": mensajes.get(estado, resultado.mensaje),
+        "detalle": resultado.mensaje,
     }
 
 @api_router.get("/invoices")

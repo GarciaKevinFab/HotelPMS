@@ -234,8 +234,30 @@ def test_las_preguntas_son_las_del_dueno_de_un_hostal():
     respuestas = " ".join(r for _, r in dudas.preguntas())
     # Lo que no esta aprobado o no esta verificado no se promete. Yape y la
     # banca movil si (pago adelantado, aprobado por Kevin el 2026-11-08).
-    for fuera in ("transferencia", "WhatsApp", "demo", "NubeFact", "huésped"):
+    for fuera in ("transferencia", "WhatsApp", "demo", "huésped", "en preparación"):
         assert fuera not in respuestas, fuera
+
+
+def test_ninguna_pagina_publica_promete_emision_electronica_a_huespedes():
+    """La emision electronica propia esta en preparacion: no se vende como lista.
+
+    Se retiro el proveedor externo (migracion 007) y el motor propio aun no
+    emite boletas ni con el RUC de cada hotel. Lo que si se puede decir es que
+    esta en preparacion. La factura de la SUSCRIPCION (ZenStay al hotel) es
+    otra cosa y si existe: esa frase se queda.
+    """
+    paginas = dict(_paginas())
+    for archivo in ("reclamaciones.html",):
+        paginas[archivo] = (LANDING / archivo).read_text(encoding="utf-8")
+    paginas["llms"] = seo.llms(PLANES, co.COMERCIO)
+    for nombre, texto in paginas.items():
+        for promesa in ("NubeFact", "Boletas y facturas SUNAT", "comprobantes SUNAT",
+                        "boletas electrónicas SUNAT", "Boleta y factura electrónica a SUNAT",
+                        "proveedores autorizados"):
+            assert promesa not in texto, (nombre, promesa)
+    assert "en preparación" in paginas["index.html"]
+    incluye = " ".join(co.incluye(PRO))
+    assert "en preparación" in incluye and "Comprobantes internos" in incluye
 
 
 def test_como_pago_dice_exactamente_los_medios_del_pago_adelantado():

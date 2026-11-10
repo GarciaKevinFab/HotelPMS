@@ -1092,13 +1092,18 @@ export function Tenants() {
               <div className="border-t pt-5">
                 <h4 className="font-heading text-base font-semibold">Configuración Facturación</h4>
                 <div className="mt-2 flex items-center justify-between gap-3 text-sm">
-                  <span className="text-muted-foreground">Modo NubeFact:</span>
-                  <Badge
-                    variant="outline"
-                    className={selectedTenant.invoicing_mode === 'LIVE' ? 'status-vacant-clean' : 'status-dirty'}
-                  >
-                    {selectedTenant.invoicing_mode || 'MOCK'}
+                  <span className="text-muted-foreground">Facturación electrónica:</span>
+                  {/* La activa el motor propio en el servidor, no cada hotel:
+                      hasta entonces sus comprobantes son internos. */}
+                  <Badge variant="outline" className="status-dirty">
+                    En preparación
                   </Badge>
+                </div>
+                <div className="mt-2 flex items-center justify-between gap-3 text-sm">
+                  <span className="text-muted-foreground">Series:</span>
+                  <span className="font-mono">
+                    {selectedTenant.boleta_series || '—'} / {selectedTenant.factura_series || '—'}
+                  </span>
                 </div>
               </div>
 

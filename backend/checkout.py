@@ -230,7 +230,8 @@ def incluye(plan: dict) -> list:
         "Reservas, check-in y check-out",
         "Caja y arqueo por turno",
         "Limpieza y mantenimiento",
-        "Boletas y facturas SUNAT" if plan.get("facturacion_sunat") else "Comprobantes internos",
+        ("Comprobantes internos (emisión electrónica SUNAT en preparación)" if plan.get("facturacion_sunat")
+         else "Comprobantes internos"),
         ("Reportes de ocupación, ADR y RevPAR" if plan.get("reportes_avanzados")
          else "Reportes básicos"),
     ]
@@ -479,7 +480,7 @@ def _pie(comercio: dict) -> str:
           <span>ZenStay</span>
         </div>
         <p class="pie-lema">Gestión para hoteles, hostales y hospedajes del Perú.
-           Reservas, recepción, caja y comprobantes SUNAT en un solo sitio.</p>
+           Reservas, recepción, caja y comprobantes en un solo sitio.</p>
       </div>
       <nav aria-label="Producto">
         <h3>Producto</h3>

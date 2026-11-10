@@ -33,9 +33,9 @@ CADA RESPUESTA SALE DEL CODIGO, NO DE UN DESEO
   - Celular: la aplicacion es web y tiene menu para pantallas pequeñas
     (frontend AppLayout.jsx); no se instala nada.
 
-  NO se pregunta "¿emite boletas a mis huespedes?": la emision a SUNAT pasa
-  por NubeFact y hoy no esta verificada de punta a punta, asi que no se
-  promete aqui. Si cambia alguna de estas reglas, cambia su respuesta.
+  NO se pregunta "¿emite boletas a mis huespedes?": la emision electronica
+  propia a SUNAT esta en preparacion (backend/facturacion_propia.py), asi que
+  no se promete aqui. Si cambia alguna de estas reglas, cambia su respuesta.
 
 TODO ES HTML SIN JAVASCRIPT
 

@@ -3,13 +3,15 @@
 QUE CUBRE
 
   Seguridad
-    1. SSRF en la ruta de NubeFact y envio asincrono con timeout corto.
+    1. Emision de comprobantes: el enganche (apagado) con el motor propio.
+       (Antes: SSRF en la ruta del proveedor externo, retirado en la 007.)
     2. Tokens que se pueden revocar: rol, hotel e is_active salen de la base.
     3. Roles en cobros, caja y comprobantes; importes negativos -> 422.
     4. Correos solo a gente del propio hotel, con tope por hotel.
-    5. El token de NubeFact no se guarda en claro en la bitacora.
+    5. GET /tenants/{id} no devuelve credenciales de facturacion.
     6. /docs, /redoc y /openapi.json apagados por defecto.
-    7. Cabeceras de seguridad en todas las respuestas.
+    7. Cabeceras de seguridad en todas las respuestas, y los origenes de la
+       CSP que pide produccion (Cloudflare Web Analytics, workers blob:).
   SEO
     9. 404 de verdad, 301 de la barra final y noindex en la SPA privada.
    10. Logotipo optimizado y h1 de la portada visible sin animacion.
@@ -86,77 +88,111 @@ def _cliente_sin_base():
 
 
 # ===========================================================================
-# 1. NubeFact: que rutas se aceptan
+# 1. El enganche con el motor propio de facturacion
 # ===========================================================================
+# backend/facturacion_propia.py. Apagado por defecto; encendido, solo sale a
+# la red para lo que el motor ya soporta (facturas del RUC configurado).
 
-BUENAS = [
-    "https://api.nubefact.com/api/v1/03989d1a-6c8c-4b71-b1cd-7d37001deaa0",
-    "https://API.NUBEFACT.COM/api/v1/abc",
-    "https://demo.nubefact.com/api/v1/abc",
-]
-MALAS = [
-    "http://api.nubefact.com/api/v1/abc",           # sin TLS
-    "https://169.254.169.254/latest/meta-data",     # metadatos de la nube
-    "https://127.0.0.1/api/v1/x",                   # IP literal
-    "https://[::1]/api/v1/x",
-    "https://localhost/api/v1/x",
-    "https://postgres:5432/api/v1/x",               # contenedor vecino
-    "https://api.nubefact.com.evil.pe/api/v1/x",    # sufijo enganoso
-    "https://evilnubefact.com/api/v1/x",
-    "https://api.nubefact.com:8443/api/v1/x",       # otro puerto
-    "https://user:clave@api.nubefact.com/api/v1/x",
-    "https://api.nubefact.com/otra-cosa",           # no es la API
-    "file:///etc/passwd",
-    "gopher://api.nubefact.com/api/v1/x",
-    "no es una url",
-]
+import facturacion_propia  # noqa: E402
+
+MOTOR_URL = "http://127.0.0.1:8090"
+RUC_EMISOR = "20490042068"
 
 
-@puro
-@pytest.mark.parametrize("ruta", BUENAS)
-def test_ruta_nubefact_valida_se_acepta(ruta):
-    assert server.validar_ruta_nubefact(ruta) == ruta
+def _no_debe_salir_a_la_red():
+    raise AssertionError("no se debia salir a la red")
 
 
-@puro
-@pytest.mark.parametrize("ruta", MALAS)
-def test_ruta_nubefact_no_permitida_se_rechaza(ruta):
-    with pytest.raises(ValueError):
-        server.validar_ruta_nubefact(ruta)
-    with pytest.raises(ValidationError):
-        server.TenantInvoicingConfig(nubefact_ruta=ruta)
+def _sin_motor(monkeypatch):
+    for nombre in ("FACTURACION_URL", "FACTURACION_TOKEN", "FACTURACION_EMISOR_RUC"):
+        monkeypatch.delenv(nombre, raising=False)
+
+
+def _con_motor(monkeypatch, emisor=RUC_EMISOR):
+    monkeypatch.setenv("FACTURACION_URL", MOTOR_URL + "/")
+    monkeypatch.setenv("FACTURACION_TOKEN", "token-de-pruebas")
+    monkeypatch.setenv("FACTURACION_EMISOR_RUC", emisor)
+
+
+def _solicitud():
+    return facturacion_propia.armar_solicitud(
+        emisor_ruc=RUC_EMISOR, serie="F001", numero=7, cliente_ruc="20100070970",
+        cliente_nombre="EMPRESA SAC", cliente_direccion="Av. Siempre Viva 123",
+        cargos=[{"concept": "Noche doble", "quantity": 2, "unit_price": 100.0},
+                {"concept": "", "quantity": 1.5, "unit_price": 12.3}],
+        total=254.14, clave_idempotencia="zenstay-x-FACTURA-F001-7")
 
 
 @puro
-def test_ruta_vacia_no_cambia_nada():
-    assert server.TenantInvoicingConfig(nubefact_ruta="  ").nubefact_ruta is None
-
-
-class _ClienteQueNoDebeUsarse:
-    def __init__(self, *a, **k):
-        raise AssertionError("no se debia salir a la red")
-
-
-@puro
-def test_ruta_guardada_antes_de_la_validacion_no_sale_a_la_red(monkeypatch):
-    monkeypatch.setattr(server.httpx, "AsyncClient", _ClienteQueNoDebeUsarse)
-    r = asyncio.run(server.NubeFactService._live_request(
-        {"nubefact_ruta": "http://10.0.0.5/x", "nubefact_token": "t"}, {}))
-    assert r["success"] is False and "no permitida" in r["error"]
+def test_sin_configurar_el_comprobante_queda_interno_sin_red(monkeypatch):
+    _sin_motor(monkeypatch)
+    monkeypatch.setattr(facturacion_propia, "_cliente_http", _no_debe_salir_a_la_red)
+    for tipo in ("BOLETA", "FACTURA"):
+        r = asyncio.run(facturacion_propia.emitir(
+            tipo=tipo, emisor_ruc=RUC_EMISOR, solicitud_factura=_solicitud()))
+        assert r.estado == facturacion_propia.INTERNO
+        assert r.mensaje == facturacion_propia.MENSAJE_INTERNO
+        assert "sin validez tributaria" in r.mensaje
+        assert r.motor_comprobante_id is None and r.solicitud is None
 
 
 @puro
-def test_envio_asincrono_con_timeout_corto_y_sin_redirecciones(monkeypatch):
-    visto = {}
+def test_solo_url_o_solo_token_sigue_apagado(monkeypatch):
+    _sin_motor(monkeypatch)
+    monkeypatch.setenv("FACTURACION_URL", MOTOR_URL)
+    assert facturacion_propia.configuracion() is None
+    _sin_motor(monkeypatch)
+    monkeypatch.setenv("FACTURACION_TOKEN", "t")
+    assert facturacion_propia.configuracion() is None
 
+
+@puro
+def test_boleta_con_motor_configurado_no_disponible_sin_red(monkeypatch):
+    _con_motor(monkeypatch)
+    monkeypatch.setattr(facturacion_propia, "_cliente_http", _no_debe_salir_a_la_red)
+    r = asyncio.run(facturacion_propia.emitir(
+        tipo="BOLETA", emisor_ruc=RUC_EMISOR, solicitud_factura=None))
+    assert r.estado == facturacion_propia.NO_DISPONIBLE
+    assert "no está disponible todavía" in r.mensaje and "boletas" in r.mensaje
+    assert r.solicitud is None
+
+
+@puro
+@pytest.mark.parametrize("emisor_configurado", ["20999888777", ""])
+def test_factura_de_otro_ruc_no_disponible_sin_red(monkeypatch, emisor_configurado):
+    _con_motor(monkeypatch, emisor=emisor_configurado)
+    monkeypatch.setattr(facturacion_propia, "_cliente_http", _no_debe_salir_a_la_red)
+    r = asyncio.run(facturacion_propia.emitir(
+        tipo="FACTURA", emisor_ruc=RUC_EMISOR, solicitud_factura=_solicitud()))
+    assert r.estado == facturacion_propia.NO_DISPONIBLE
+    assert "RUC" in r.mensaje and "no está disponible todavía" in r.mensaje
+
+
+@puro
+def test_la_solicitud_es_la_del_motor():
+    sol = _solicitud()
+    assert sol["tipo_documento"] == "01" and sol["serie"] == "F001" and sol["numero"] == 7
+    assert sol["cliente"] == {"tipo_documento": "6", "numero_documento": "20100070970",
+                              "razon_social": "EMPRESA SAC",
+                              "direccion": "Av. Siempre Viva 123"}
+    # Sin notacion cientifica: Decimal("100.00").normalize() se imprime 1E+2.
+    assert sol["items"][0] == {"descripcion": "Noche doble", "cantidad": "2",
+                               "unidad": "ZZ", "valor_unitario": "100"}
+    assert sol["items"][1]["descripcion"] == "Servicio de hospedaje"
+    assert sol["items"][1]["cantidad"] == "1.5"
+    assert sol["total_esperado"] == "254.14"
+    assert sol["clave_idempotencia"] == "zenstay-x-FACTURA-F001-7"
+
+
+def _cliente_falso(visto, status, cuerpo):
     class Respuesta:
+        status_code = status
+        text = "x"
+
         def json(self):
-            return {"aceptada_por_sunat": True, "enlace_del_pdf": "x"}
+            return cuerpo
 
     class Cliente:
-        def __init__(self, timeout, follow_redirects):
-            visto.update(timeout=timeout, follow_redirects=follow_redirects)
-
         async def __aenter__(self):
             return self
 
@@ -164,29 +200,91 @@ def test_envio_asincrono_con_timeout_corto_y_sin_redirecciones(monkeypatch):
             return False
 
         async def post(self, url, json, headers):
-            visto["url"] = url
+            visto.update(url=url, json=json, headers=headers)
             return Respuesta()
 
-    async def publica(host):
-        visto["host"] = host
-
-    monkeypatch.setattr(server.httpx, "AsyncClient", Cliente)
-    monkeypatch.setattr(server, "_host_resuelve_a_publica", publica)
-    r = asyncio.run(server.NubeFactService._live_request(
-        {"nubefact_ruta": BUENAS[0], "nubefact_token": "t"}, {"x": 1}))
-    assert r["success"] is True
-    assert visto["follow_redirects"] is False
-    assert visto["timeout"].read <= 10 and visto["timeout"].connect <= 5
-    assert visto["host"] == "api.nubefact.com"
+    return Cliente
 
 
 @puro
-def test_host_que_resuelve_a_red_privada_se_rechaza(monkeypatch):
-    async def falso_dns(self, host, puerto, **k):
-        return [(2, 1, 6, "", ("10.0.0.5", 443))]
-    monkeypatch.setattr(asyncio.BaseEventLoop, "getaddrinfo", falso_dns)
-    with pytest.raises(ValueError):
-        asyncio.run(server._host_resuelve_a_publica("api.nubefact.com"))
+def test_factura_del_ruc_configurado_va_al_motor(monkeypatch):
+    _con_motor(monkeypatch)
+    visto = {}
+    id_motor = str(uuid.uuid4())
+    monkeypatch.setattr(facturacion_propia, "_cliente_http", _cliente_falso(visto, 201, {
+        "id": id_motor, "estado": "aceptado", "digest_value": "abc=",
+        "cdr": {"codigo": 0, "descripcion": "La Factura numero F001-7, ha sido aceptada",
+                "notas": [], "zip_base64": "UEsDBA=="}}))
+    sol = _solicitud()
+    r = asyncio.run(facturacion_propia.emitir(
+        tipo="FACTURA", emisor_ruc=RUC_EMISOR, solicitud_factura=sol))
+    assert visto["url"] == MOTOR_URL + "/comprobantes"
+    assert visto["headers"]["Authorization"] == "Bearer token-de-pruebas"
+    assert visto["json"] is sol
+    assert r.estado == facturacion_propia.ACEPTADO
+    assert r.motor_comprobante_id == id_motor and r.hash == "abc="
+    assert "aceptada" in r.mensaje
+    # El CDR lo conserva el motor: no se copia el ZIP a ZenStay.
+    assert "zip_base64" not in r.respuesta["cdr"]
+
+
+@puro
+@pytest.mark.parametrize("status,cuerpo,esperado", [
+    (201, {"id": "no-es-uuid", "estado": "rechazado", "ultimo_error": "2800"}, "rechazado"),
+    (200, {"id": None, "estado": "enviado"}, "pendiente"),
+    (422, {"detail": ["IGV no cuadra"]}, "rechazado"),
+    (401, {"detail": "token"}, "pendiente"),
+    (503, {"detail": "sin configurar"}, "pendiente"),
+])
+def test_respuestas_del_motor(monkeypatch, status, cuerpo, esperado):
+    _con_motor(monkeypatch)
+    monkeypatch.setattr(facturacion_propia, "_cliente_http", _cliente_falso({}, status, cuerpo))
+    r = asyncio.run(facturacion_propia.emitir(
+        tipo="FACTURA", emisor_ruc=RUC_EMISOR, solicitud_factura=_solicitud()))
+    assert r.estado == esperado
+    assert r.motor_comprobante_id is None
+
+
+@puro
+def test_cliente_del_motor_con_timeout_corto_y_sin_redirecciones():
+    async def ver():
+        async with facturacion_propia._cliente_http() as cliente:
+            return cliente.timeout, cliente.follow_redirects
+    timeout, redirecciones = asyncio.run(ver())
+    assert timeout.connect <= 5 and timeout.read <= 15
+    assert redirecciones is False
+
+
+@puro
+def test_motor_caido_queda_pendiente_sin_excepcion(monkeypatch):
+    _con_motor(monkeypatch)
+
+    class Caido:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, *a, **k):
+            raise facturacion_propia.httpx.ConnectError("rechazada")
+
+    monkeypatch.setattr(facturacion_propia, "_cliente_http", Caido)
+    r = asyncio.run(facturacion_propia.emitir(
+        tipo="FACTURA", emisor_ruc=RUC_EMISOR, solicitud_factura=_solicitud()))
+    assert r.estado == facturacion_propia.PENDIENTE
+    assert "ConnectError" in r.respuesta["error"]
+
+
+@puro
+def test_no_quedan_restos_del_proveedor_externo():
+    fuente = (BACKEND / "server.py").read_text(encoding="utf-8")
+    for resto in ("NubeFact", "nubefact", "invoicing_mode", "validar_ruta_"):
+        assert resto not in fuente, resto
+    assert not hasattr(server, "NubeFactService")
+    assert set(server.TenantInvoicingConfig.model_fields) == {
+        "boleta_series", "boleta_correlative", "factura_series",
+        "factura_correlative", "igv_rate"}
 
 
 @puro
@@ -195,19 +293,6 @@ def test_send_invoice_ya_no_usa_requests():
     codigo = [linea.split("#", 1)[0] for linea in fuente.splitlines()]
     assert not any("requests.post(" in linea for linea in codigo)
     assert "import requests" not in fuente
-
-
-# ===========================================================================
-# 5. Bitacora sin el token
-# ===========================================================================
-
-@puro
-def test_bitacora_redacta_el_token_de_nubefact():
-    datos = server._config_facturacion_para_bitacora(
-        server.TenantInvoicingConfig(nubefact_ruta=BUENAS[0], nubefact_token="secreto-123"))
-    assert datos["nubefact_token"] == "***redactado***"
-    assert datos["nubefact_ruta"] == BUENAS[0]
-    assert "secreto-123" not in str(datos)
 
 
 # ===========================================================================
@@ -274,6 +359,22 @@ def test_cabeceras_de_seguridad_presentes(ruta):
     r = _cliente_sin_base().get(ruta)
     for nombre, contiene in ESPERADAS.items():
         assert contiene in r.headers.get(nombre, ""), (ruta, nombre)
+
+
+@puro
+def test_la_csp_admite_cloudflare_insights_y_workers_blob():
+    """Lo que el navegador marco en produccion antes de pasar la CSP a obligatoria."""
+    r = _cliente_sin_base().get("/api/health")
+    directivas = {}
+    for parte in r.headers["content-security-policy-report-only"].split(";"):
+        nombre, *valores = parte.split()
+        directivas[nombre] = valores
+    assert "https://static.cloudflareinsights.com" in directivas["script-src"]
+    assert "https://cloudflareinsights.com" in directivas["connect-src"]
+    assert directivas["worker-src"] == ["'self'", "blob:"]
+    # Ningun comodin de mas al abrir esos origenes.
+    for nombre in ("script-src", "connect-src", "worker-src"):
+        assert "*" not in directivas[nombre] and "https:" not in directivas[nombre]
 
 
 @puro
@@ -775,31 +876,94 @@ def test_notificacion_solo_a_gente_del_propio_hotel(monkeypatch):
     _correr(cuerpo, monkeypatch)
 
 
-# --- 1 y 5. Ruta y token de NubeFact por HTTP ----------------------------------
+# --- 1 y 5. Comprobantes por HTTP y GET /tenants/{id} -------------------------
+
+async def _folio_con_cargos(conn, tid, uid):
+    d = await _datos(conn, tid, uid, "9")
+    for concepto, precio in (("Noche doble", 100), ("Desayuno", 20)):
+        await conn.execute(
+            """insert into charges (tenant_id, folio_id, concept, quantity, unit_price,
+                                    subtotal, igv_amount, total, created_by)
+               values ($1, $2, $3, 1, $4, $4, round($4 * 0.18, 2), round($4 * 1.18, 2), $5)""",
+            tid, d["folio"], concepto, precio, uid)
+    return d["folio"]
+
 
 @con_base
-def test_guardar_ruta_nubefact_por_http(monkeypatch):
+@pytest.mark.parametrize("tipo,doc", [("BOLETA", ("DNI", "40000001")),
+                                      ("FACTURA", ("RUC", "20100070970"))])
+def test_sin_motor_el_comprobante_queda_interno(monkeypatch, tipo, doc):
+    _sin_motor(monkeypatch)
+    monkeypatch.setattr(facturacion_propia, "_cliente_http", _no_debe_salir_a_la_red)
+
+    async def cuerpo(conn, cliente):
+        tid = await _hotel(conn, RUC_A)
+        uid, email = await _usuario(conn, tid, "recep-a", "RECEPTIONIST")
+        folio = await _folio_con_cargos(conn, tid, uid)
+        r = await cliente.post("/api/invoices", headers=_cab(uid, email, "RECEPTIONIST", tid), json={
+            "folio_id": str(folio), "type": tipo, "client_doc_type": doc[0],
+            "client_doc_number": doc[1], "client_name": "Cliente", "client_address": "Lima"})
+        assert r.status_code == 200, r.text
+        cuerpo_r = r.json()
+        assert cuerpo_r["status"] == "DRAFT" and cuerpo_r["electronico"] is False
+        assert "sin validez tributaria" in cuerpo_r["message"]
+        fila = await conn.fetchrow(
+            """select status::text, total, pdf_url, xml_url, cdr_url, hash, qr,
+                      solicitud_envio, respuesta_envio, motor_comprobante_id
+                 from invoices where id = $1""", uuid.UUID(cuerpo_r["id"]))
+        assert fila["status"] == "DRAFT"
+        assert float(fila["total"]) == 141.6
+        assert [fila[c] for c in ("pdf_url", "xml_url", "cdr_url", "hash", "qr",
+                                  "solicitud_envio", "motor_comprobante_id")] == [None] * 7
+        assert '"interno"' in fila["respuesta_envio"]
+        # La numeracion sigue como estaba: el correlativo se consume.
+        col = "boleta_correlative" if tipo == "BOLETA" else "factura_correlative"
+        assert await conn.fetchval(f"select {col} from tenants where id = $1", tid) == \
+            cuerpo_r["number"]
+    _correr(cuerpo, monkeypatch)
+
+
+@con_base
+def test_boleta_con_motor_configurado_no_sale_a_la_red(monkeypatch):
+    _con_motor(monkeypatch, emisor=RUC_A)
+    monkeypatch.setattr(facturacion_propia, "_cliente_http", _no_debe_salir_a_la_red)
+
+    async def cuerpo(conn, cliente):
+        tid = await _hotel(conn, RUC_A)
+        uid, email = await _usuario(conn, tid, "recep-a", "RECEPTIONIST")
+        folio = await _folio_con_cargos(conn, tid, uid)
+        r = await cliente.post("/api/invoices", headers=_cab(uid, email, "RECEPTIONIST", tid), json={
+            "folio_id": str(folio), "type": "BOLETA", "client_doc_type": "DNI",
+            "client_doc_number": "40000001", "client_name": "Cliente"})
+        assert r.status_code == 200, r.text
+        assert r.json()["status"] == "DRAFT"
+        assert "no está disponible todavía" in r.json()["message"]
+        respuesta = await conn.fetchval(
+            "select respuesta_envio->>'resultado' from invoices where id = $1",
+            uuid.UUID(r.json()["id"]))
+        assert respuesta == "no_disponible"
+    _correr(cuerpo, monkeypatch)
+
+
+@con_base
+def test_get_tenant_no_devuelve_campos_del_proveedor_externo(monkeypatch):
     async def cuerpo(conn, cliente):
         tid = await _hotel(conn, RUC_A)
         uid, email = await _usuario(conn, tid, "admin-a", "ADMIN")
-        cab = _cab(uid, email, "ADMIN", tid)
-        for mala in ("http://169.254.169.254/latest", "https://10.0.0.1/api/v1/x",
-                     "https://zenstay-postgres/api/v1/x"):
-            r = await cliente.put(f"/api/tenants/{tid}/invoicing", headers=cab,
-                                  json={"nubefact_ruta": mala, "nubefact_token": "t"})
-            assert r.status_code == 422, (mala, r.text)
-        assert await conn.fetchval("select nubefact_ruta from tenants where id = $1", tid) is None
-
-        r = await cliente.put(f"/api/tenants/{tid}/invoicing", headers=cab,
-                              json={"nubefact_ruta": BUENAS[0], "nubefact_token": "secreto-xyz"})
+        r = await cliente.get(f"/api/tenants/{tid}", headers=_cab(uid, email, "ADMIN", tid))
         assert r.status_code == 200, r.text
-        fila = await conn.fetchrow("select nubefact_ruta, nubefact_token from tenants where id = $1", tid)
-        assert (fila["nubefact_ruta"], fila["nubefact_token"]) == (BUENAS[0], "secreto-xyz")
+        claves = set(r.json())
+        assert {"boleta_series", "factura_series", "igv_rate"} <= claves
+        assert not [k for k in claves if "nubefact" in k or "token" in k
+                    or k == "invoicing_mode"], claves
+
+        r = await cliente.put(f"/api/tenants/{tid}/invoicing", headers=_cab(uid, email, "ADMIN", tid),
+                              json={"boleta_series": "B002", "nubefact_token": "ignorado"})
+        assert r.status_code == 200, r.text
+        assert await conn.fetchval("select boleta_series from tenants where id = $1", tid) == "B002"
         bitacora = await conn.fetchval(
             "select after_json from audit_logs where tenant_id = $1 and action = 'UPDATE_INVOICING'", tid)
-        assert "secreto-xyz" not in str(bitacora)
-        assert '"nubefact_token": "***redactado***"' in str(bitacora) or \
-            "***redactado***" in str(bitacora)
+        assert "ignorado" not in str(bitacora)
     _correr(cuerpo, monkeypatch)
 
 
@@ -915,6 +1079,16 @@ def test_esquema_rls_y_migraciones_en_base_vacia_fuerzan_rls_en_toda_tabla_con_t
             await conn.execute(texto_rls)
             for migracion in sorted((REPO / "db" / "migrations").glob("*.sql")):
                 await conn.execute(migracion.read_text(encoding="utf-8"))
+            # La 007 se puede correr dos veces.
+            await conn.execute(
+                (REPO / "db" / "migrations" / "007_quitar_nubefact.sql").read_text(encoding="utf-8"))
+            columnas = {(f["table_name"], f["column_name"]) for f in await conn.fetch(
+                """select table_name, column_name from information_schema.columns
+                    where table_schema = 'public' and table_name in ('tenants', 'invoices')""")}
+            assert ("invoices", "solicitud_envio") in columnas
+            assert ("invoices", "respuesta_envio") in columnas
+            assert ("invoices", "motor_comprobante_id") in columnas
+            assert not [c for t, c in columnas if "nubefact" in c or c == "invoicing_mode"]
 
             tablas = await conn.fetch(
                 """select c.relname, c.relrowsecurity, c.relforcerowsecurity,
