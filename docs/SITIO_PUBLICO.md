@@ -26,7 +26,8 @@ Cada respuesta está comprobada contra el código (ver la cabecera de
 `dudas.py`). Los plazos salen de `suscripciones.DIAS_PRUEBA`, `DIAS_GRACIA` y
 `MESES_DEL_ANUAL`. No se menciona Yape ni banca móvil (pendiente de
 aprobación). Tampoco se pregunta si ZenStay emite boletas a los huéspedes: la
-emisión a SUNAT por NubeFact no está verificada de punta a punta.
+emisión electrónica propia a SUNAT está en preparación (ver
+`backend/facturacion_propia.py`); hasta activarla, los comprobantes son internos.
 
 ## Bloque de confianza (portada y `/comprar/{plan}`)
 

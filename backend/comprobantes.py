@@ -16,7 +16,7 @@ COMO FUNCIONA
      (/comprobantes), y el hotel lo descarga desde Configuracion > Suscripcion.
 
 ZenStay no emite nada ante SUNAT por la suscripcion: solo ordena el trabajo
-manual. (Los comprobantes que el HOTEL emite a SUS huespedes van por NubeFact
+manual. (Los comprobantes que el HOTEL emite a SUS huespedes van por el motor propio
 y no tienen nada que ver con esto.)
 
 DIFERENCIAS CON LICITAPRO

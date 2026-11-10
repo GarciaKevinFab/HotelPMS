@@ -778,52 +778,46 @@ class TestUserManagement:
 
 
 class TestTenantInvoicingConfig:
-    """Tenant Invoicing Configuration tests - NubeFact settings"""
-    
+    """Series, correlativos e IGV del hotel (sin proveedor de facturacion)."""
+
     def test_get_tenant_with_invoicing_config(self, auth_headers):
-        """Test getting tenant includes invoicing config"""
-        # First get user info to get tenant_id
+        """El hotel trae sus series y su IGV, y ningun dato de un proveedor."""
         me_response = requests.get(f"{BASE_URL}/api/auth/me", headers=auth_headers)
         assert me_response.status_code == 200
         tenant_id = me_response.json().get("tenant_id")
-        
+
         if not tenant_id:
             pytest.skip("User has no tenant_id")
-        
-        # Get tenant details
+
         tenant_response = requests.get(f"{BASE_URL}/api/tenants/{tenant_id}", headers=auth_headers)
         assert tenant_response.status_code == 200
         tenant = tenant_response.json()
-        
+
         # La config de facturacion ya no va anidada: vive en columnas propias
         # de la tabla tenants, una sola vez (antes estaba duplicada).
-        config = tenant
-        assert "invoicing_mode" in config
-        assert "boleta_series" in config
-        assert "factura_series" in config
-        assert "igv_rate" in config
-    
-    def test_update_invoicing_config_mock_mode(self, auth_headers):
-        """Test updating invoicing config to MOCK mode"""
-        # Get tenant_id
+        assert "boleta_series" in tenant
+        assert "factura_series" in tenant
+        assert "igv_rate" in tenant
+        # Migracion 007: ni ruta, ni token, ni modo de un proveedor externo.
+        assert "invoicing_mode" not in tenant
+        assert not [k for k in tenant if "nube" in k.lower() or "token" in k.lower()], tenant
+
+    def test_update_invoicing_config(self, auth_headers):
+        """Guardar series, correlativos e IGV."""
         me_response = requests.get(f"{BASE_URL}/api/auth/me", headers=auth_headers)
         tenant_id = me_response.json().get("tenant_id")
-        
+
         if not tenant_id:
             pytest.skip("User has no tenant_id")
-        
-        # Update to MOCK mode (no token)
+
         config_data = {
-            "nubefact_ruta": None,
-            "nubefact_token": None,
-            "invoicing_mode": "MOCK",
             "boleta_series": "B001",
             "boleta_correlative": 1,
             "factura_series": "F001",
             "factura_correlative": 1,
             "igv_rate": 18.0
         }
-        
+
         response = requests.put(
             f"{BASE_URL}/api/tenants/{tenant_id}/invoicing",
             json=config_data,
@@ -831,54 +825,6 @@ class TestTenantInvoicingConfig:
         )
         assert response.status_code == 200
         assert response.json()["message"] == "Configuración de facturación actualizada"
-    
-    def test_update_invoicing_config_live_mode(self, auth_headers):
-        """Test updating invoicing config to LIVE mode with credentials"""
-        # Get tenant_id
-        me_response = requests.get(f"{BASE_URL}/api/auth/me", headers=auth_headers)
-        tenant_id = me_response.json().get("tenant_id")
-        
-        if not tenant_id:
-            pytest.skip("User has no tenant_id")
-        
-        # Update to LIVE mode with test credentials
-        config_data = {
-            "nubefact_ruta": "https://api.nubefact.com/api/v1/test",
-            "nubefact_token": "test-token-12345",
-            "invoicing_mode": "LIVE",
-            "boleta_series": "B001",
-            "boleta_correlative": 100,
-            "factura_series": "F001",
-            "factura_correlative": 50,
-            "igv_rate": 18.0
-        }
-        
-        response = requests.put(
-            f"{BASE_URL}/api/tenants/{tenant_id}/invoicing",
-            json=config_data,
-            headers=auth_headers
-        )
-        assert response.status_code == 200
-        
-        # Verify config was saved
-        tenant_response = requests.get(f"{BASE_URL}/api/tenants/{tenant_id}", headers=auth_headers)
-        tenant = tenant_response.json()
-        assert tenant["nubefact_ruta"] == "https://api.nubefact.com/api/v1/test"
-        assert tenant["nubefact_token"] == "test-token-12345"
-        assert tenant["invoicing_mode"] == "LIVE"
-        
-        # Reset back to MOCK mode for other tests
-        reset_config = {
-            "nubefact_ruta": None,
-            "nubefact_token": None,
-            "invoicing_mode": "MOCK",
-            "boleta_series": "B001",
-            "boleta_correlative": 1,
-            "factura_series": "F001",
-            "factura_correlative": 1,
-            "igv_rate": 18.0
-        }
-        requests.put(f"{BASE_URL}/api/tenants/{tenant_id}/invoicing", json=reset_config, headers=auth_headers)
 
 
 class TestWalkin:

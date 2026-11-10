@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ZenStay · Software de gestión hotelera para hospedajes del Perú</title>
-<meta name="description" content="Sistema de gestión para hoteles, hostales y hospedajes en Perú. Reservas, recepción, caja y boletas electrónicas SUNAT. Desde S/ 59 al mes.">
+<meta name="description" content="Sistema de gestión para hoteles, hostales y hospedajes en Perú. Reservas, recepción, caja, limpieza y reportes. Desde S/ 59 al mes.">
 <link rel="icon" href="/favicon.ico" sizes="any">
 <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
 <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
@@ -103,7 +103,7 @@
           <li>El tablero de habitaciones, igual para todos los turnos</li>
           <li>El sistema no deja vender dos veces la misma noche</li>
           <li>El arqueo suma los cobros y las salidas de caja solo</li>
-          <li>Boleta y factura electrónica a SUNAT desde la misma pantalla</li>
+          <li>El comprobante del huésped sale del mismo folio, sin volver a tipear</li>
           <li>Ocupación, ingreso por habitación y ADR, actualizados al minuto</li>
         </ul>
       </div>
@@ -120,9 +120,9 @@
     <div class="columnas">
       <div>
         <div class="numero">01</div>
-        <h3>Boletas y facturas SUNAT</h3>
-        <p>Emisión electrónica vía NubeFact, con series y correlativos que la base
-           protege para que nunca se repita ni se salte un número.</p>
+        <h3>Comprobantes con series y correlativos</h3>
+        <p>Series y correlativos que la base protege para que nunca se repita ni se
+           salte un número. La emisión electrónica propia a SUNAT está en preparación.</p>
       </div>
       <div>
         <div class="numero">02</div>
@@ -169,7 +169,7 @@
           <span>ZenStay</span>
         </div>
         <p class="pie-lema">Gestión para hoteles, hostales y hospedajes del Perú.
-           Reservas, recepción, caja y comprobantes SUNAT en un solo sitio.</p>
+           Reservas, recepción, caja y comprobantes en un solo sitio.</p>
       </div>
 
       <nav aria-label="Producto">
@@ -236,7 +236,7 @@
         'Reservas, check-in y check-out',
         'Caja y arqueo por turno',
         'Limpieza y mantenimiento',
-        p.facturacion_sunat ? 'Boletas y facturas SUNAT' : 'Comprobantes internos',
+        p.facturacion_sunat ? 'Comprobantes internos (emisión electrónica SUNAT en preparación)' : 'Comprobantes internos',
         p.reportes_avanzados ? 'Reportes de ocupación, ADR y RevPAR' : 'Reportes básicos'
       ];
       // El plan intermedio se destaca: es el que encaja con la mayoria de

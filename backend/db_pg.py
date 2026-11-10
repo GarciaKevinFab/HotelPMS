@@ -78,7 +78,7 @@ _pool_lock = asyncio.Lock()
 
 async def _init_connection(conn):
     # jsonb <-> dict automatico. Sin esto, asyncpg entrega los campos jsonb
-    # (settings, entity_ref, totals, nubefact_response, before/after de la
+    # (settings, entity_ref, totals, respuesta_envio, before/after de la
     # auditoria) como str y habria que llamar json.loads en cada lectura.
     await conn.set_type_codec(
         "jsonb", encoder=json.dumps, decoder=json.loads, schema="pg_catalog"

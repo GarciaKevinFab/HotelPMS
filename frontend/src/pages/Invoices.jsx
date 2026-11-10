@@ -17,6 +17,7 @@ import { EstadoVacio } from '../components/EstadoVacio';
 import { EsqueletoFilas, EsqueletoMetricas } from '../components/Esqueleto';
 import { Input } from '../components/ui/input';
 import { Badge } from '../components/ui/badge';
+import { AVISO_COMPROBANTE_INTERNO, esComprobanteInterno } from '../lib/comprobantes';
 import { Card } from '../components/ui/card';
 import { Label } from '../components/ui/label';
 import { Textarea } from '../components/ui/textarea';
@@ -232,6 +233,7 @@ export function Invoices() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Todos</SelectItem>
+                <SelectItem value="DRAFT">Internos (borrador)</SelectItem>
                 <SelectItem value="ACCEPTED">Aceptados</SelectItem>
                 <SelectItem value="REJECTED">Rechazados</SelectItem>
                 <SelectItem value="PENDING">Pendientes</SelectItem>
@@ -313,6 +315,11 @@ export function Invoices() {
                         {getStatusLabel(invoice.status)}
                       </Badge>
                     </div>
+                    {esComprobanteInterno(invoice) && (
+                      <p className="mt-1 max-w-[16rem] text-xs text-muted-foreground">
+                        {AVISO_COMPROBANTE_INTERNO}
+                      </p>
+                    )}
                   </TableCell>
                   <TableCell className="text-right">
                     <DropdownMenu>
@@ -425,12 +432,25 @@ export function Invoices() {
                 </div>
               </div>
 
-              {/* SUNAT Response */}
-              {selectedInvoice.nubefact_response && (
+              {esComprobanteInterno(selectedInvoice) && (
+                <div
+                  className="rounded-lg border border-[hsl(var(--chart-3))]/40 bg-[hsl(var(--chart-3))]/5 p-4 text-sm"
+                  role="note"
+                  data-testid="aviso-comprobante-interno"
+                >
+                  <p className="font-medium">{AVISO_COMPROBANTE_INTERNO}</p>
+                  {selectedInvoice.respuesta_envio?.mensaje && (
+                    <p className="mt-1 text-muted-foreground">{selectedInvoice.respuesta_envio.mensaje}</p>
+                  )}
+                </div>
+              )}
+
+              {/* Respuesta del motor de facturacion (solo si se envio) */}
+              {!esComprobanteInterno(selectedInvoice) && selectedInvoice.respuesta_envio && (
                 <div>
                   <h4 className="font-medium mb-2">Respuesta SUNAT</h4>
                   <div className="rounded-lg bg-muted/60 p-4 text-sm">
-                    <p><strong>Descripción:</strong> {selectedInvoice.nubefact_response.sunat_description}</p>
+                    <p><strong>Descripción:</strong> {selectedInvoice.respuesta_envio.mensaje || '—'}</p>
                     {selectedInvoice.hash && (
                       // break-all: el hash es una cadena sin espacios que a
                       // 390 px desbordaba el dialogo.

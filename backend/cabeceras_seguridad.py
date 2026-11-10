@@ -35,13 +35,21 @@ CSP = "; ".join([
     "default-src 'self'",
     # 'unsafe-inline': hay scripts en linea en index.html y en la landing. Es
     # el primer candidato a cambiar por hashes cuando la CSP se aplique.
-    "script-src 'self' 'unsafe-inline' https://us-assets.i.posthog.com",
+    # static.cloudflareinsights.com: el beacon de Cloudflare Web Analytics, que
+    # el propio Cloudflare inyecta en las paginas al pasar por el tunel.
+    "script-src 'self' 'unsafe-inline' https://us-assets.i.posthog.com "
+    "https://static.cloudflareinsights.com",
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "font-src 'self' https://fonts.gstatic.com data:",
     "img-src 'self' data: blob: https:",
-    "connect-src 'self' https://us.i.posthog.com https://us-assets.i.posthog.com",
+    # cloudflareinsights.com: adonde ese beacon manda las mediciones.
+    "connect-src 'self' https://us.i.posthog.com https://us-assets.i.posthog.com "
+    "https://cloudflareinsights.com",
     "manifest-src 'self'",
-    "worker-src 'self'",
+    # blob: en produccion el navegador registro "Creating a worker from
+    # 'blob:https://zenstay.sisac.pe/...' violates worker-src 'self'". Un
+    # worker creado desde un blob: es codigo que ya cargo la propia pagina.
+    "worker-src 'self' blob:",
     "object-src 'none'",
     "base-uri 'self'",
     # El POST de /comprar redirige a Mercado Pago, y Chrome aplica form-action

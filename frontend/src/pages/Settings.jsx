@@ -7,7 +7,6 @@ import {
   Eye,
   EyeOff,
   AlertTriangle,
-  CheckCircle,
   UserRound,
   KeyRound,
   CreditCard,
@@ -17,8 +16,6 @@ import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
-import { Badge } from '../components/ui/badge';
-import { Separator } from '../components/ui/separator';
 import { EncabezadoPagina } from '../components/EncabezadoPagina';
 import { EstadoVacio } from '../components/EstadoVacio';
 import { EsqueletoBloque } from '../components/Esqueleto';
@@ -28,6 +25,7 @@ import { tenantsAPI, authAPI } from '../lib/api';
 import { toast } from 'sonner';
 import { useAuth } from '../contexts/AuthContext';
 import { cn } from '../lib/utils';
+import { AVISO_COMPROBANTE_INTERNO } from '../lib/comprobantes';
 
 /* Misma jerarquia en todas las pestanas: titulo de seccion en font-heading,
    descripcion en gris, y un solo boton turquesa por formulario. */
@@ -186,16 +184,7 @@ function MiCuenta() {
 export function Settings() {
   const { user, isAdmin, isSuperAdmin } = useAuth();
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
   const [tenant, setTenant] = useState(null);
-
-  // Invoicing config
-  const [invoicingConfig, setInvoicingConfig] = useState({
-    nubefact_ruta: '',
-    nubefact_token: '',
-    mode: 'MOCK'
-  });
-  const [showToken, setShowToken] = useState(false);
 
   // Ficha del hotel (editable por el ADMIN)
   const [hotelForm, setHotelForm] = useState(HOTEL_VACIO);
@@ -232,46 +221,10 @@ export function Settings() {
         checkout_time: t.checkout_time || '12:00',
       });
 
-      // La configuracion de facturacion viene en campos planos del hotel.
-      // Antes llegaba anidada en `invoicing_config` Y duplicada en la raiz;
-      // con Postgres existe una sola vez, que es la que consulta el codigo
-      // que emite los comprobantes.
-      //
-      // El modo sale de invoicing_mode y no de "¿hay token?": un hotel puede
-      // tener el token cargado y seguir en MOCK a proposito mientras prueba,
-      // y con la regla vieja la pantalla le decia que ya estaba emitiendo de
-      // verdad a SUNAT.
-      setInvoicingConfig({
-        nubefact_ruta: t.nubefact_ruta || '',
-        nubefact_token: t.nubefact_token || '',
-        mode: t.invoicing_mode || 'MOCK'
-      });
     } catch (err) {
       console.error('Error fetching settings:', err);
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleSaveInvoicing = async () => {
-    setSaving(true);
-    try {
-      // Se manda tambien el modo: es lo que decide si los comprobantes van de
-      // verdad a SUNAT o se quedan en simulacion. Sin este campo, elegir LIVE
-      // en la pantalla no cambiaba nada en el servidor.
-      //
-      // Lo que NO se manda (series, correlativos, IGV) se queda intacto: el
-      // endpoint hace coalesce campo a campo.
-      await tenantsAPI.updateInvoicing(user.tenant_id, {
-        nubefact_ruta: invoicingConfig.nubefact_ruta || null,
-        nubefact_token: invoicingConfig.nubefact_token || null,
-        invoicing_mode: invoicingConfig.mode || 'MOCK'
-      });
-      toast.success('Configuración de facturación guardada');
-    } catch (err) {
-      toast.error('Error al guardar configuración');
-    } finally {
-      setSaving(false);
     }
   };
 
@@ -321,7 +274,6 @@ export function Settings() {
     );
   }
 
-  const enProduccion = invoicingConfig.mode === 'LIVE';
   // La suscripcion es del ADMIN de un hotel (o del SUPER_ADMIN que entro
   // como el, cuyo token lleva rol ADMIN). El backend exige lo mismo.
   const veSuscripcion = user?.role === 'ADMIN' && tieneHotel;
@@ -374,107 +326,50 @@ export function Settings() {
             <CardHeader>
               <CardTitle className={TITULO_SECCION}>
                 <Receipt className="h-5 w-5 shrink-0 text-muted-foreground" />
-                Configuración NubeFact
+                Facturación electrónica
               </CardTitle>
               <CardDescription className={DESCRIPCION_SECCION}>
-                Configure la integración con SUNAT para facturación electrónica
+                Series y correlativos de los comprobantes del hotel
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-              {/* Mode indicator */}
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div className="flex items-start gap-3">
-                  {enProduccion ? (
-                    <CheckCircle className="mt-0.5 h-5 w-5 shrink-0 text-[hsl(var(--acento-turquesa))]" aria-hidden="true" />
-                  ) : (
-                    <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-[hsl(var(--chart-3))]" aria-hidden="true" />
-                  )}
-                  <div>
-                    <p className="text-sm font-medium">
-                      {enProduccion ? 'Modo Producción' : 'Modo Pruebas (MOCK)'}
-                    </p>
-                    <p className="text-sm text-muted-foreground">
-                      {enProduccion ? 'Facturas enviadas a SUNAT' : 'Facturas simuladas, no enviadas a SUNAT'}
-                    </p>
-                  </div>
-                </div>
-                <Badge
-                  variant="outline"
-                  className={enProduccion ? 'status-vacant-clean self-start sm:self-auto' : 'status-dirty self-start sm:self-auto'}
-                >
-                  {enProduccion ? 'LIVE' : 'MOCK'}
-                </Badge>
-              </div>
-
-              <Separator />
-
-              {/* API Configuration */}
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="nubefact_ruta">URL de la API (Ruta)</Label>
-                  <Input
-                    id="nubefact_ruta"
-                    value={invoicingConfig.nubefact_ruta}
-                    onChange={(e) => setInvoicingConfig(prev => ({ ...prev, nubefact_ruta: e.target.value }))}
-                    placeholder="https://api.nubefact.com/api/v1/..."
-                    data-testid="nubefact-ruta-input"
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    La URL proporcionada por NubeFact para su cuenta
+              {/* La emision electronica la hara el motor propio de la empresa,
+                  configurado en el servidor y no por hotel. Hasta activarlo,
+                  todo comprobante es interno: se dice claro, sin simular un
+                  "modo produccion" que no existe. */}
+              <div
+                className="flex items-start gap-3 rounded-md border border-[hsl(var(--chart-3))]/40 bg-[hsl(var(--chart-3))]/5 p-4"
+                role="note"
+                data-testid="aviso-facturacion-interna"
+              >
+                <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-[hsl(var(--chart-3))]" aria-hidden="true" />
+                <div className="space-y-1">
+                  <p className="text-sm font-medium">La facturación electrónica aún no está activada</p>
+                  <p className="text-sm text-muted-foreground">
+                    La emisión electrónica propia a SUNAT está en preparación. Mientras tanto, cada
+                    comprobante que emita queda como «{AVISO_COMPROBANTE_INTERNO}».
                   </p>
                 </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="nubefact_token">Token de Autenticación</Label>
-                  <div className="relative">
-                    <Input
-                      id="nubefact_token"
-                      type={showToken ? 'text' : 'password'}
-                      value={invoicingConfig.nubefact_token}
-                      onChange={(e) => setInvoicingConfig(prev => ({ ...prev, nubefact_token: e.target.value }))}
-                      placeholder="••••••••••••••••"
-                      className="pr-12"
-                      data-testid="nubefact-token-input"
-                    />
-                    {/* Era un boton mudo: solo un ojo, sin nombre, asi que con
-                        lector de pantalla se oia "boton" y nada mas. Y median
-                        40 px de ancho; px-4 los lleva a 44. */}
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      aria-label={showToken ? 'Ocultar el token' : 'Mostrar el token'}
-                      className="absolute right-0 top-0 h-full px-4 text-muted-foreground"
-                      onClick={() => setShowToken(!showToken)}
-                    >
-                      {showToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </Button>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    El token de su cuenta NubeFact. Nunca compartir este valor.
-                  </p>
-                </div>
-
-                <div className="space-y-2 sm:col-span-2">
-                  <Label htmlFor="nubefact_modo">Modo de emisión</Label>
-                  <select
-                    id="nubefact_modo"
-                    value={invoicingConfig.mode}
-                    onChange={(e) => setInvoicingConfig(prev => ({ ...prev, mode: e.target.value }))}
-                    className="flex h-11 w-full rounded-md border border-input bg-card px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 sm:h-9 sm:max-w-xs"
-                  >
-                    <option value="MOCK">Pruebas (MOCK): no se envía nada a SUNAT</option>
-                    <option value="LIVE">Producción (LIVE): comprobantes reales</option>
-                  </select>
-                </div>
               </div>
 
-              <div className="flex justify-end pt-2">
-                <Button className="w-full sm:w-auto" onClick={handleSaveInvoicing} disabled={saving} data-testid="save-invoicing-btn">
-                  <Save className="w-4 h-4 mr-2" />
-                  {saving ? 'Guardando...' : 'Guardar Configuración'}
-                </Button>
-              </div>
+              <dl className="grid gap-4 text-sm sm:grid-cols-3">
+                <div>
+                  <dt className="text-muted-foreground">Serie de boletas</dt>
+                  <dd className="font-mono">
+                    {tenant?.boleta_series || '—'} · siguiente nº {tenant ? tenant.boleta_correlative + 1 : '—'}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-muted-foreground">Serie de facturas</dt>
+                  <dd className="font-mono">
+                    {tenant?.factura_series || '—'} · siguiente nº {tenant ? tenant.factura_correlative + 1 : '—'}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-muted-foreground">IGV</dt>
+                  <dd className="font-mono">{tenant?.igv_rate != null ? `${tenant.igv_rate}%` : '—'}</dd>
+                </div>
+              </dl>
             </CardContent>
           </Card>
         </TabsContent>

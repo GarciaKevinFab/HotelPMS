@@ -102,15 +102,27 @@ update cash_shifts
 -- La conversacion con SUNAT: la unica copia que queda de lo enviado y lo
 -- respondido cuando un comprobante se rechaza
 -- ---------------------------------------------------------------------------
-update invoices
-   set nubefact_request = (nubefact_request #>> '{}')::jsonb
- where jsonb_typeof(nubefact_request) = 'string'
-   and (nubefact_request #>> '{}') is json object;
-
-update invoices
-   set nubefact_response = (nubefact_response #>> '{}')::jsonb
- where jsonb_typeof(nubefact_response) = 'string'
-   and (nubefact_response #>> '{}') is json object;
+-- Estas dos columnas se llamaban nubefact_request / nubefact_response. La 007
+-- las renombra (solicitud_envio / respuesta_envio) y db/schema.sql ya nace con
+-- los nombres nuevos, asi que en una base creada desde cero no existen: se
+-- convierten solo si estan, con SQL dinamico para que la sentencia ni se
+-- planifique cuando faltan. En produccion esta migracion ya corrio con los
+-- nombres viejos; lo de abajo hace exactamente lo mismo que hacia entonces.
+do $$
+declare
+    col text;
+begin
+    foreach col in array array['nubefact_request', 'nubefact_response'] loop
+        if exists (select 1 from information_schema.columns
+                    where table_schema = 'public' and table_name = 'invoices'
+                      and column_name = col) then
+            execute format(
+                'update invoices set %1$I = (%1$I #>> ''{}'')::jsonb '
+                'where jsonb_typeof(%1$I) = ''string'' '
+                'and (%1$I #>> ''{}'') is json object', col);
+        end if;
+    end loop;
+end $$;
 
 -- ---------------------------------------------------------------------------
 -- La nota del plan activado a mano, que va anidada dentro de settings
@@ -130,15 +142,25 @@ update tenants
 do $$
 declare
     quedan bigint;
+    en_invoices bigint := 0;
 begin
+    -- Ver la nota de arriba: las columnas viejas de invoices solo existen en
+    -- una base anterior a la 007.
+    if exists (select 1 from information_schema.columns
+                where table_schema = 'public' and table_name = 'invoices'
+                  and column_name = 'nubefact_request') then
+        execute 'select count(*) from invoices
+                  where jsonb_typeof(nubefact_request) = ''string''
+                     or jsonb_typeof(nubefact_response) = ''string'''
+           into en_invoices;
+    end if;
+
     select (select count(*) from audit_logs
              where jsonb_typeof(before_json) = 'string'
                 or jsonb_typeof(after_json) = 'string')
          + (select count(*) from alerts      where jsonb_typeof(entity_ref) = 'string')
          + (select count(*) from cash_shifts where jsonb_typeof(totals) = 'string')
-         + (select count(*) from invoices
-             where jsonb_typeof(nubefact_request) = 'string'
-                or jsonb_typeof(nubefact_response) = 'string')
+         + en_invoices
          + (select count(*) from tenants
              where jsonb_typeof(settings -> 'suscripcion_manual') = 'string')
     into quedan;
